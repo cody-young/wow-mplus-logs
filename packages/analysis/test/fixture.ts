@@ -59,6 +59,10 @@ export function hit(
     support?: string;
     /** Target unit flags. 0x2a48 adds TYPE_GUARDIAN, which marks a summon. */
     dstFlags?: string;
+    /** Source unit flags. 0x2112 is a player's guardian rather than a player. */
+    srcFlags?: string;
+    /** ownerGUID in the target's advanced block, the way a pet names its master. */
+    dstOwner?: string;
     crit?: boolean;
   } = {},
 ): string {
@@ -67,10 +71,27 @@ export function hit(
   const spellId = opts.spellId ?? 100;
   const spellName = opts.spellName ?? 'Nuke';
   const dstFlags = opts.dstFlags ?? '0xa48';
+  const srcFlags = opts.srcFlags ?? '0x511';
   const event = opts.support === undefined ? 'SPELL_DAMAGE' : 'SPELL_DAMAGE_SUPPORT';
   const tailField = opts.support ?? 'ST';
   const crit = opts.crit === true ? '1' : 'nil';
-  return `${at(seconds)}  ${event},${src},"${srcName}",0x511,0x0,${dst},"${dstName}",${dstFlags},0x0,${spellId},"${spellName}",0x8,${adv(dst, hp, hpMax)},${amount},${amount},-1,8,0,0,0,${crit},nil,nil,${tailField}`;
+  const block = adv(dst, hp, hpMax, opts.dstOwner ?? '0000000000000000');
+  return `${at(seconds)}  ${event},${src},"${srcName}",${srcFlags},0x0,${dst},"${dstName}",${dstFlags},0x0,${spellId},"${spellName}",0x8,${block},${amount},${amount},-1,8,0,0,0,${crit},nil,nil,${tailField}`;
+}
+
+/** A player summoning a guardian, which is NPC-flagged until it acts. */
+export function summonedByPlayer(seconds: number, src: string, srcName: string, dst: string, dstName: string): string {
+  return `${at(seconds)}  SPELL_SUMMON,${src},"${srcName}",0x511,0x0,${dst},"${dstName}",0xa28,0x0,265187,"Summon Tyrant",0x20`;
+}
+
+/**
+ * A hit an enemy's shield eats whole, which still happened.
+ *
+ * Given its own spell id so a test can tell it apart: it is the only output
+ * in the key that produces no damage event at all.
+ */
+export function absorbedByEnemy(seconds: number, src: string, srcName: string, dst: string, dstName: string, amount: number): string {
+  return `${at(seconds)}  SPELL_ABSORBED,${src},"${srcName}",0x511,0x0,${dst},"${dstName}",0xa48,0x0,101,"Chaos Bolt",0x8,${dst},"${dstName}",0xa48,0x0,881,"Warding Crystal",0x2,${amount},${amount * 3},nil`;
 }
 
 /** One enemy summoning another, the clearest signal that a unit is a spawn. */
@@ -96,8 +117,39 @@ export function taken(
   return `${at(seconds)}  SPELL_DAMAGE,${src},"${srcName}",0xa48,0x0,${dst},"${dstName}",0x511,0x0,${spellId},"${spellName}",0x8,${adv(dst, hp, hpMax)},${amount},${amount},${overkill},8,0,0,0,nil,nil,nil,ST`;
 }
 
-export function heal(seconds: number, src: string, srcName: string, dst: string, dstName: string, amount: number, overheal = 0): string {
-  return `${at(seconds)}  SPELL_HEAL,${src},"${srcName}",0x512,0x0,${dst},"${dstName}",0x511,0x0,116670,"Vivify",0x8,${adv(dst, 500000, 1000000)},${amount},${amount},${overheal},0,nil`;
+export function heal(
+  seconds: number,
+  src: string,
+  srcName: string,
+  dst: string,
+  dstName: string,
+  amount: number,
+  overheal = 0,
+  opts: { spellId?: number; spellName?: string } = {},
+): string {
+  const spellId = opts.spellId ?? 116670;
+  const spellName = opts.spellName ?? 'Vivify';
+  return `${at(seconds)}  SPELL_HEAL,${src},"${srcName}",0x512,0x0,${dst},"${dstName}",0x511,0x0,${spellId},"${spellName}",0x8,${adv(dst, 500000, 1000000)},${amount},${amount},${overheal},0,nil`;
+}
+
+/**
+ * One party member damaging another.
+ *
+ * Rare, and when it happens it is usually half of something: Spirit Link
+ * Totem levels a group's health by hurting whoever is highest, under the same
+ * spell id it heals with.
+ */
+export function friendlyHit(
+  seconds: number,
+  src: string,
+  srcName: string,
+  dst: string,
+  dstName: string,
+  amount: number,
+  spellId: number,
+  spellName: string,
+): string {
+  return `${at(seconds)}  SPELL_DAMAGE,${src},"${srcName}",0x512,0x0,${dst},"${dstName}",0x511,0x0,${spellId},"${spellName}",0x8,${adv(dst, 500000, 1000000)},${amount},${amount},-1,8,0,0,0,nil,nil,nil,ST`;
 }
 
 /** SPELL_ABSORBED, spell shape: the shield triple and its caster sit at the tail. */
@@ -116,8 +168,49 @@ export function absorbed(
   return `${at(seconds)}  SPELL_ABSORBED,${src},"${srcName}",0x548,0x0,${dst},"${dstName}",0x511,0x0,777,"Smash",0x1,${caster},"${casterName}",0x512,0x0,${shieldId},"${shieldName}",0x2,${amount},${amount * 2},nil`;
 }
 
-export function died(seconds: number, guid: string, name: string): string {
-  return `${at(seconds)}  UNIT_DIED,0000000000000000,nil,0x80000000,0x0,${guid},"${name}",0x511,0x0,0,0,0,0`;
+/**
+ * `flags` defaults to a player's. Enemies must pass their own: a death line
+ * reports unit flags like any other event, and claiming an enemy was
+ * player-controlled as it died is enough to make it somebody's minion.
+ */
+export function died(seconds: number, guid: string, name: string, flags = '0x511'): string {
+  return `${at(seconds)}  UNIT_DIED,0000000000000000,nil,0x80000000,0x0,${guid},"${name}",${flags},0x0,0,0,0,0`;
+}
+
+/**
+ * An attempt that produced no damage.
+ *
+ * `missType` matters: MISS and DODGE are failures to hit, while ABSORB is the
+ * same line shape for a blow that landed and was eaten by a shield. A miss
+ * rate must count the first and not the second, so the fixture logs both.
+ */
+export function missed(
+  seconds: number,
+  src: string,
+  srcName: string,
+  dst: string,
+  dstName: string,
+  spellId: number,
+  spellName: string,
+  missType = 'DODGE',
+): string {
+  const suffix = missType === 'ABSORB' ? 'ABSORB,nil,900,nil' : missType;
+  return `${at(seconds)}  SPELL_MISSED,${src},"${srcName}",0x511,0x0,${dst},"${dstName}",0xa48,0x0,${spellId},"${spellName}",0x8,${suffix}`;
+}
+
+/** An aura going on or coming off a unit, which is all uptime is made of. */
+export function aura(
+  seconds: number,
+  src: string,
+  srcName: string,
+  dst: string,
+  dstName: string,
+  spellId: number,
+  spellName: string,
+  up: boolean,
+): string {
+  const event = up ? 'SPELL_AURA_APPLIED' : 'SPELL_AURA_REMOVED';
+  return `${at(seconds)}  ${event},${src},"${srcName}",0x511,0x0,${dst},"${dstName}",0xa48,0x0,${spellId},"${spellName}",0x8,DEBUFF`;
 }
 
 export function cast(seconds: number, src: string, srcName: string, spellId: number, spellName: string): string {
@@ -143,6 +236,12 @@ const TOTEM_D = creature(1005, 14);
  */
 const WAVE_A = creature(1006, 20);
 const WAVE_B = creature(1006, 21);
+/** Dee's guardian: a Creature- GUID, so SPELL_SUMMON is its only owner link. */
+const TYRANT = creature(1007, 30);
+/** Shielded, so one hit on it is logged as absorbed rather than as damage. */
+const WARDED = creature(1008, 31);
+/** Hostile, but its advanced block names the player it encased as its owner. */
+const TOMB = creature(1009, 32);
 
 export const ACTORS = {
   TRASH_A,
@@ -154,6 +253,9 @@ export const ACTORS = {
   SHAMAN,
   TOTEM_A,
   TOTEM_C,
+  TYRANT,
+  WARDED,
+  TOMB,
 };
 
 /**
@@ -181,6 +283,8 @@ export const FORCES: ForcesTable = {
         { npcId: 2001, name: 'Big Bad', count: 0, isBoss: true },
         { npcId: 2002, name: 'Minion', count: 2, isBoss: false },
         { npcId: 1006, name: 'Wave Minion', count: 9, isBoss: false },
+        { npcId: 1008, name: 'Warded Ogre', count: 0, isBoss: false },
+        { npcId: 1009, name: 'Ice Tomb', count: 0, isBoss: false },
       ],
     },
   ],
@@ -211,12 +315,12 @@ export const LINES: string[] = [
   taken(12, TRASH_A, 'Gnoll', TANK, 'Tank', 2000),
   hit(14, DPS, 'Dee', TRASH_A, 'Gnoll', 1000),
   // Both Gnolls die, so one creature contributes its forces value twice.
-  died(14.5, TRASH_A, 'Gnoll'),
-  died(14.6, TRASH_B, 'Gnoll'),
+  died(14.5, TRASH_A, 'Gnoll', '0xa48'),
+  died(14.6, TRASH_B, 'Gnoll', '0xa48'),
 
   hit(40, DPS, 'Dee', LATER_A, 'Ogre', 3000),
   hit(44, DPS, 'Dee', LATER_A, 'Ogre', 3000),
-  died(44.5, LATER_A, 'Ogre'),
+  died(44.5, LATER_A, 'Ogre', '0xa48'),
 
   hit(60, DPS, 'Dee', DRAGGED, 'Straggler', 500),
   hit(66, DPS, 'Dee', BOSS, 'Big Bad', 5000, { hp: 500000, hpMax: 500000 }),
@@ -236,6 +340,22 @@ export const LINES: string[] = [
   hit(74, DPS, 'Dee', BOSS, 'Big Bad', 4000, { hp: 460000, hpMax: 500000, support: HEALER }),
   hit(75, DPS, 'Dee', BOSS_ADD, 'Minion', 600, { hp: 5000, hpMax: 5000 }),
   hit(76, DPS, 'Dee', DRAGGED, 'Straggler', 500),
+  // Two Nukes the boss turned away, one dodged and one eaten by a shield. Only
+  // the dodge is a miss: the absorbed one landed, and in a real log its damage
+  // arrives on a SPELL_ABSORBED line of its own.
+  missed(76.2, DPS, 'Dee', BOSS, 'Big Bad', 100, 'Nuke'),
+  missed(76.4, DPS, 'Dee', BOSS, 'Big Bad', 100, 'Nuke', 'ABSORB'),
+  // A debuff on the boss, applied once and removed 18s later, dealing damage
+  // in between. Uptime comes from those two lines and from nothing else: the
+  // damage says the ability did something, not how long it was up.
+  aura(76.5, DPS, 'Dee', BOSS, 'Big Bad', 310, 'Agony', true),
+  hit(80, DPS, 'Dee', BOSS, 'Big Bad', 1200, {
+    spellId: 310,
+    spellName: 'Agony',
+    hp: 450000,
+    hpMax: 500000,
+  }),
+  aura(94.5, DPS, 'Dee', BOSS, 'Big Bad', 310, 'Agony', false),
 
   heal(77, HEALER, 'Heals', TANK, 'Tank', 30000, 10000),
   cast(77.5, TANK, 'Tank', 48792, 'Icebound Fortitude'),
@@ -247,12 +367,12 @@ export const LINES: string[] = [
   taken(79, BOSS, 'Big Bad', TANK, 'Tank', 150000, { hp: 0, hpMax: 1000000, spellId: 777, spellName: 'Smash', overkill: 50000 }),
   died(79.1, TANK, 'Tank'),
   // A pet death, which must not count as a player death.
-  died(79.5, PET, 'Imp'),
+  died(79.5, PET, 'Imp', '0x1111'),
 
   // The add dies; the straggler is tagged at t=60 and t=76 and never killed,
   // which is the case that separates "engaged" from "counted".
-  died(80, BOSS_ADD, 'Minion'),
-  died(94.9, BOSS, 'Big Bad'),
+  died(80, BOSS_ADD, 'Minion', '0xa48'),
+  died(94.9, BOSS, 'Big Bad', '0xa48'),
 
   `${at(95)}  ENCOUNTER_END,9001,"Big Bad",8,5,1`,
 
@@ -268,14 +388,59 @@ export const LINES: string[] = [
   hit(103, DPS, 'Dee', SHAMAN, 'Flame Shaman', 2000, { hp: 50000, hpMax: 60000 }),
   // Two of the four totems expire, the other two are left standing. Totems are
   // worth nothing either way, so the pack's forces come from the shaman alone.
-  died(103.2, TOTEM_A, 'Magma Totem'),
-  died(103.3, TOTEM_B, 'Magma Totem'),
-  died(103.5, SHAMAN, 'Flame Shaman'),
+  died(103.2, TOTEM_A, 'Magma Totem', '0xa48'),
+  died(103.3, TOTEM_B, 'Magma Totem', '0xa48'),
+  died(103.5, SHAMAN, 'Flame Shaman', '0xa48'),
   // The despawning wave. Worth 9 apiece in the table, so counting them would
   // add 18 — and the party never touched either one.
-  died(110, WAVE_A, 'Wave Minion'),
-  died(110, WAVE_B, 'Wave Minion'),
-  `${at(120)}  CHALLENGE_MODE_END,2000,1,15,120000,180`,
+  died(110, WAVE_A, 'Wave Minion', '0xa48'),
+  died(110, WAVE_B, 'Wave Minion', '0xa48'),
+  // t=110..112, the last pull: a guardian of Dee's, a shielded enemy and a
+  // block of ice with Dee's name on it. Three ways a total can go wrong.
+  summonedByPlayer(110, DPS, 'Dee', TYRANT, 'Tyrant'),
+  // The guardian's own damage. Its advanced block describes the victim, so
+  // nothing here says whose guardian it is except the summon above.
+  hit(110.5, TYRANT, 'Tyrant', WARDED, 'Warded Ogre', 1500, { srcFlags: '0x2112', hp: 40_000, hpMax: 40_000 }),
+  // A hit the enemy's shield swallows entirely. No damage event is logged for
+  // it at all, only this.
+  absorbedByEnemy(111, DPS, 'Dee', WARDED, 'Warded Ogre', 800),
+  // The ice names Dee as its owner, the way a pet names its master. It is
+  // still an enemy, and hitting it is still damage done.
+  hit(111.5, DPS, 'Dee', TOMB, 'Ice Tomb', 700, { hp: 9000, hpMax: 9000, dstOwner: DPS }),
+  died(112, TOMB, 'Ice Tomb', '0xa48'),
+  // One button, four spell ids, three spellings — the shape the game actually
+  // logs a modern ability in. Apart they are four small rows; together they
+  // are Dee's second-largest ability.
+  hit(113, DPS, 'Dee', WARDED, 'Warded Ogre', 300, { spellId: 200, spellName: 'Cleave' }),
+  hit(113.2, DPS, 'Dee', WARDED, 'Warded Ogre', 100, {
+    spellId: 201,
+    spellName: 'Cleave Off-Hand',
+  }),
+  hit(113.4, DPS, 'Dee', WARDED, 'Warded Ogre', 200, {
+    spellId: 202,
+    spellName: 'Cleave (Empowered)',
+  }),
+  // The case no rule can see coming: a second id under the identical name.
+  hit(113.6, DPS, 'Dee', WARDED, 'Warded Ogre', 150, { spellId: 203, spellName: 'Cleave' }),
+  // Named for the same ability but not the same button, so it stays apart.
+  hit(113.8, DPS, 'Dee', WARDED, 'Warded Ogre', 50, {
+    spellId: 204,
+    spellName: 'Cleave Overload',
+  }),
+
+  // An ability that heals by hurting: 5000 onto the tank paid for with 2000
+  // off Dee and 500 off the healer, all under spell 300. What it did is the
+  // difference, which is what a healing table should say it did.
+  heal(114, HEALER, 'Heals', TANK, 'Tank', 5000, 0, { spellId: 300, spellName: 'Spirit Link' }),
+  friendlyHit(114.1, HEALER, 'Heals', DPS, 'Dee', 2000, 300, 'Spirit Link'),
+  friendlyHit(114.2, HEALER, 'Heals', HEALER, 'Heals', 500, 300, 'Spirit Link'),
+  // Self-harm that heals nobody. It must not be charged against the healing
+  // the healer did with everything else.
+  friendlyHit(114.3, HEALER, 'Heals', HEALER, 'Heals', 1000, 301, 'Burning Rush'),
+  // 120s of wall clock, and a keystone timer of 135s because someone died.
+  // The two must stay different: a rate divided by the wrong one still looks
+  // plausible, so only a fixture where they disagree can catch it.
+  `${at(120)}  CHALLENGE_MODE_END,2000,1,15,135000,180`,
 ];
 
 export const LOG_TEXT = LINES.join('\n') + '\n';

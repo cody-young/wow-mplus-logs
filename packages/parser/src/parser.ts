@@ -1,4 +1,4 @@
-import { ActorTable, type Actor } from './actors.js';
+import { ActorTable, UnitFlag, type Actor } from './actors.js';
 import {
   ADVANCED_FIELD_COUNT,
   BASE_FIELD_COUNT,
@@ -8,6 +8,7 @@ import {
   fieldLooksLikeGuid,
   hasBaseBlock,
   identifyEvent,
+  isAvoidMissType,
   prefixFieldCount,
   type EventIdentity,
 } from './events.js';
@@ -128,12 +129,45 @@ const IDENTITY_CACHE_LIMIT = 512;
  * M+ run without the parser knowing what a run is, and can set it to null to
  * skip the cost of recording events outside a key entirely.
  */
+/**
+ * Events that name whoever swung, and so can rescue an absorb that did not.
+ * See `claimOrphanAbsorb`.
+ */
+const ATTACKER_NAMING: ReadonlySet<number> = new Set<number>([
+  Ev.SWING_DAMAGE,
+  Ev.SWING_DAMAGE_LANDED,
+  Ev.RANGE_DAMAGE,
+  Ev.SPELL_DAMAGE,
+  Ev.SPELL_PERIODIC_DAMAGE,
+  Ev.SPELL_BUILDING_DAMAGE,
+  Ev.DAMAGE_SHIELD,
+  Ev.DAMAGE_SPLIT,
+  Ev.SWING_MISSED,
+  Ev.RANGE_MISSED,
+  Ev.SPELL_MISSED,
+  Ev.SPELL_PERIODIC_MISSED,
+  Ev.DAMAGE_SHIELD_MISSED,
+]);
+
+/** How long an unattributed absorb waits for the event that names its source. */
+const ORPHAN_ABSORB_WINDOW_MS = 100;
+
 export class CombatLogParser {
   readonly interner: StringInterner;
   readonly actors: ActorTable;
 
   /** Where decoded events land. Null discards them but still runs hooks. */
-  target: EventStore | null = null;
+  get target(): EventStore | null {
+    return this.targetStore;
+  }
+
+  set target(store: EventStore | null) {
+    // Pending absorbs hold row indices, which mean nothing in another store.
+    if (store !== this.targetStore) this.orphanAbsorbs.length = 0;
+    this.targetStore = store;
+  }
+
+  private targetStore: EventStore | null = null;
 
   /** Version metadata, once COMBAT_LOG_VERSION has been seen. */
   version: LogVersionInfo | null = null;
@@ -171,6 +205,12 @@ export class CombatLogParser {
    * Observed width of the advanced block. Calibrated from the first advanced
    * event rather than assumed, then locked for the rest of the file.
    */
+  /**
+   * SPELL_ABSORBED rows that did not say who swung, still waiting for an event
+   * that does. Holds a handful of entries at a time; see `claimOrphanAbsorb`.
+   */
+  private readonly orphanAbsorbs: { row: number; dst: number; spellId: number; ts: number }[] = [];
+
   private advancedWidth = ADVANCED_FIELD_COUNT;
   private advancedWidthLocked = false;
 
@@ -368,6 +408,27 @@ export class CombatLogParser {
       }
     }
 
+    // Guardians are the other half of pet attribution, and the advanced block
+    // cannot supply it. A Wild Imp is a Pet- GUID whose own swings carry
+    // ownerGUID, so it links on its first hit; a Demonic Tyrant or an Antoran
+    // Inquisitor is a Creature- GUID that only ever appears as the *source* of
+    // spell damage, where the advanced block describes the victim and its
+    // ownerGUID is zero. Measured on a real +12: 63.7M of guardian damage, a
+    // fifth of a demonology warlock's output, was dropped for want of a link.
+    //
+    // SPELL_SUMMON names the summoner outright. Recorded as a summon rather
+    // than as ownership, because a player's SPELL_SUMMON also raises things
+    // that are not theirs; `attribute` decides. Enemies summoning their own
+    // adds are dropped here, where adopting a boss as the owner of its adds
+    // would reroute their damage and fold them into the wrong pull.
+    if (
+      (code === Ev.SPELL_SUMMON || code === Ev.SPELL_CREATE) &&
+      source.index !== dest.index &&
+      (source.flags & UnitFlag.CONTROL_PLAYER) !== 0
+    ) {
+      dest.summonerIndex = source.index;
+    }
+
     const store = this.target;
     if (store === null) return;
 
@@ -467,11 +528,15 @@ export class CombatLogParser {
         break;
       }
       case Ev.SWING_MISSED:
+      case Ev.RANGE_MISSED:
       case Ev.SPELL_MISSED:
       case Ev.SPELL_PERIODIC_MISSED:
       case Ev.DAMAGE_SHIELD_MISSED: {
         flags |= EvFlag.MISSED;
         // missType, isOffHand, amountMissed, critical
+        if (suffixStart < count && isAvoidMissType(fieldStr(line, offsets, suffixStart))) {
+          flags |= EvFlag.AVOIDED;
+        }
         if (suffixStart + 2 < count) {
           store.amount[row] = fieldFloat(line, offsets, suffixStart + 2);
         }
@@ -542,7 +607,71 @@ export class CombatLogParser {
       }
     }
 
+    // A SPELL_ABSORBED that named no attacker is parked here for the next
+    // event that names one; anything else gets a chance to be that event.
+    if (code === Ev.SPELL_ABSORBED) {
+      if (sourceGuid.length === 0 || sourceGuid.charCodeAt(0) === 48) {
+        this.expireOrphanAbsorbs(store.ts[row]!);
+        this.orphanAbsorbs.push({
+          row,
+          dst: dest.index,
+          spellId: store.spellId[row]!,
+          ts: store.ts[row]!,
+        });
+      }
+    } else if (this.orphanAbsorbs.length > 0 && ATTACKER_NAMING.has(code)) {
+      this.claimOrphanAbsorb(store, source, dest.index, store.spellId[row]!, store.ts[row]!);
+    }
+
     store.flags[row] = flags;
+  }
+
+  /**
+   * Gives an absorb back the attacker the log left out.
+   *
+   * Blizzard writes the attacker as 0000000000000000 on a minority of
+   * SPELL_ABSORBED lines — 121 of 6,444 on a +12 Den of Nalorakk — and that
+   * damage is then credited to nobody at all. The log does say who it was,
+   * within a line or two: the same blow appears again as a *_MISSED of type
+   * ABSORB when the shield swallowed it whole, or as the damage event for the
+   * remainder when it swallowed only part, and both name the attacker. Same
+   * target, same spell, same instant.
+   *
+   * That was the last 0.15% between our damage tables and Warcraft Logs':
+   * 497K belonging to a demonology warlock's imps and Overlord, 103K to a
+   * death knight's Blood Plague, 70K to an elemental shaman. Small, but it
+   * only ever subtracts, and it had made three of five players short.
+   *
+   * Matching is by target and spell, not by amount, because the absorb and its
+   * partner are the same hit seen twice and a crit reports two amounts. The
+   * window is a tenth of a second: a repeating DoT on the same target can land
+   * again a second later, and inheriting that tick's source would be a guess.
+   */
+  private claimOrphanAbsorb(
+    store: EventStore,
+    source: Actor,
+    dst: number,
+    spellId: number,
+    ts: number,
+  ): void {
+    this.expireOrphanAbsorbs(ts);
+    for (let i = 0; i < this.orphanAbsorbs.length; i++) {
+      const pending = this.orphanAbsorbs[i]!;
+      if (pending.dst !== dst || pending.spellId !== spellId) continue;
+      store.srcActor[pending.row] = source.index;
+      this.orphanAbsorbs.splice(i, 1);
+      return;
+    }
+  }
+
+  /** Drops absorbs whose partner never arrived, so the list cannot grow. */
+  private expireOrphanAbsorbs(ts: number): void {
+    while (
+      this.orphanAbsorbs.length > 0 &&
+      ts - this.orphanAbsorbs[0]!.ts > ORPHAN_ABSORB_WINDOW_MS
+    ) {
+      this.orphanAbsorbs.shift();
+    }
   }
 
   /**

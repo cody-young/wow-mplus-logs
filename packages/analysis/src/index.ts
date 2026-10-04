@@ -4,7 +4,14 @@
  * Portable like the parser: no Node builtins, so the same reports run in the
  * desktop app's utility process and in a browser worker.
  */
-export { actorName, contextFor, spellName, type AnalysisContext } from './context.js';
+export {
+  abilityName,
+  actorName,
+  contextFor,
+  elapsedMs,
+  spellName,
+  type AnalysisContext,
+} from './context.js';
 export {
   damageReport,
   healingReport,
@@ -26,8 +33,12 @@ export {
   type IncomingHit,
 } from './deaths.js';
 export {
+  ABSORBED_CODES,
+  AURA_DOWN_CODES,
+  AURA_UP_CODES,
   DAMAGE_CODES,
   HEAL_CODES,
+  MISS_CODES,
   SELF_DAMAGE_CODES,
   VICTIM_MELEE_CODES,
   effective,

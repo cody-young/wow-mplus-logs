@@ -271,6 +271,36 @@ export const enum EvFlag {
    * would make every death post-mortem read the wrong actor's health.
    */
   INFO_IS_SOURCE = 1 << 6,
+  /**
+   * A *_MISSED whose type produced nothing at all.
+   *
+   * Kept apart from MISSED because ABSORB, BLOCK and RESIST are logged as
+   * misses too, and on those the blow connected: a fully absorbed hit is
+   * already counted as damage by the shield that ate it (see the note on
+   * ABSORBED_CODES in the analysis package). Folding those into a miss rate
+   * would both overstate it and contradict the damage table beside it.
+   */
+  AVOIDED = 1 << 7,
+}
+
+/**
+ * Miss types that mean the attempt landed on nothing.
+ *
+ * The complement — ABSORB, BLOCK, RESIST — is deliberate rather than absent:
+ * those are mitigation of a hit that happened, not a failure to hit.
+ */
+const AVOID_MISS_TYPES: ReadonlySet<string> = new Set<string>([
+  'MISS',
+  'DODGE',
+  'PARRY',
+  'EVADE',
+  'IMMUNE',
+  'DEFLECT',
+  'REFLECT',
+]);
+
+export function isAvoidMissType(missType: string): boolean {
+  return AVOID_MISS_TYPES.has(missType);
 }
 
 /** In-place variant of looksLikeGuid, so the hot path allocates nothing. */

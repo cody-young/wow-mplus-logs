@@ -6,7 +6,17 @@ import { Ev, EvFlag } from '../src/events.js';
 import { LogSession, type Run } from '../src/session.js';
 import { TimestampReader } from '../src/timestamp.js';
 import { MAX_FIELDS, fieldStr, splitFields } from '../src/tokenizer.js';
-import { ENEMY, HEALER, LEGACY_TEXT, LOG_TEXT, PET, PLAYER, PLAYER_NAME } from './fixture.js';
+import {
+  ENEMY,
+  GUARDIAN,
+  HEALER,
+  LEGACY_TEXT,
+  LOG_TEXT,
+  PET,
+  PLAYER,
+  PLAYER_NAME,
+  TOMB,
+} from './fixture.js';
 
 function parseAll(text: string): LogSession {
   const session = new LogSession({ assumedYear: 2026 });
@@ -65,7 +75,8 @@ test('session brackets the run and parses its keystone metadata', () => {
   assert.equal(run.meta.keystoneLevel, 12);
   assert.deepEqual(run.meta.affixes, [10, 9, 147, 148]);
   assert.equal(run.meta.success, true);
-  assert.equal(run.meta.totalTimeMs, 1_860_000);
+  assert.equal(run.meta.totalTimeMs, 1_890_000, 'the keystone timer, death penalty included');
+  assert.equal(run.meta.elapsedMs, 1_860_000, 'the time that actually passed');
   assert.equal(run.meta.encounters.length, 1);
   const boss = run.meta.encounters[0]!;
   assert.equal(boss.name, 'Avanoxx');
@@ -90,7 +101,7 @@ test('damage events resolve amount, overkill and the crit flag', () => {
   const damage = rows(run, Ev.SPELL_DAMAGE);
   // Three player hits, one pet hit, and the _SUPPORT variant folded onto the
   // same code so callers need only one branch.
-  assert.equal(damage.length, 5);
+  assert.equal(damage.length, 7);
 
   const first = damage[0]!;
   assert.equal(run.store.amount[first], 54321);
@@ -142,6 +153,35 @@ test('pet damage attributes to its owner', () => {
   assert.ok(owner);
   assert.equal(pet.ownerIndex, owner.index, 'owner link read from the advanced block');
   assert.equal(session.parser.actors.attribute(pet.index), owner.index);
+});
+
+test('a guardian is linked by SPELL_SUMMON, which is the only link it has', () => {
+  // A Demonic Tyrant deals a fifth of a demonology warlock's damage and never
+  // carries an ownerGUID: it is a Creature- GUID whose damage events describe
+  // the victim. Missing this link cost one warlock 63.7M on a real +12.
+  const session = parseAll(LOG_TEXT);
+  const actors = session.parser.actors;
+  const guardian = actors.get(GUARDIAN)!;
+  const player = actors.get(PLAYER)!;
+
+  assert.equal(guardian.ownerIndex, -1, 'nothing ever named an owner for it');
+  assert.equal(guardian.summonerIndex, player.index, 'but the summon did');
+  assert.equal(actors.attribute(guardian.index), player.index, 'so its damage is the warlock\'s');
+});
+
+test('a unit a player merely owns is not a unit they control', () => {
+  // A Frostfang's Glacial Tomb names the player it encased in its own
+  // ownerGUID, exactly as a pet names its master. Reading that as ownership
+  // made the ice friendly: the party's damage into it counted for nobody and
+  // it disappeared from the pull it belonged to.
+  const session = parseAll(LOG_TEXT);
+  const actors = session.parser.actors;
+  const tomb = actors.get(TOMB)!;
+  const player = actors.get(PLAYER)!;
+
+  assert.equal(tomb.ownerIndex, player.index, 'the log does say the player owns it');
+  assert.equal(tomb.everPlayerControlled, false, 'but it was never theirs to command');
+  assert.equal(actors.attribute(tomb.index), tomb.index, 'so it stays an enemy in its own right');
 });
 
 test('COMBATANT_INFO spec id is found structurally, not by field index', () => {
@@ -202,7 +242,7 @@ test('advanced block width is measured, so a 17-field block still parses', () =>
 test('SPELL_ABSORBED reads the hit absorbed, not the shield pool', () => {
   const run = onlyRun(parseAll(LOG_TEXT));
   const absorbed = rows(run, Ev.SPELL_ABSORBED);
-  assert.equal(absorbed.length, 3, 'the melee shape, the spell shape and a healer-cast one');
+  assert.equal(absorbed.length, 5, 'two shapes, a healer-cast one and two with no attacker');
 
   // 18 fields: no attacker spell, so the prefix slot holds no spell id.
   assert.equal(run.store.amount[absorbed[0]!], 59945, 'absorbed by this hit');
@@ -214,6 +254,25 @@ test('SPELL_ABSORBED reads the hit absorbed, not the shield pool', () => {
   assert.equal(run.store.amount[absorbed[1]!], 21011);
   assert.equal(run.store.spellId[absorbed[1]!], 1216570, 'the incoming spell');
   assert.equal(run.store.extraSpellId[absorbed[1]!], 206967, 'the absorbing shield');
+});
+
+test('an absorb that named no attacker is given one by the blow it belongs to', () => {
+  const run = onlyRun(parseAll(LOG_TEXT));
+  const absorbed = rows(run, Ev.SPELL_ABSORBED);
+  const player = run.actors.get(PLAYER)!.index;
+  const nobody = run.actors.get('0000000000000000')!.index;
+
+  // Blizzard writes the attacker as all zeroes on a minority of absorbs, and
+  // the hit then belongs to nobody and drops out of the damage table. The
+  // *_MISSED on the next line is the same blow — same target, same spell —
+  // and it does name them.
+  assert.equal(run.store.srcActor[absorbed[3]!], player, 'taken from the miss');
+  assert.equal(run.store.amount[absorbed[3]!], 4400);
+
+  // The repair only ever copies an attacker the log actually supplied. With
+  // no matching blow there is nothing to copy, and guessing from whatever
+  // came next would be worse than the gap it fills.
+  assert.equal(run.store.srcActor[absorbed[4]!], nobody, 'left as it was found');
 });
 
 test('an absorb names the shield and who cast it, in both shapes', () => {
@@ -267,6 +326,26 @@ test('auras without a stack amount do not invent one', () => {
   assert.equal(run.store.amount[applied], 0);
   const extra = rows(run, Ev.SPELL_EXTRA_ATTACKS)[0]!;
   assert.equal(run.store.amount[extra], 1, 'extra attack count');
+});
+
+test('a miss is only flagged as avoided when nothing landed', () => {
+  const run = onlyRun(parseAll(LOG_TEXT));
+  const missed = rows(run, Ev.SPELL_MISSED);
+  assert.equal(missed.length, 2);
+  const [absorb, dodge] = missed as [number, number];
+
+  // Both are misses as far as the log is concerned.
+  assert.ok(run.store.flags[absorb]! & EvFlag.MISSED);
+  assert.ok(run.store.flags[dodge]! & EvFlag.MISSED);
+
+  // Only one of them is a miss as far as a miss rate is concerned. The absorbed
+  // blow connected and its damage is already counted by the shield that ate it,
+  // so folding it in would overstate the rate and contradict the damage table.
+  assert.equal(run.store.flags[absorb]! & EvFlag.AVOIDED, 0, 'ABSORB is not an avoid');
+  assert.ok(run.store.flags[dodge]! & EvFlag.AVOIDED, 'DODGE is');
+
+  // A missType-only suffix has no amountMissed to read past the end of.
+  assert.equal(run.store.amount[dodge], 0);
 });
 
 test('the advanced block is attributed to the unit its infoGUID names', () => {

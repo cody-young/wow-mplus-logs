@@ -28,8 +28,28 @@ export interface Actor {
   nameId: number;
   /** Raw unit flags, most recently observed. */
   flags: number;
+  /**
+   * Whether this unit was ever seen under player control.
+   *
+   * Sticky, because `flags` is only the latest sighting and the latest
+   * sighting lies: a pet's UNIT_DIED reports 0x1, which would retroactively
+   * disown a Dancing Rune Weapon that had spent its whole life at 0x1112.
+   * Once player-controlled, always player-controlled.
+   */
+  everPlayerControlled: boolean;
   /** Actor row of the owning player for pets and guardians, else -1. */
   ownerIndex: number;
+  /**
+   * Actor row of whoever summoned this one, else -1.
+   *
+   * Separate from `ownerIndex` because a summon is not yet proof of ownership.
+   * SPELL_SUMMON names a player for a Demonic Tyrant, which is theirs, and
+   * equally for a Glacial Tomb, the block of ice a Frostfang encases them in,
+   * which is an enemy they have to break. Both read as NPC-controlled at the
+   * moment they are summoned, so the link can only be judged later — see
+   * `attribute`.
+   */
+  summonerIndex: number;
   /** Creature/NPC id parsed out of the GUID, else -1. */
   npcId: number;
   /** Class id from COMBATANT_INFO, else -1. */
@@ -110,7 +130,9 @@ export class ActorTable {
         kind,
         nameId: this.interner.intern(name),
         flags,
+        everPlayerControlled: (flags & UnitFlag.CONTROL_PLAYER) !== 0,
         ownerIndex: -1,
+        summonerIndex: -1,
         npcId: npcIdFromGuid(guid, kind),
         classId: -1,
         specId: -1,
@@ -121,6 +143,7 @@ export class ActorTable {
       return actor;
     }
     if (flags !== 0) actor.flags = flags;
+    if ((flags & UnitFlag.CONTROL_PLAYER) !== 0) actor.everPlayerControlled = true;
     if (name.length > 0 && actor.nameId === 0) actor.nameId = this.interner.intern(name);
     return actor;
   }
@@ -149,13 +172,30 @@ export class ActorTable {
   /**
    * Walks pet/guardian ownership to the controlling player, so a Wild Imp's
    * damage lands on the warlock. Falls back to the actor itself.
+   *
+   * A link to a *player* holds only if the unit was itself player-controlled.
+   * A warlock's Demonic Tyrant and a Frostfang's Glacial Tomb are both
+   * Creature- GUIDs that name a player — the Tyrant through SPELL_SUMMON, the
+   * Tomb through the ownerGUID in its own advanced block, naming the player it
+   * encased — and both are NPC-controlled at the instant they appear. Only the
+   * guardian ever becomes player-controlled; without the test the party's
+   * damage into the ice counted for nobody and the Tomb vanished from its
+   * pull. The test is on `everPlayerControlled` rather than on current flags,
+   * which a pet's own death event resets to 0x1.
+   *
+   * Links between two NPCs are left alone, so an enemy's totem or summoned
+   * shade still reads as its summoner in a death's list of what hit you.
    */
   attribute(index: number): number {
     let current = index;
     for (let hops = 0; hops < 4; hops++) {
       const actor = this.rows[current];
-      if (actor === undefined || actor.ownerIndex < 0) return current;
-      current = actor.ownerIndex;
+      if (actor === undefined) return current;
+      const owner = actor.ownerIndex >= 0 ? actor.ownerIndex : actor.summonerIndex;
+      if (owner < 0) return current;
+      const parent = this.rows[owner];
+      if (parent?.kind === ActorKind.PLAYER && !actor.everPlayerControlled) return current;
+      current = owner;
     }
     return current;
   }

@@ -42,7 +42,7 @@ const short = (n) =>
 
 for (const run of session.runs) {
   const { store, actors, meta } = run;
-  const seconds = (meta.totalTimeMs ?? 1) / 1000;
+  const seconds = (meta.elapsedMs ?? meta.totalTimeMs ?? 1) / 1000;
 
   /** actor index -> totals */
   const stats = new Map();

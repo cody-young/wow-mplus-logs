@@ -37,25 +37,157 @@ const SPELL_LIMIT = 25;
  * Saying it costs one line and removes the whole class of confusion.
  */
 const CAPTION: Record<Props['mode'], string> = {
-  done: 'Damage each player dealt. Expand a row for their own abilities, and hover one for its casts and averages.',
+  done: 'Damage each player dealt. Expand a row for their own abilities, and hover one for the rest of its detail.',
   taken: 'Damage each player took. Expand a row for the enemy abilities that hit them, and hover one for the detail.',
-  healing: 'Healing each player did. Expand a row for their own spells, and hover one for its casts and averages.',
+  healing: 'Healing each player did. Expand a row for their own spells, and hover one for the rest of its detail.',
 };
+
+/** Where a number would be a lie: no casts to average, no aura to be up. */
+const NONE = '—';
+
+/**
+ * One column of the expanded ability table.
+ *
+ * Declared rather than written out three times, because the three tabs want
+ * three different column sets out of the same row type and the header and the
+ * cells must not be able to disagree about which those are.
+ */
+interface SpellColumn {
+  key: string;
+  label: string;
+  width: number;
+  cell: (row: SpellBreakdown) => string;
+  /** Muted, for the columns that are a caveat rather than a measurement. */
+  dim?: boolean;
+}
+
+/**
+ * The columns Warcraft Logs shows for an ability, which is what anyone
+ * comparing the two expects to find here.
+ *
+ * Casts and hits are both there because neither implies the other: one cast of
+ * a DoT is a dozen ticks and one cleave is five hits, so an average per cast
+ * and an average per hit answer different questions. Damage taken drops the
+ * two cast columns outright — those presses were the enemy's and the log does
+ * not attribute them to the victim — and keeps the biggest single hit instead,
+ * which is the number that explains a death.
+ */
+function spellColumns(mode: Props['mode'], durationMs: number): SpellColumn[] {
+  const seconds = Math.max(durationMs / 1000, 1);
+  const amount: SpellColumn = {
+    key: 'amount',
+    label: 'Amount',
+    width: 74,
+    cell: (row) => short(row.total),
+  };
+  const casts: SpellColumn = {
+    key: 'casts',
+    label: 'Casts',
+    width: 56,
+    cell: (row) => (row.casts > 0 ? integer(row.casts) : NONE),
+  };
+  const avgCast: SpellColumn = {
+    key: 'avgCast',
+    label: 'Avg cast',
+    width: 70,
+    cell: (row) => (row.casts > 0 ? short(row.total / row.casts) : NONE),
+  };
+  const hits: SpellColumn = {
+    key: 'hits',
+    label: 'Hits',
+    width: 58,
+    cell: (row) => (row.hits > 0 ? integer(row.hits) : NONE),
+  };
+  const avgHit: SpellColumn = {
+    key: 'avgHit',
+    label: 'Avg hit',
+    width: 70,
+    cell: (row) => (row.hits > 0 ? short(row.total / row.hits) : NONE),
+  };
+  const crit: SpellColumn = {
+    key: 'crit',
+    label: 'Crit %',
+    width: 60,
+    cell: (row) => (row.hits > 0 ? percent(row.crits / row.hits) : NONE),
+  };
+  // A dash rather than 0.0% where there is nothing to report, in this column
+  // and the next. Most abilities apply no aura and miss nothing, and a column
+  // of twenty-five zeroes buries the two rows where the number means anything.
+  const uptime: SpellColumn = {
+    key: 'uptime',
+    label: 'Uptime %',
+    width: 68,
+    cell: (row) => (row.uptimeMs > 0 ? percent(row.uptimeMs / durationMs) : NONE),
+  };
+  const miss: SpellColumn = {
+    key: 'miss',
+    label: 'Miss %',
+    width: 60,
+    cell: (row) => (row.misses > 0 ? percent(row.misses / (row.misses + row.hits)) : NONE),
+  };
+  const biggest: SpellColumn = {
+    key: 'biggest',
+    label: 'Biggest',
+    width: 70,
+    cell: (row) => short(row.max),
+  };
+  const spilled: SpellColumn = {
+    key: 'spilled',
+    label: mode === 'healing' ? 'Overheal' : 'Overkill',
+    width: 76,
+    dim: true,
+    cell: (row) => (row.wasted > 0 ? short(row.wasted) : NONE),
+  };
+  const rate: SpellColumn = {
+    key: 'rate',
+    label: mode === 'healing' ? 'HPS' : mode === 'taken' ? 'DTPS' : 'DPS',
+    width: 72,
+    cell: (row) => short(row.total / seconds),
+  };
+
+  if (mode === 'healing') {
+    return [amount, casts, avgCast, hits, avgHit, crit, uptime, spilled, rate];
+  }
+  if (mode === 'taken') {
+    return [amount, hits, avgHit, crit, uptime, biggest, spilled, rate];
+  }
+  return [amount, casts, avgCast, hits, avgHit, crit, uptime, miss, rate];
+}
+
+/**
+ * An ability row's identity, which a spell id alone is not: the same ability
+ * appears under every player who used it.
+ */
+const rowKey = (actorIndex: number, spellId: number): string => `${actorIndex}:${spellId}`;
 
 export function BreakdownTable({ report, mode, defaultExpanded = false }: Props): React.JSX.Element {
   const [expanded, setExpanded] = useState<Set<number>>(
     () => new Set(defaultExpanded ? report.actors.map((actor) => actor.actorIndex) : []),
   );
+  // Abilities the game logs under more than one id are shown as one row; this
+  // is which of those rows have been opened to show the ids underneath.
+  const [openSpells, setOpenSpells] = useState<Set<string>>(() => new Set());
   const tip = useTip<SpellHover>();
   const peak = report.actors[0]?.total ?? 1;
   const rate = mode === 'healing' ? 'HPS' : mode === 'taken' ? 'DTPS' : 'DPS';
+  const columns = spellColumns(mode, report.durationMs);
+  /** Span of the player table, which the expanded block sits across. */
+  const playerColumns = mode === 'done' ? 6 : 5;
 
   // Only what is on screen: a run has thousands of spell ids and the expanded
   // rows are a handful of them.
   const icons = useSpellIcons(
     report.actors
       .filter((actor) => expanded.has(actor.actorIndex))
-      .flatMap((actor) => actor.spells.slice(0, SPELL_LIMIT).map((spell) => spell.spellId)),
+      .flatMap((actor) =>
+        actor.spells
+          .slice(0, SPELL_LIMIT)
+          .flatMap((spell) =>
+            openSpells.has(rowKey(actor.actorIndex, spell.spellId))
+              ? [spell.spellId, ...(spell.parts ?? []).map((part) => part.spellId)]
+              : [spell.spellId],
+          ),
+      ),
   );
 
   if (report.actors.length === 0) {
@@ -67,6 +199,15 @@ export function BreakdownTable({ report, mode, defaultExpanded = false }: Props)
       const next = new Set(current);
       if (next.has(index)) next.delete(index);
       else next.add(index);
+      return next;
+    });
+  };
+
+  const toggleSpell = (key: string): void => {
+    setOpenSpells((current) => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
       return next;
     });
   };
@@ -137,49 +278,119 @@ export function BreakdownTable({ report, mode, defaultExpanded = false }: Props)
                   ) : null}
                 </tr>
                 {open ? (
-                  <tr className="spell subhead">
-                    <td className="left">{mode === 'taken' ? 'Enemy ability · source' : 'Ability'}</td>
-                    <td>Hits</td>
-                    <td>Total</td>
-                    <td>Share</td>
-                    <td>{mode === 'taken' ? 'Biggest' : 'Crit'}</td>
-                    {mode === 'done' ? <td /> : null}
+                  <tr className="nest">
+                    {/*
+                      The abilities are their own table rather than more rows of
+                      this one. They measure different things — casts, averages,
+                      uptime — and nine columns of them would either drag the
+                      five player columns out of shape or have to be squeezed
+                      into them. Nested, each table keeps its own widths.
+                    */}
+                    <td colSpan={playerColumns}>
+                      {/* Scrolls on its own rather than pushing the window
+                          wider: nine fixed columns need more room than the
+                          five above them, and a narrow window should cost the
+                          abilities a scrollbar, not the player rows their
+                          layout. */}
+                      <div className="nest-scroll">
+                        <table className="breakdown abilities">
+                          <colgroup>
+                            <col />
+                            {columns.map((column) => (
+                              <col key={column.key} style={{ width: column.width }} />
+                            ))}
+                          </colgroup>
+                          <thead>
+                            <tr>
+                              <th className="left">
+                                {mode === 'taken' ? 'Enemy ability · source' : 'Ability'}
+                              </th>
+                              {columns.map((column) => (
+                                <th key={column.key}>{column.label}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {actor.spells.slice(0, SPELL_LIMIT).flatMap((spell) => {
+                              const key = rowKey(actor.actorIndex, spell.spellId);
+                              const parts = spell.parts ?? [];
+                              const split = openSpells.has(key);
+                              const cells = (row: SpellBreakdown): React.JSX.Element[] =>
+                                columns.map((column) => (
+                                  <td
+                                    key={column.key}
+                                    style={column.dim === true ? { color: 'var(--dim)' } : undefined}
+                                  >
+                                    {column.cell(row)}
+                                  </td>
+                                ));
+                              return [
+                                <tr
+                                  className="spell"
+                                  key={key}
+                                  onMouseEnter={tip.show({ spell, actor })}
+                                  onMouseLeave={tip.hide}
+                                  onClick={parts.length > 0 ? () => toggleSpell(key) : undefined}
+                                >
+                                  <td className="left barcell">
+                                    {/* Same gauge as the player row above it, one scale down. */}
+                                    <div
+                                      className="bar"
+                                      style={{
+                                        width: `${Math.max(0, (spell.total / spellPeak) * 100)}%`,
+                                        background: spec.color,
+                                      }}
+                                    />
+                                    {/* Only merged rows get a chevron, and the
+                                        column holds its width either way so the
+                                        names stay in one line down the table. */}
+                                    <span className="chev">
+                                      {parts.length === 0 ? '' : split ? '▾' : '▸'}
+                                    </span>
+                                    <span className="name">{spell.name}</span>
+                                    {parts.length > 0 && !split ? (
+                                      <span style={{ color: 'var(--dim)' }}> · {parts.length} ids</span>
+                                    ) : null}
+                                    {mode === 'taken' && spell.topSourceName !== '' ? (
+                                      <span style={{ color: 'var(--dim)' }}> · {spell.topSourceName}</span>
+                                    ) : null}
+                                  </td>
+                                  {cells(spell)}
+                                </tr>,
+                                ...(split
+                                  ? parts.map((part) => (
+                                      <tr
+                                        className="spell part"
+                                        key={`${key}/${part.spellId}`}
+                                        onMouseEnter={tip.show({ spell: part, actor })}
+                                        onMouseLeave={tip.hide}
+                                      >
+                                        <td className="left barcell">
+                                          <div
+                                            className="bar"
+                                            style={{
+                                              width: `${Math.max(0, (part.total / spellPeak) * 100)}%`,
+                                              background: spec.color,
+                                            }}
+                                          />
+                                          {/* The id, because the whole reason to
+                                              open a merged row is that two of its
+                                              parts can carry the very same name. */}
+                                          <span className="name">{part.name}</span>
+                                          <span style={{ color: 'var(--dim)' }}> · {part.spellId}</span>
+                                        </td>
+                                        {cells(part)}
+                                      </tr>
+                                    ))
+                                  : []),
+                              ];
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </td>
                   </tr>
                 ) : null}
-                {open
-                  ? actor.spells.slice(0, SPELL_LIMIT).map((spell) => (
-                      <tr
-                        className="spell"
-                        key={spell.spellId}
-                        onMouseEnter={tip.show({ spell, actor })}
-                        onMouseLeave={tip.hide}
-                      >
-                        <td className="left barcell">
-                          {/* Same gauge as the player row above it, one scale down. */}
-                          <div
-                            className="bar"
-                            style={{
-                              width: `${Math.max(0, (spell.total / spellPeak) * 100)}%`,
-                              background: spec.color,
-                            }}
-                          />
-                          <span className="name">{spell.name}</span>
-                          {mode === 'taken' && spell.topSourceName !== '' ? (
-                            <span style={{ color: 'var(--dim)' }}> · {spell.topSourceName}</span>
-                          ) : null}
-                        </td>
-                        <td>{integer(spell.hits)}</td>
-                        <td>{short(spell.total)}</td>
-                        <td>{percent(actor.total > 0 ? spell.total / actor.total : 0)}</td>
-                        <td>
-                          {spell.hits > 0 && mode !== 'taken'
-                            ? percent(spell.crits / spell.hits)
-                            : short(spell.max)}
-                        </td>
-                        {mode === 'done' ? <td /> : null}
-                      </tr>
-                    ))
-                  : null}
               </Fragment>
             );
           })}
@@ -195,11 +406,12 @@ export function BreakdownTable({ report, mode, defaultExpanded = false }: Props)
 }
 
 /**
- * The numbers a table row has no column for.
+ * The numbers the ability table has no column for.
  *
- * Per-cast averages are the ones worth hovering for: hits alone cannot be read
- * as "how hard does this hit", because one cast of a DoT is a dozen ticks and
- * one cleave is five hits on five targets.
+ * Deliberately not a second copy of the row: casts, averages, crit rate and
+ * uptime are columns now, so what is left is the breakdown behind them — how
+ * much of the player's own total this was, how a crit compares to an ordinary
+ * hit, and how much of the hit count was DoT ticks rather than presses.
  */
 function SpellDetail({ hover, mode }: { hover: SpellHover; mode: Props['mode'] }): React.JSX.Element {
   const { spell, actor } = hover;
@@ -218,27 +430,20 @@ function SpellDetail({ hover, mode }: { hover: SpellHover; mode: Props['mode'] }
       <dl className="tip-rows">
         <dt>{mode === 'healing' ? 'Healing' : 'Damage'}</dt>
         <dd>
-          {short(spell.total)} · {percent(share)}
+          {short(spell.total)} · {percent(share)} of this player
         </dd>
-        {spell.casts > 0 ? (
+        {spell.ticks > 0 ? (
           <>
-            <dt>Casts</dt>
-            <dd>{integer(spell.casts)}</dd>
-            <dt>Per cast</dt>
-            <dd>{short(spell.total / spell.casts)}</dd>
+            <dt>Ticks</dt>
+            <dd>
+              {integer(spell.ticks)} of {integer(spell.hits)} hits
+            </dd>
           </>
         ) : null}
-        <dt>Hits</dt>
-        <dd>
-          {integer(spell.hits)}
-          {spell.ticks > 0 ? ` · ${integer(spell.ticks)} ticks` : ''}
-        </dd>
-        {spell.hits > 0 ? (
+        {spell.misses > 0 ? (
           <>
-            <dt>Avg hit</dt>
-            <dd>{short(spell.total / spell.hits)}</dd>
-            <dt>Crit rate</dt>
-            <dd>{percent(spell.crits / spell.hits)}</dd>
+            <dt>Avoided</dt>
+            <dd>{integer(spell.misses)}</dd>
           </>
         ) : null}
         {spell.crits > 0 ? (

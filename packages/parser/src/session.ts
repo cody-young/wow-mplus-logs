@@ -45,8 +45,25 @@ export interface RunMeta {
   endMs: number | null;
   /** Null while in progress. */
   success: boolean | null;
-  /** The game's own clock, which excludes pre-pull time and is authoritative. */
+  /**
+   * The game's own clock: what the keystone timer showed at the end.
+   *
+   * Authoritative for whether the key was timed, and wrong as the denominator
+   * of a rate. It counts the +15s charged for each death, so a key with seven
+   * deaths reports 97s that no damage could have been dealt in. Use
+   * `elapsedMs` for anything per-second — see there.
+   */
   totalTimeMs: number | null;
+  /**
+   * Wall-clock ms from CHALLENGE_MODE_START to CHALLENGE_MODE_END, null while
+   * in progress.
+   *
+   * The denominator for every rate. Warcraft Logs divides by this, and the
+   * difference is not small: on a +12 Den of Nalorakk the keystone clock read
+   * 23:35 against 21:58 of real time, which put our DPS 7% under theirs for
+   * every player at once.
+   */
+  elapsedMs: number | null;
   /**
    * Boss windows inside the run, in order. Both ends are needed, not just
    * kills: segmentation uses the window to decide whether a newly engaged
@@ -170,6 +187,7 @@ export class LogSession {
         endMs: null,
         success: null,
         totalTimeMs: null,
+        elapsedMs: null,
         encounters: [],
         party: [],
       },
@@ -188,7 +206,8 @@ export class LogSession {
     if (run === null) return;
     run.meta.endMs = info.ts;
     run.meta.success = info.success;
-    run.meta.totalTimeMs = info.totalTimeMs > 0 ? info.totalTimeMs : info.ts - run.meta.startMs;
+    run.meta.elapsedMs = info.ts - run.meta.startMs;
+    run.meta.totalTimeMs = info.totalTimeMs > 0 ? info.totalTimeMs : run.meta.elapsedMs;
     if (info.keystoneLevel > 0) run.meta.keystoneLevel = info.keystoneLevel;
 
     run.store.compact();

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { SegmentKind } from '@mplus/analysis';
 
@@ -23,6 +23,14 @@ export function App(): React.JSX.Element {
   const [tab, setTab] = useState<Tab>('damage');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  /**
+   * True once the reader has deliberately gone back to an older key.
+   *
+   * A ref rather than state because nothing renders from it: it only decides
+   * whether the next key to arrive is allowed to take the view. Reset when a
+   * log is opened, since the choice was about the keys in the previous one.
+   */
+  const browsingOlder = useRef(false);
 
   useEffect(() => {
     const off = [
@@ -37,7 +45,6 @@ export function App(): React.JSX.Element {
           next[index] = analysis;
           return next;
         });
-        setSelectedRun((current) => current ?? analysis.runId);
       }),
       window.mplus.onDone(() => setBusy(false)),
       window.mplus.onFailed((message) => {
@@ -56,10 +63,43 @@ export function App(): React.JSX.Element {
     setAnalyses([]);
     setSelectedRun(null);
     setSelectedSegment(null);
+    browsingOlder.current = false;
     setBusy(true);
     setSummary({ path, sizeBytes: 0, advancedLogging: null, buildVersion: '' });
     await window.mplus.open(path, tail);
   };
+
+  /**
+   * The key list, newest first.
+   *
+   * Sorted rather than reversed, because arrival order is only chronological
+   * while reading a file start to finish — and sorted on `startMs` rather than
+   * on the result, so a run still in progress stays at the top where it was
+   * when it was still the one being watched.
+   */
+  const listed = useMemo(
+    () => [...analyses].sort((a, b) => b.meta.startMs - a.meta.startMs),
+    [analyses],
+  );
+
+  /**
+   * Follow the newest key as the keys arrive.
+   *
+   * Live, that is the one being played, which is the whole point of watching a
+   * log; reading a file, it is the key you came back to look at. Clicking an
+   * older one stops the following — and clicking the newest again resumes it —
+   * so the view is never pulled out from under someone mid-read, and no stale
+   * key is left selected once a new one starts.
+   */
+  useEffect(() => {
+    const newest = listed[0];
+    if (newest === undefined || browsingOlder.current) return;
+    if (selectedRun === newest.runId) return;
+    setSelectedRun(newest.runId);
+    // Segment ids are per run, so one carried across would show an unrelated
+    // pull's numbers under the new key's name.
+    setSelectedSegment(null);
+  }, [listed, selectedRun]);
 
   const run = useMemo(
     () => analyses.find((entry) => entry.runId === selectedRun) ?? null,
@@ -127,12 +167,13 @@ export function App(): React.JSX.Element {
               No keys loaded yet.
             </p>
           ) : null}
-          {analyses.map((analysis) => (
+          {listed.map((analysis) => (
             <RunRow
               key={analysis.runId}
               analysis={analysis}
               selected={analysis.runId === selectedRun}
               onSelect={() => {
+                browsingOlder.current = analysis.runId !== listed[0]?.runId;
                 setSelectedRun(analysis.runId);
                 setSelectedSegment(null);
               }}
@@ -158,9 +199,10 @@ export function App(): React.JSX.Element {
               <div className="stat">
                 <span className="label">Party dps</span>
                 <span className="value">
-                  {short(
-                    run.damage.total / Math.max((run.meta.totalTimeMs ?? 1) / 1000, 1),
-                  )}
+                  {/* The report's own duration, which is elapsed time. The
+                      keystone clock beside it is longer by the death penalty
+                      and would quietly understate every rate on the page. */}
+                  {short(run.damage.total / Math.max(run.damage.durationMs / 1000, 1))}
                 </span>
               </div>
               <div className="stat">
@@ -244,7 +286,7 @@ export function App(): React.JSX.Element {
 
               <SegmentTimeline
                 segments={run.segments}
-                durationMs={Math.max(run.meta.totalTimeMs ?? 0, ...run.segments.map((s) => s.endTs))}
+                durationMs={Math.max(run.damage.durationMs, ...run.segments.map((s) => s.endTs))}
                 forces={run.forces}
                 selectedId={selectedSegment}
                 onSelect={setSelectedSegment}

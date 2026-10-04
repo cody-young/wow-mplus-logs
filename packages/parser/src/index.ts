@@ -14,6 +14,7 @@ export {
   MIN_ADVANCED_FIELD_COUNT,
   hasBaseBlock,
   identifyEvent,
+  isAvoidMissType,
   looksLikeGuid,
   prefixFieldCount,
   type EventIdentity,

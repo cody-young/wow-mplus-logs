@@ -174,7 +174,7 @@ button.primary:hover:not(:disabled) { background: #325894; }
 /* Positioned, because the hover tip is placed over the table in its coordinates. */
 .breakdown-wrap { position: relative; }
 table.breakdown { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
-table.breakdown.players { table-layout: fixed; }
+table.breakdown.players, table.breakdown.abilities { table-layout: fixed; }
 .measure { color: var(--dim); font-size: 11px; margin: 0 0 9px; }
 table.breakdown th {
   text-align: right;
@@ -246,19 +246,36 @@ tr.spell td { height: 22px; color: var(--muted); font-size: 12px; background: #1
    consist of", which is a comparison among their abilities, not against the
    party. Dimmer so the party-wide bars still read first. */
 tr.spell .bar { opacity: 0.17; }
-tr.spell:not(.subhead):hover .bar { opacity: 0.32; }
-tr.spell:not(.subhead):hover td { background: #191923; }
+tr.spell:hover .bar { opacity: 0.32; }
+tr.spell:hover td { background: #191923; }
 tr.spell td.left { padding-left: 28px; }
 tr.spell .name { color: var(--text); }
+/* One step further in than the ability rows, so the ids a merged row is made
+   of read as belonging to it rather than as more abilities. */
+tr.spell.part td.left { padding-left: 48px; }
+tr.spell.part .name { color: var(--muted); }
+tr.spell .chev { margin-right: 4px; }
 tr.spell td.left { overflow: hidden; text-overflow: ellipsis; }
-tr.spell.subhead td {
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.6px;
-  color: var(--dim);
-  height: 20px;
+
+/*
+  The expanded abilities, which are a table of their own inside one cell of the
+  player table. They carry nine columns of casts, averages and rates against
+  the player row's five, so sharing a colgroup would mean either squeezing them
+  or stretching the rows above them; nested, each keeps its own widths. The cell
+  gives up all of its own padding and height so the inner table sits flush
+  under the row it belongs to.
+*/
+tr.nest > td { padding: 0; height: auto; border-bottom: none; }
+.nest-scroll { overflow-x: auto; }
+/* Narrower than the columns need, so the scrollbar appears only once the
+   window really is too small for them. */
+table.breakdown.abilities { min-width: 640px; }
+table.breakdown.abilities th {
+  padding: 5px 8px 4px;
   background: #15151d;
+  border-bottom: 1px solid #1c1c25;
 }
+table.breakdown.abilities th.left { padding-left: 28px; }
 .chev { color: var(--dim); width: 9px; display: inline-block; flex: none; }
 
 /* Enemy roster */

@@ -17,11 +17,18 @@ const ADV_PLAYER =
   'Player-1234-0000ABCD,0000000000000000,88000,120000,4200,345,9701,824,176,0,6,60,100,0,1200.50,800.25,2291,2.1,80';
 const ADV_PET =
   'Pet-0-1234-2291-1234-165189-01000ABCD,Player-1234-0000ABCD,5000,5000,0,0,0,0,0,0,0,0,0,0,1210.00,805.00,2291,2.1,80';
+/** The tomb's own block, naming the player it encased as its owner. */
+const ADV_TOMB =
+  'Creature-0-1234-2291-1234-246591-00009999,Player-1234-0000ABCD,9000,9000,0,0,1470,0,0,0,3,100,100,0,1215.00,810.00,2291,1.5,70';
 
 export const PLAYER = 'Player-1234-0000ABCD';
 export const HEALER = 'Player-1234-0000BEEF';
 export const PET = 'Pet-0-1234-2291-1234-165189-01000ABCD';
 export const ENEMY = 'Creature-0-1234-2291-1234-191622-00001234';
+/** A player's guardian: a Creature- GUID, linked only by SPELL_SUMMON. */
+export const GUARDIAN = 'Creature-0-1234-2291-1234-250289-00005678';
+/** A hostile unit whose advanced block names the player it trapped. */
+export const TOMB = 'Creature-0-1234-2291-1234-246591-00009999';
 
 /** Realm name with multi-byte characters, to exercise decoder boundaries. */
 export const PLAYER_NAME = 'Tésty-Ázshara';
@@ -66,6 +73,17 @@ export const LINES: string[] = [
   // SPELL_ABSORBED applied by someone else, which is the case that matters:
   // "absorbed" is only useful if it can say whose shield it was.
   `9/30/2026 18:50:29.700-4  SPELL_ABSORBED,${ENEMY},"Fungal Fiend",0xa48,0x0,${PLAYER},"${PLAYER_NAME}",0x511,0x0,1216570,"Fel Missiles",0x4,${HEALER},"Healy-Ázshara",0x512,0x0,17,"Power Word: Shield",0x2,8800,24000,nil`,
+  // An absorb the log forgot to attribute: the attacker field is all zeroes.
+  // The *_MISSED a millisecond later is the same blow and does name them.
+  `9/30/2026 18:50:29.800-4  SPELL_ABSORBED,0000000000000000,nil,0x80000000,0x80000000,${ENEMY},"Fungal Fiend",0xa48,0x0,1216570,"Fel Missiles",0x4,${ENEMY},"Fungal Fiend",0xa48,0x0,881,"Warding Crystal",0x2,4400,12000,nil`,
+  `9/30/2026 18:50:29.801-4  SPELL_MISSED,${PLAYER},"${PLAYER_NAME}",0x511,0x0,${ENEMY},"Fungal Fiend",0xa48,0x0,1216570,"Fel Missiles",0x4,ABSORB,nil,4400,4400,nil,ST`,
+  // A miss that really missed, whose suffix is the missType and nothing else.
+  // The ABSORB above it is logged as a miss too and must not read as one: that
+  // blow connected, and its damage is on the SPELL_ABSORBED line beside it.
+  `9/30/2026 18:50:29.850-4  SPELL_MISSED,${PLAYER},"${PLAYER_NAME}",0x511,0x0,${ENEMY},"Fungal Fiend",0xa48,0x0,1216570,"Fel Missiles",0x4,DODGE`,
+  // The same hole with nothing to fill it. It must stay empty rather than
+  // inherit whoever happens to swing next.
+  `9/30/2026 18:50:29.900-4  SPELL_ABSORBED,0000000000000000,nil,0x80000000,0x80000000,${ENEMY},"Fungal Fiend",0xa48,0x0,999999,"Mystery Bolt",0x4,${ENEMY},"Fungal Fiend",0xa48,0x0,881,"Warding Crystal",0x2,1100,12000,nil`,
   // SPELL_HEAL_ABSORBED: same tail, minus the critical flag. 20 fields.
   `9/30/2026 18:50:30.000-4  SPELL_HEAL_ABSORBED,${PLAYER},"${PLAYER_NAME}",0x511,0x0,${PLAYER},"${PLAYER_NAME}",0x511,0x0,116888,"Shroud of Purgatory",0x20,${PLAYER},"${PLAYER_NAME}",0x511,0x0,45470,"Death Strike",0x1,1225,1081978`,
   // _SUPPORT: the supporter's GUID takes the place of the ST/AOE category.
@@ -75,9 +93,23 @@ export const LINES: string[] = [
   `9/30/2026 18:50:33.000-4  SPELL_EXTRA_ATTACKS,${PLAYER},"${PLAYER_NAME}",0x511,0x0,${PLAYER},"${PLAYER_NAME}",0x511,0x0,465660,"Skyfury",0x1,1`,
   // ENVIRONMENTAL_DAMAGE: environmentalType follows the advanced block.
   `9/30/2026 18:50:40.000-4  ENVIRONMENTAL_DAMAGE,0000000000000000,nil,0x80000000,0x80000000,${PLAYER},"${PLAYER_NAME}",0x512,0x0,${ADV_PLAYER},Falling,58734,58734,0,1,0,0,0,nil,nil,nil`,
+  // A guardian, the half of pet attribution the advanced block cannot carry.
+  // It is a Creature- GUID, NPC-flagged at the moment it is summoned, and its
+  // own damage describes the victim — so SPELL_SUMMON is the only link there
+  // is. By the time it swings it is player-controlled, which is what makes the
+  // link trustworthy.
+  `9/30/2026 18:50:34.000-4  SPELL_SUMMON,${PLAYER},"${PLAYER_NAME}",0x512,0x0,${GUARDIAN},"Demonic Tyrant",0xa28,0x0,265187,"Summon Demonic Tyrant",0x20`,
+  `9/30/2026 18:50:35.000-4  SPELL_DAMAGE,${GUARDIAN},"Demonic Tyrant",0x2112,0x0,${ENEMY},"Fungal Fiend",0xa48,0x0,1264093,"Burning Cleave",0x24,${ADV_ENEMY},13000,13000,-1,36,0,0,0,nil,nil,nil,AOE`,
+  // The same shape used against the party: a hostile unit that names a player
+  // in its ownerGUID because it encased them. It never becomes
+  // player-controlled, so it is nobody's minion.
+  `9/30/2026 18:50:36.000-4  SPELL_DAMAGE,${PLAYER},"${PLAYER_NAME}",0x511,0x0,${TOMB},"Glacial Tomb",0xa48,0x0,323764,"Convoke the Spirits",0x8,${ADV_TOMB},700,700,-1,8,0,0,0,nil,nil,nil,ST`,
   '9/30/2026 19:05:00.000-4  ENCOUNTER_START,2926,"Avanoxx",8,5,2660',
   '9/30/2026 19:08:30.000-4  ENCOUNTER_END,2926,"Avanoxx",8,5,1',
-  '9/30/2026 19:20:00.000-4  CHALLENGE_MODE_END,2660,1,12,1860000,180',
+  // The key ran 31 minutes of wall clock and the timer says 31:30: the extra
+  // 30s is what the game charged for dying. Deliberately different, so a test
+  // can tell the two clocks apart.
+  '9/30/2026 19:20:00.000-4  CHALLENGE_MODE_END,2660,1,12,1890000,180',
   // An event outside any run, which must not be recorded.
   `9/30/2026 19:30:00.000-4  SPELL_DAMAGE,${PLAYER},"${PLAYER_NAME}",0x511,0x0,${ENEMY},"Target Dummy",0xa48,0x0,323764,"Convoke the Spirits",0x8,${ADV_ENEMY},1,1,-1,8,0,0,0,nil,nil,nil,ST`,
 ];

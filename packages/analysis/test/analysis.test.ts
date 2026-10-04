@@ -6,6 +6,7 @@ import { LogSession, type Run } from '@mplus/parser';
 
 import {
   SegmentKind,
+  abilityName,
   buildSegments,
   contextFor,
   damageReport,
@@ -49,7 +50,7 @@ test('trash separated by more than the gap becomes separate pulls', () => {
   const { segments } = load();
   const pulls = segments.segments.filter((segment) => segment.kind === SegmentKind.PULL);
   // Gnolls, the Ogre 26s later, the dragged straggler, and the totem pack.
-  assert.equal(pulls.length, 4);
+  assert.equal(pulls.length, 5);
   const gnolls = labelled(segments, 'Gnoll');
   assert.equal(gnolls.enemies.length, 2, 'both Gnolls in one pull');
   assert.ok(labelled(segments, 'Ogre').startTs > gnolls.endTs);
@@ -133,6 +134,19 @@ test('segment damage sums to the run total, with nothing double-counted', () => 
   assert.equal(summed, whole.total);
 });
 
+test('a rate is per second of the key, not per second of the keystone timer', () => {
+  // The timer charges 15s for a death. Dividing by it reports damage during
+  // seconds the key was already over, which on a real +12 put every player
+  // 7% under their Warcraft Logs DPS at once — the same 7%, for everyone,
+  // which is what gives a bad denominator away.
+  const { context, segments } = load();
+  const whole = damageReport(context, segments);
+  assert.equal(context.run.meta.totalTimeMs, 135_000, 'the timer the game showed');
+  assert.equal(whole.durationMs, 120_000, 'the time the key actually took');
+  const top = whole.actors[0]!;
+  assert.equal(top.perSecond, top.total / 120);
+});
+
 test('pet damage rolls up to its owner', () => {
   const { run, context, segments } = load();
   const report = damageReport(context, segments);
@@ -140,11 +154,115 @@ test('pet damage rolls up to its owner', () => {
   assert.ok(dps);
   // Dee's own hits plus the Imp's 900.
   const totemPack = 2000 + 300 + 300 + 300 + 300 + 2000;
+  // The last pull: the Tyrant's 1500, a hit the Warded Ogre's shield ate
+  // whole, and 700 into a block of ice that carries Dee's name but is not
+  // Dee's. Each of the three was once dropped for a different reason.
+  const lastPull = 1500 + 800 + 700 + (300 + 100 + 200 + 150) + 50;
+  // The boss fight also carries Agony's 1200, whose aura the uptime test reads.
   assert.equal(
     dps.total,
-    1000 + 1000 + 1000 + 3000 + 3000 + 500 + 5000 + 7000 + 4000 + 600 + 500 + 900 + totemPack,
+    1000 + 1000 + 1000 + 3000 + 3000 + 500 + 5000 + 7000 + 4000 + 600 + 500 + 900 + 1200 + totemPack + lastPull,
   );
   assert.ok(!report.actors.some((actor) => actor.actorIndex === indexOf(run, PET)), 'the pet is not its own row');
+});
+
+test('a guardian summoned by a player counts as that player', () => {
+  // The bug this fixes was worth a fifth of a demonology warlock's damage: a
+  // Demonic Tyrant is a Creature- GUID with no ownerGUID anywhere, so without
+  // reading SPELL_SUMMON its output belonged to nobody and was dropped.
+  const { run, context, segments } = load();
+  const report = damageReport(context, segments);
+  const dps = report.actors.find((actor) => actor.actorIndex === indexOf(run, DPS))!;
+
+  assert.ok(
+    dps.spells.some((spell) => spell.name === 'Nuke'),
+    'the player\'s own damage is still theirs',
+  );
+  assert.ok(
+    !report.actors.some((actor) => actor.actorIndex === indexOf(run, ACTORS.TYRANT)),
+    'and the guardian is not a row of its own',
+  );
+});
+
+test('a hit an enemy shield swallows is still damage done', () => {
+  // Warcraft Logs counts it and so must this: the swing landed and the player
+  // produced the output. On a real +12 leaving it out put every damage dealer
+  // 0.4-0.8% short.
+  const { run, context, segments } = load();
+  const report = damageReport(context, segments);
+  const dps = report.actors.find((actor) => actor.actorIndex === indexOf(run, DPS))!;
+  const bolt = dps.spells.find((spell) => spell.name === 'Chaos Bolt')!;
+
+  assert.equal(bolt.total, 800, 'the whole of it, though no damage event was logged');
+  assert.equal(bolt.hits, 1);
+
+  // The tank's two absorbs, 45000 between them, stay out of damage taken: a
+  // shield that holds is not a wound, and a death already reports it apart.
+  const taken = damageReport(context, segments, { direction: 'taken' });
+  const tank = taken.actors.find((actor) => actor.actorIndex === indexOf(run, TANK))!;
+  assert.equal(tank.total, 2000 + 400_000 + 100_000);
+});
+
+test('one ability logged under four spell ids is one row, openable', () => {
+  // Spell ids are how the log reports damage; abilities are how a player
+  // reads it. A modern ability is several ids — the cast, what it procs, the
+  // talented version, the off-hand copy — and listed apart the biggest thing
+  // a player did can be absent from the top of their own table.
+  const { run, context, segments } = load();
+  const report = damageReport(context, segments);
+  const dps = report.actors.find((actor) => actor.actorIndex === indexOf(run, DPS))!;
+
+  const cleave = dps.spells.filter((spell) => spell.name === 'Cleave');
+  assert.equal(cleave.length, 1, 'one row, not four');
+  assert.equal(cleave[0]!.total, 300 + 100 + 200 + 150);
+  assert.equal(cleave[0]!.hits, 4);
+  assert.equal(cleave[0]!.spellId, 200, 'the plainly named part, whose icon the row wears');
+
+  // Opening it has to give the ids back, including the two that share a name
+  // and so can only be told apart by their id.
+  const parts = cleave[0]!.parts ?? [];
+  assert.deepEqual(
+    parts.map((part) => [part.spellId, part.total]),
+    [
+      [200, 300],
+      [202, 200],
+      [203, 150],
+      [201, 100],
+    ],
+    'biggest first',
+  );
+
+  // A name that says something else is a different ability, whatever it is
+  // named after.
+  const overload = dps.spells.find((spell) => spell.name === 'Cleave Overload')!;
+  assert.equal(overload.total, 50);
+  assert.equal(overload.parts, undefined, 'nothing merged, nothing to open');
+
+  // Merging must not move damage: the rows still add up to the player.
+  const summed = dps.spells.reduce((total, spell) => total + spell.total, 0);
+  assert.equal(summed, dps.total);
+});
+
+test('abilityName strips the suffixes that mean "same button", and no others', () => {
+  assert.equal(abilityName('Stormstrike Off-Hand'), 'Stormstrike');
+  assert.equal(abilityName('Crash Lightning (Unleashed)'), 'Crash Lightning');
+  assert.equal(abilityName('Eviscerate (Coup de Grace)'), 'Eviscerate');
+  assert.equal(abilityName('Power Word: Shield (Unfolding Vision)'), 'Power Word: Shield');
+  assert.equal(abilityName('Chain Lightning Overload'), 'Chain Lightning Overload');
+  assert.equal(abilityName('Melee'), 'Melee');
+  // A name that is nothing but a parenthetical keeps itself rather than
+  // becoming the empty string and swallowing every other such row.
+  assert.equal(abilityName('(Unknown)'), '(Unknown)');
+});
+
+test('a unit that merely names a player is still an enemy', () => {
+  const { run, context, segments } = load();
+  const report = damageReport(context, segments);
+  const dps = report.actors.find((actor) => actor.actorIndex === indexOf(run, DPS))!;
+
+  assert.ok(dps.total > 0);
+  const pull = segments.segments.find((segment) => segment.enemies.includes(indexOf(run, ACTORS.TOMB)));
+  assert.ok(pull, 'the ice is in a pull rather than being counted as one of us');
 });
 
 test('_SUPPORT rows are credit, never extra damage', () => {
@@ -173,9 +291,69 @@ test('healing reports effective amounts, not gross', () => {
   const { run, context, segments } = load();
   const report = healingReport(context, segments);
   const healer = report.actors.find((actor) => actor.actorIndex === indexOf(run, HEALER))!;
-  // 30000 logged with 10000 overhealed.
-  assert.equal(healer.total, 20000);
+  // 30000 logged with 10000 overhealed, plus the 15000 their shield ate and
+  // the net 2500 of Spirit Link (see the test below).
+  assert.equal(healer.total, 20000 + 15000 + 2500);
   assert.equal(healer.wasted, 10000);
+});
+
+test('an ability that heals by hurting is credited with the difference', () => {
+  // Spirit Link Totem levels a group's health, which means healing whoever is
+  // lowest by hurting whoever is highest — both under one spell id. Counting
+  // only the healing half credited a real shaman with 4.09M for an ability
+  // whose net effect that key was -0.47M.
+  const { run, context, segments } = load();
+  const report = healingReport(context, segments);
+  const healer = report.actors.find((actor) => actor.actorIndex === indexOf(run, HEALER))!;
+
+  const link = healer.spells.find((spell) => spell.name === 'Spirit Link')!;
+  assert.equal(link.total, 5000 - 2000 - 500, 'the heal, less what it cost the other two');
+  assert.equal(link.wasted, 0, 'hurting someone is not overhealing them');
+
+  // Only abilities that healed are netted. Self-harm that heals nobody has no
+  // healing row to charge it against, and must not be charged against the
+  // rest — deducting it would have cost two players on a real log a figure
+  // that currently matches Warcraft Logs exactly.
+  assert.ok(!healer.spells.some((spell) => spell.name === 'Burning Rush'));
+  assert.equal(
+    healer.spells.reduce((total, spell) => total + spell.total, 0),
+    healer.total,
+    'and the rows still add up to the player',
+  );
+
+  // None of it is damage done: hitting your own party is not output.
+  const damage = damageReport(context, segments);
+  const dealer = damage.actors.find((actor) => actor.actorIndex === indexOf(run, HEALER));
+  assert.ok(!dealer?.spells.some((spell) => spell.name === 'Spirit Link'));
+});
+
+test('damage a shield stopped is healing by whoever cast the shield', () => {
+  // Warcraft Logs counts it, and without it a blood death knight's Blood
+  // Shield and a warlock's Soul Leech are not healing at all: on a real +12
+  // that was 44.7M of the tank's 125.5M and 12.2M of the warlock's 19.9M.
+  const { run, context, segments } = load();
+  const report = healingReport(context, segments);
+  const tank = report.actors.find((actor) => actor.actorIndex === indexOf(run, TANK))!;
+  const healer = report.actors.find((actor) => actor.actorIndex === indexOf(run, HEALER))!;
+
+  // The row's own source is the boss that swung. Credit follows the shield.
+  const own = tank.spells.find((spell) => spell.name === 'Icebound Fortitude')!;
+  assert.equal(own.total, 30000, 'the tank shielded themselves');
+  const external = healer.spells.find((spell) => spell.name === 'Power Word: Shield')!;
+  assert.equal(external.total, 15000, 'the healer shielded the tank');
+
+  // Named for the shield, not for the blow it stopped.
+  assert.ok(!tank.spells.some((spell) => spell.name === 'Smash'), 'not the hit');
+
+  // A shield on an enemy is the enemy's mitigation. It is damage we dealt,
+  // counted there already, and healing by nobody.
+  const dps = report.actors.find((actor) => actor.actorIndex === indexOf(run, DPS));
+  assert.ok(!dps?.spells.some((spell) => spell.name === 'Warding Crystal'));
+
+  // An absorb has no overheal the log ever states — a shield that expires
+  // unspent is waste nothing reports — so it adds to a total and never to
+  // the overheal beside it.
+  assert.equal(healer.wasted, 10000, 'the heal\'s overheal, and nothing from the shield');
 });
 
 test('a pet dying is not a player death', () => {
@@ -260,6 +438,54 @@ test('a spell carries its casts and its crits, not just its hits', () => {
   const taken = damageReport(context, segments, { direction: 'taken' });
   const tank = taken.actors.find((actor) => actor.actorIndex === indexOf(run, TANK))!;
   assert.ok(tank.spells.every((spell) => spell.casts === 0));
+});
+
+test('a miss rate counts what was avoided, not what a shield ate', () => {
+  const { run, context, segments } = load();
+  const report = damageReport(context, segments);
+  const dps = report.actors.find((actor) => actor.actorIndex === indexOf(run, DPS))!;
+  const nuke = dps.spells.find((spell) => spell.name === 'Nuke')!;
+
+  // Two misses in the fixture, one dodged and one absorbed. Counting both
+  // would double-report the absorbed blow, whose damage is already in the
+  // table, and overstate the rate by a factor of two.
+  assert.equal(nuke.misses, 1);
+  assert.equal(nuke.misses / (nuke.misses + nuke.hits), 1 / (1 + nuke.hits));
+
+  // Nothing the party did to itself, and nothing it avoided, lands on the
+  // victim's side of the table.
+  const taken = damageReport(context, segments, { direction: 'taken' });
+  const tank = taken.actors.find((actor) => actor.actorIndex === indexOf(run, TANK))!;
+  assert.ok(tank.spells.every((spell) => spell.misses === 0));
+});
+
+test('uptime is the union of an aura\'s intervals, not a count of its events', () => {
+  const { run, context, segments } = load();
+  const report = damageReport(context, segments);
+  const dps = report.actors.find((actor) => actor.actorIndex === indexOf(run, DPS))!;
+  const agony = dps.spells.find((spell) => spell.name === 'Agony')!;
+
+  // Applied at t=76.5 and removed at t=94.5, over a 120s key.
+  assert.equal(report.durationMs, 120_000);
+  assert.equal(agony.uptimeMs, 18_000);
+
+  // Abilities that apply no aura say so with a zero rather than inheriting one
+  // from the ability above them.
+  const nuke = dps.spells.find((spell) => spell.name === 'Nuke')!;
+  assert.equal(nuke.uptimeMs, 0);
+
+  // Inside the boss fight the same debuff is up for the same 18s of a shorter
+  // window, so its share of that window is larger — which is the whole reason
+  // a per-segment report exists.
+  const boss = segments.segments.find((segment) => segment.kind === SegmentKind.BOSS)!;
+  const inBoss = damageReport(context, segments, { segmentId: boss.id });
+  const bossDps = inBoss.actors.find((actor) => actor.actorIndex === indexOf(run, DPS))!;
+  const bossAgony = bossDps.spells.find((spell) => spell.name === 'Agony')!;
+  assert.equal(bossAgony.uptimeMs, 18_000);
+  assert.ok(
+    bossAgony.uptimeMs / inBoss.durationMs > agony.uptimeMs / report.durationMs,
+    'the same 18s is more of a pull than it is of a key',
+  );
 });
 
 function indexOf(run: Run, guid: string): number {

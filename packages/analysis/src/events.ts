@@ -19,6 +19,32 @@ export const DAMAGE_CODES: ReadonlySet<number> = new Set<number>([
   Ev.DAMAGE_SPLIT,
 ]);
 
+/**
+ * Fully or partly absorbed hits, which damage done has to count and damage
+ * taken must not.
+ *
+ * A shield on an enemy does not make the hit stop happening: the swing landed,
+ * the shield ate it, and the player still produced that output. Warcraft Logs
+ * counts it, and leaving it out put every damage dealer on a real +12 short by
+ * 0.4-0.8% — Snuggay 289.6M against 291.8M — while barely moving the healer,
+ * because the gap tracks how much you hit shielded enemies.
+ *
+ * Healing reads the same rows from the other side: damage a shield stopped is
+ * healing by whoever cast the shield, which is how Warcraft Logs counts it and
+ * the only way a blood death knight's Blood Shield or a warlock's Soul Leech
+ * appears at all. On the same +12 that was 44.7M of the tank's 125.5M.
+ *
+ * Kept out of DAMAGE_CODES and HEAL_CODES deliberately. Segmentation and death
+ * traces also read those sets, and for them an absorbed hit is not damage: it
+ * dealt none, and counting it as damage taken would contradict the absorb
+ * figure a death already reports alongside it.
+ *
+ * No double counting: a partial absorb logs SPELL_ABSORBED for the shielded
+ * part and a separate damage event for the rest, and `amount` on the damage
+ * event is already net of the absorb.
+ */
+export const ABSORBED_CODES: ReadonlySet<number> = new Set<number>([Ev.SPELL_ABSORBED]);
+
 /** Damage a player can take that no hostile unit dealt. */
 export const SELF_DAMAGE_CODES: ReadonlySet<number> = new Set<number>([Ev.ENVIRONMENTAL_DAMAGE]);
 
@@ -26,6 +52,43 @@ export const SELF_DAMAGE_CODES: ReadonlySet<number> = new Set<number>([Ev.ENVIRO
 export const VICTIM_MELEE_CODES: ReadonlySet<number> = new Set<number>([Ev.SWING_DAMAGE_LANDED]);
 
 export const HEAL_CODES: ReadonlySet<number> = new Set<number>([Ev.SPELL_HEAL, Ev.SPELL_PERIODIC_HEAL]);
+
+/**
+ * Attempts to hit, for the denominator of a miss rate.
+ *
+ * Kept out of DAMAGE_CODES because a miss has no amount: it adds nothing to a
+ * total and exists only so "90 hits" can be read as 90 attempts or as 900.
+ * Only the rows flagged `AVOIDED` count — see that flag for why an absorbed or
+ * blocked hit is logged as a miss and must not be counted as one.
+ */
+export const MISS_CODES: ReadonlySet<number> = new Set<number>([
+  Ev.SWING_MISSED,
+  Ev.RANGE_MISSED,
+  Ev.SPELL_MISSED,
+  Ev.SPELL_PERIODIC_MISSED,
+  Ev.DAMAGE_SHIELD_MISSED,
+]);
+
+/**
+ * Aura events after which the aura is up, for uptime.
+ *
+ * REFRESH and both DOSE events belong here and not with the removals: a dose
+ * coming off a stack of five leaves four, and the debuff is still on the
+ * target. Only SPELL_AURA_REMOVED takes the last one away.
+ */
+export const AURA_UP_CODES: ReadonlySet<number> = new Set<number>([
+  Ev.SPELL_AURA_APPLIED,
+  Ev.SPELL_AURA_REFRESH,
+  Ev.SPELL_AURA_APPLIED_DOSE,
+  Ev.SPELL_AURA_REMOVED_DOSE,
+]);
+
+/** Aura events after which the aura is gone. */
+export const AURA_DOWN_CODES: ReadonlySet<number> = new Set<number>([
+  Ev.SPELL_AURA_REMOVED,
+  Ev.SPELL_AURA_BROKEN,
+  Ev.SPELL_AURA_BROKEN_SPELL,
+]);
 
 /**
  * Effective amount.
