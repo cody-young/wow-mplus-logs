@@ -36,8 +36,17 @@ npmRebuild: false
 # Pinned because electron-builder infers the version from the dependency tree,
 # and in a workspace the install is hoisted to the repo root where its usual
 # lookup does not reach.
+#
+# It has to agree with the `electron` devDependency, which is why that one is
+# pinned exactly rather than carrying a caret: a range free to drift to 33.5.x
+# would have electron-builder package a binary that is not the one `npm ci`
+# installed.
 electronVersion: 33.4.11
 
+# The default, and the final word for the Linux targets: AppImage and deb differ
+# in ${ext}, so those two cannot collide. Both Windows targets build a .exe and
+# so do collide under this template — see the per-target names further down.
+#
 # ${productName} would be the WM_CLASS name; ${name} is the same string here.
 # ${version} and ${arch} are what make two releases distinguishable on disk.
 artifactName: mplus-logs-${version}-${os}-${arch}.${ext}
@@ -60,10 +69,24 @@ win:
     - nsis
     - portable
 
+# A name each, because both of the targets above emit a .exe. Left to the shared
+# template they resolve to the same path, and the packaging log reads as success
+# the whole way: the portable build quietly overwrites the installer on disk,
+# then the publisher queues two uploads under the one asset name and the second
+# deletes and re-pushes 110 MB, which is what GitHub's uploader gave up on with
+# a 408. Nothing in the build was wrong, so nothing in the build said so.
+#
+# The suffix earns its place on the download page too — an installer and a
+# portable build are not interchangeable, and the old names did not say which
+# was which.
 nsis:
+  artifactName: mplus-logs-${version}-${os}-${arch}-setup.${ext}
   oneClick: false
   perMachine: false
   allowToChangeInstallationDirectory: true
+
+portable:
+  artifactName: mplus-logs-${version}-${os}-${arch}-portable.${ext}
 
 # Creates a draft release on the tag, so a build is reviewed and its notes
 # written before anyone can download it.

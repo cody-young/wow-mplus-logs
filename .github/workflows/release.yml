@@ -30,6 +30,22 @@ jobs:
           node-version: '22'
           cache: npm
 
+      # electron-builder names and publishes by the manifest version, never by
+      # the tag, so a tag that disagrees with the manifest does not fail — it
+      # quietly uploads the manifest's artifacts into the manifest's release.
+      # `v0.1.1` against a 0.1.0 manifest went to the v0.1.0 draft and tried to
+      # overwrite the assets already sitting there. Four minutes of Windows
+      # packaging is a long way to go to find that out.
+      - name: Tag matches the manifest version
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          manifest=$(node -p "require('./apps/desktop/package.json').version")
+          if [ "$manifest" != "${GITHUB_REF_NAME#v}" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match apps/desktop/package.json version $manifest"
+            exit 1
+          fi
+
       # Not --ignore-scripts: electron's postinstall is what fetches the binary
       # electron-builder packages. The repo's allowScripts list covers it.
       - run: npm ci

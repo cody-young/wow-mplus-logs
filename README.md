@@ -384,13 +384,29 @@ npm run dist                              # installers for the host platform, in
 npm run pack --workspace @mplus/desktop   # unpacked app only, no installers
 ```
 
-Linux produces an AppImage and a `.deb`; Windows an NSIS installer and a
-portable `.exe`. CI builds both on a `v*` tag and attaches them to a **draft**
-release, so a build is checked and its notes written before anyone can download
-it. `workflow_dispatch` runs the same matrix without publishing, which is how a
-packaging change gets proved without spending a tag.
+Linux produces an AppImage and a `.deb`; Windows an NSIS installer
+(`-setup.exe`) and a portable `.exe`. CI builds both on a `v*` tag and attaches
+them to a **draft** release, so a build is checked and its notes written before
+anyone can download it. `workflow_dispatch` runs the same matrix without
+publishing, which is how a packaging change gets proved without spending a tag.
 
-Three things worth knowing before the first release.
+Four things worth knowing before the first release.
+
+**Every target needs a name of its own, and the Windows pair did not have one.**
+A single `artifactName` template covers Linux fine, because AppImage and deb
+differ in `${ext}`. Both Windows targets build a `.exe`, so under one template
+they resolved to one path: the portable build overwrote the installer, the
+publisher then queued two uploads under the same asset name, and the second
+deleted and re-pushed 110 MB until GitHub's uploader returned `408 Request
+Timeout`. The packaging log reads as a clean success right up to the upload,
+which is why this looked like an Electron or a Windows problem and was neither.
+`nsis` and `portable` now carry their own names.
+
+The matching trap is that electron-builder publishes by the **manifest**
+version, not by the tag you pushed, so `v0.1.1` against a `0.1.0` manifest
+uploads `0.1.0` files into the `v0.1.0` release — and if that release already
+has them, straight back onto the overwrite path above. The release workflow now
+checks the two agree before it installs anything.
 
 **The packaged app has no runtime dependencies.** `electron.vite.config.ts`
 bundles the workspace packages rather than externalizing them, so the asar is
