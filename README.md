@@ -398,6 +398,21 @@ the build output and `package.json` and nothing else — no `node_modules`, no
 symlinks for the packager to chase. That is the whole reason
 `electron-builder.yml` is as short as it is.
 
+**`npmRebuild` is off, and that is load-bearing.** Left on, electron-builder
+shells out to `app-builder` to "install production dependencies" before every
+package, with the app directory's `node_modules` as the working directory. A
+clean `npm ci` hoists everything to the repo root and never creates
+`apps/desktop/node_modules`, and Node reports a missing **cwd** as `ENOENT`
+against the *executable's* path — so the failure reads as a missing
+`app-builder` binary that is in fact present, 18 MB and executable, exactly
+where the error says it is not.
+
+It passed locally and failed on both runners because a worktree that has run
+`npm install` a few times still has a stale `apps/desktop/node_modules` lying
+around. Reproducing it needs a fresh clone, not a fresh build. The step is pure
+waste here regardless — no native modules, no production dependencies — so it
+is simply turned off.
+
 **Nothing is signed.** Windows shows a SmartScreen warning on first run; Linux
 does not care. Signing needs a certificate — an EV one, realistically, to clear
 SmartScreen immediately — at a few hundred dollars a year. Until that is worth

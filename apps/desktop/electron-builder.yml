@@ -27,6 +27,12 @@ files:
 
 asar: true
 
+# There is nothing to rebuild or install: no native modules, and after the
+# bundling in electron.vite.config.ts no production dependencies at all. Left
+# on, electron-builder shells out to app-builder to "install production
+# dependencies" before every package, which is work this app never needs.
+npmRebuild: false
+
 # Pinned because electron-builder infers the version from the dependency tree,
 # and in a workspace the install is hoisted to the repo root where its usual
 # lookup does not reach.
