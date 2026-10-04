@@ -22,8 +22,15 @@ export class EventStore {
   ts: Int32Array;
   /** Event code from the Ev enum. */
   code: Uint8Array;
-  /** EvFlag bitfield. */
-  flags: Uint8Array;
+  /**
+    * EvFlag bitfield.
+    *
+    * Sixteen bits rather than eight: the eighth was the last one a byte had,
+    * and BUFF needed a ninth. One extra byte on an event that already costs
+    * ~54 is a better trade than overloading a damage flag to mean something
+    * else on aura rows, which is the kind of saving that reads as a bug later.
+    */
+  flags: Uint16Array;
   /** Actor row indices; -1 when absent. */
   srcActor: Int32Array;
   dstActor: Int32Array;
@@ -67,7 +74,7 @@ export class EventStore {
     this.capacity = capacity;
     this.ts = new Int32Array(capacity);
     this.code = new Uint8Array(capacity);
-    this.flags = new Uint8Array(capacity);
+    this.flags = new Uint16Array(capacity);
     this.srcActor = new Int32Array(capacity);
     this.dstActor = new Int32Array(capacity);
     this.spellId = new Int32Array(capacity);
@@ -112,7 +119,7 @@ export class EventStore {
     const next = Math.max(target, DEFAULT_CAPACITY);
     this.ts = growI32(this.ts, next);
     this.code = growU8(this.code, next);
-    this.flags = growU8(this.flags, next);
+    this.flags = growU16(this.flags, next);
     this.srcActor = growI32(this.srcActor, next);
     this.dstActor = growI32(this.dstActor, next);
     this.spellId = growI32(this.spellId, next);
@@ -191,6 +198,11 @@ export class EventStore {
 
 function growI32(source: Int32Array, capacity: number): Int32Array {
   const next = new Int32Array(capacity);
+  next.set(source);
+  return next;
+}
+function growU16(source: Uint16Array, capacity: number): Uint16Array {
+  const next = new Uint16Array(capacity);
   next.set(source);
   return next;
 }

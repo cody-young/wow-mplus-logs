@@ -281,6 +281,15 @@ export const enum EvFlag {
    * would both overstate it and contradict the damage table beside it.
    */
   AVOIDED = 1 << 7,
+  /**
+   * An aura event whose auraType was BUFF rather than DEBUFF.
+   *
+   * Only meaningful on the SPELL_AURA_* codes. Source alone cannot stand in
+   * for it: a party member's aura on a party member is usually a buff but not
+   * always, and a death recap that files Power Word: Shield under "what was on
+   * them" beside the boss's stacking debuff answers neither question.
+   */
+  BUFF = 1 << 8,
 }
 
 /**

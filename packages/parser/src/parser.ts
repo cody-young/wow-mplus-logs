@@ -516,6 +516,9 @@ export class CombatLogParser {
       case Ev.SPELL_STOLEN:
       case Ev.SPELL_AURA_BROKEN_SPELL: {
         // extraSpellId, extraSpellName, extraSchool[, auraType]
+        // SPELL_AURA_BROKEN_SPELL is the one of these that carries an
+        // auraType, and it trails the extra triple rather than leading it.
+        if (isBuffField(line, offsets, suffixStart + 3, count)) flags |= EvFlag.BUFF;
         if (suffixStart < count) {
           const extra = fieldInt(line, offsets, suffixStart);
           store.extraSpellId[row] = extra;
@@ -588,6 +591,16 @@ export class CombatLogParser {
       case Ev.SPELL_AURA_REMOVED_DOSE: {
         // auraType, amount
         if (suffixStart + 1 < count) store.amount[row] = fieldFloat(line, offsets, suffixStart + 1);
+        if (isBuffField(line, offsets, suffixStart, count)) flags |= EvFlag.BUFF;
+        break;
+      }
+      case Ev.SPELL_AURA_REMOVED:
+      case Ev.SPELL_AURA_BROKEN: {
+        // The same auraType field, with nothing after it worth reading. Set on
+        // the removal as well as the application because a recap's window can
+        // open on an aura that was already up: the line taking it away is then
+        // the only one that says what it was.
+        if (isBuffField(line, offsets, suffixStart, count)) flags |= EvFlag.BUFF;
         break;
       }
       default:
@@ -788,4 +801,23 @@ export function parseIntArray(raw: string): number[] {
   }
   if (digits > 0) result.push(negative ? -value : value);
   return result;
+}
+
+/**
+ * Whether the field at `index` is the literal BUFF.
+ *
+ * Compared in place rather than through fieldStr, because every aura line in a
+ * run asks the question and a run has a lot of them: slicing the field out
+ * would allocate a string per aura event to throw it away a character later.
+ */
+function isBuffField(line: string, out: Int32Array, index: number, count: number): boolean {
+  if (index >= count) return false;
+  const start = out[index << 1]!;
+  if (out[(index << 1) | 1]! - start !== 4) return false;
+  return (
+    line.charCodeAt(start) === 66 /* B */ &&
+    line.charCodeAt(start + 1) === 85 /* U */ &&
+    line.charCodeAt(start + 2) === 70 /* F */ &&
+    line.charCodeAt(start + 3) === 70 /* F */
+  );
 }
