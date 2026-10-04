@@ -1,0 +1,443 @@
+/* Dark by default: this is a tool used beside a game at night. */
+:root {
+  --bg: #0f0f16;
+  --panel: #16161f;
+  --panel-raised: #1d1d28;
+  --border: #272733;
+  --text: #e6e6f0;
+  --muted: #8b8ba3;
+  --dim: #5e5e75;
+  --accent: #6ea8fe;
+  --boss: #d4a24a;
+  --pull: #4a7fd4;
+  --danger: #e05c5c;
+  --good: #5cc98a;
+  --row: 26px;
+  font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font-size: 13px;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  overflow: hidden;
+}
+
+button {
+  font: inherit;
+  color: var(--text);
+  background: var(--panel-raised);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 5px 11px;
+  cursor: pointer;
+}
+button:hover:not(:disabled) { border-color: var(--dim); background: #24242f; }
+button:disabled { opacity: 0.45; cursor: default; }
+button.primary { background: #2a4a7f; border-color: #3a5f9f; }
+button.primary:hover:not(:disabled) { background: #325894; }
+
+.app { display: grid; grid-template-columns: 274px 1fr; height: 100vh; }
+
+.sidebar {
+  background: var(--panel);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.sidebar header { padding: 13px 14px; border-bottom: 1px solid var(--border); }
+.sidebar h1 { margin: 0 0 2px; font-size: 14px; letter-spacing: 0.3px; }
+.sidebar .path {
+  font-size: 11px;
+  color: var(--dim);
+  word-break: break-all;
+  line-height: 1.4;
+  margin-top: 7px;
+}
+.sidebar .actions { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
+.runs { overflow-y: auto; flex: 1; padding: 6px; min-height: 0; }
+
+.run {
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 8px 9px;
+  margin-bottom: 3px;
+  display: flex;
+  gap: 9px;
+  align-items: flex-start;
+}
+/* min-width:0 so a long dungeon name ellipsises instead of pushing the icon
+   out of the row — a flex item's default min-width is its content. */
+.run-body { flex: 1; min-width: 0; }
+.run-party { display: flex; gap: 3px; margin-top: 5px; }
+.run:hover { background: var(--panel-raised); border-color: transparent; }
+.run.selected { background: #212b3d; border-color: #35507a; }
+.run .top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.run .level { font-weight: 650; font-size: 14px; }
+.run .zone {
+  color: var(--text);
+  font-size: 12px;
+  margin-top: 2px;
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.run .meta { color: var(--muted); font-size: 11px; margin-top: 3px; display: flex; gap: 7px; }
+.timed { color: var(--good); }
+.depleted { color: var(--danger); }
+.inprogress { color: var(--boss); }
+
+.main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.main > header {
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.main h2 { margin: 0; font-size: 15px; font-weight: 600; }
+.stat { display: flex; flex-direction: column; gap: 1px; }
+.stat .label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--dim); }
+.stat .value { font-variant-numeric: tabular-nums; font-size: 13px; }
+
+.tabs { display: flex; gap: 2px; padding: 0 18px; border-bottom: 1px solid var(--border); }
+.tab {
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  padding: 9px 13px;
+  color: var(--muted);
+}
+.tab:hover { background: #1a1a24; color: var(--text); }
+.tab.active { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; background: #1b2231; }
+.tab.active:hover { background: #1b2231; }
+
+/* Stable gutter: without it the scrollbar appears as rows expand and shifts
+   the whole table sideways, which reads as the layout breaking. */
+.content { flex: 1; overflow-y: auto; scrollbar-gutter: stable; padding: 16px 18px 40px; min-height: 0; }
+
+/* Segment timeline */
+.timeline { margin-bottom: 18px; }
+.timeline-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 7px;
+}
+.timeline-head h3 { margin: 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--dim); }
+.lanes { display: flex; flex-direction: column; gap: 3px; }
+.lane { position: relative; min-height: 24px; background: var(--panel); border-radius: 4px; }
+.lane-label {
+  position: absolute;
+  left: 7px; top: 0; bottom: 0;
+  display: flex; align-items: flex-start; padding-top: 7px;
+  font-size: 10px; color: var(--dim);
+  text-transform: uppercase; letter-spacing: 0.6px;
+  pointer-events: none;
+  z-index: 0;
+}
+.block {
+  position: absolute;
+  /* top and height come from the row the block was packed into. */
+  border-radius: 3px;
+  border: 1px solid transparent;
+  background: var(--pull);
+  opacity: 0.68;
+  padding: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  font-size: 10px;
+  color: #06060a;
+  font-weight: 600;
+  text-align: left;
+  padding-left: 4px;
+  min-width: 3px;
+}
+.block:hover { opacity: 1; border-color: var(--text); background: var(--pull); }
+.block.boss { background: var(--boss); }
+.block.boss:hover { background: var(--boss); }
+.block.selected { opacity: 1; border-color: var(--text); }
+.axis { display: flex; justify-content: space-between; margin-top: 4px; font-size: 10px; color: var(--dim); font-variant-numeric: tabular-nums; }
+
+/* Breakdown table */
+/* Positioned, because the hover tip is placed over the table in its coordinates. */
+.breakdown-wrap { position: relative; }
+table.breakdown { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+table.breakdown.players { table-layout: fixed; }
+.measure { color: var(--dim); font-size: 11px; margin: 0 0 9px; }
+table.breakdown th {
+  text-align: right;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--dim);
+  font-weight: 500;
+  padding: 0 8px 6px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+table.breakdown th.left, table.breakdown td.left { text-align: left; }
+table.breakdown td { padding: 0 8px; height: var(--row); border-bottom: 1px solid #1c1c25; text-align: right; white-space: nowrap; }
+tr.actor { cursor: pointer; }
+tr.actor:hover td { background: var(--panel-raised); }
+.namecell { display: flex; align-items: center; gap: 7px; }
+.spec { color: var(--muted); font-size: 11px; }
+
+/*
+  Spec and dungeon icons.
+
+  The box is sized and coloured by the element itself and the image sits on top
+  of it, so a row has its full geometry before any art arrives and does not
+  reflow when it does. Offline that colour is all there ever is, which is why
+  it is the class colour and not a grey placeholder.
+*/
+.spec-ico {
+  flex: none;
+  display: inline-block;
+  position: relative;
+  border-radius: 3px;
+  overflow: hidden;
+  vertical-align: middle;
+  /* Dimmed, because at full strength five class colours in a sidebar row read
+     as the loudest thing on screen. Under an icon it is only an edge. */
+  opacity: 0.85;
+}
+.spec-ico img { display: block; border-radius: 3px; }
+
+.dungeon-ico {
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 5px;
+  overflow: hidden;
+  background: var(--panel-raised);
+  border: 1px solid var(--border);
+}
+.dungeon-ico img { display: block; }
+.dungeon-initials {
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.3px;
+  color: var(--dim);
+}
+
+/* The header's party list: an icon and a name per member. */
+.party-member { display: inline-flex; align-items: center; gap: 4px; }
+.barcell { position: relative; overflow: hidden; }
+/* A gauge behind the name rather than a fixed-width stub: the column is now
+   whatever the numeric columns leave over, so the bar has to scale with it. */
+.bar { position: absolute; left: 0; top: 0; height: 100%; border-radius: 2px; opacity: 0.26; }
+.pname { overflow: hidden; text-overflow: ellipsis; }
+.barcell span { position: relative; z-index: 1; }
+tr.spell td { height: 22px; color: var(--muted); font-size: 12px; background: #13131b; }
+/* The same gauge on an ability row, dimmer and scaled to the player's own
+   biggest ability: an expanded row answers "what did this player's damage
+   consist of", which is a comparison among their abilities, not against the
+   party. Dimmer so the party-wide bars still read first. */
+tr.spell .bar { opacity: 0.17; }
+tr.spell:not(.subhead):hover .bar { opacity: 0.32; }
+tr.spell:not(.subhead):hover td { background: #191923; }
+tr.spell td.left { padding-left: 28px; }
+tr.spell .name { color: var(--text); }
+tr.spell td.left { overflow: hidden; text-overflow: ellipsis; }
+tr.spell.subhead td {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--dim);
+  height: 20px;
+  background: #15151d;
+}
+.chev { color: var(--dim); width: 9px; display: inline-block; flex: none; }
+
+/* Enemy roster */
+.roster { margin: 0 0 14px; }
+.roster-head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  width: 100%;
+  text-align: left;
+  padding: 5px 8px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.roster-head:hover:not(:disabled) { background: var(--panel); border-color: var(--border); }
+.roster-head strong { color: var(--text); font-weight: 600; }
+table.roster-table { margin-top: 6px; }
+.roster-name { color: var(--text); }
+.roster-summon { color: var(--muted); }
+.chip.summon { color: var(--dim); }
+.roster-note { color: var(--dim); font-size: 11px; line-height: 1.5; margin: 7px 0 0; max-width: 62ch; }
+
+/* Deaths */
+.death-grid { display: grid; grid-template-columns: 300px 1fr; gap: 16px; align-items: start; }
+/* The window is whatever the window manager gives it — a tiled 950px column is
+   normal — and at that width a 300px list leaves the recap too narrow to read. */
+@media (max-width: 1040px) {
+  .death-grid { grid-template-columns: 1fr; }
+  .death-list { flex-direction: row; flex-wrap: wrap; }
+  .death-item { width: auto; flex: 1 1 230px; }
+}
+.death-list { display: flex; flex-direction: column; gap: 5px; }
+.death-item {
+  width: 100%;
+  text-align: left;
+  display: block;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+.death-item:hover { background: var(--panel-raised); }
+.death-item.selected { border-color: var(--accent); background: #1d2433; }
+.death-item .who { display: flex; gap: 7px; align-items: center; }
+/* The timestamp keeps to the right edge now that the icon and name lead. */
+.death-item .who > :last-child { margin-left: auto; }
+.death-item .where { display: block; color: var(--muted); font-size: 11px; margin-top: 3px; }
+.death-item .cause { display: block; font-size: 11px; color: var(--dim); margin-top: 3px; }
+.cascade { display: block; color: var(--danger); font-size: 10px; margin-top: 3px; }
+
+.panel { background: var(--panel); border: 1px solid var(--border); border-radius: 7px; padding: 14px; }
+.panel h3 { margin: 0 0 11px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--dim); }
+.panel h3 .spec-ico { margin-right: 6px; }
+.panel + .panel { margin-top: 12px; }
+.kv { display: grid; grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); gap: 11px; }
+
+.trace { width: 100%; height: 118px; display: block; }
+
+/* Second-by-second death recap: damage left of the centre line, healing right,
+   one row per second, both sides on one shared scale. */
+/* Positioned, because the hover tip is placed over the chart in its coordinates. */
+.dt { display: flex; flex-direction: column; gap: 2px; position: relative; }
+.dt-head, .dt-row {
+  display: grid;
+  grid-template-columns: 54px 1fr 46px 1fr 54px;
+  gap: 7px;
+  align-items: center;
+}
+.dt-head {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--dim);
+  padding-bottom: 5px;
+  margin-bottom: 3px;
+  border-bottom: 1px solid var(--border);
+}
+.dt-head span:first-child { grid-column: 1 / span 2; text-align: right; }
+.dt-head span:nth-child(2) { grid-column: 3; text-align: center; }
+.dt-head span:last-child { grid-column: 4 / span 2; }
+.dt-row { height: 20px; border-radius: 3px; }
+.dt-row.death { background: #2a1a20; box-shadow: inset 2px 0 0 var(--danger); }
+.dt-bars { display: flex; height: 14px; overflow: hidden; }
+/* Reversed so the largest bar sits against the centre line on both sides. */
+.dt-bars.left { flex-direction: row-reverse; }
+/* No padding, because the icon is the only content and a 16px bar has to be
+   able to hold a 14px square without cropping it into an unrecognisable
+   smear — which is the whole reason the icon is there. */
+.dt-bar {
+  height: 100%;
+  min-width: 2px;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  border-radius: 2px;
+}
+/* Mirrored on the left side so every icon sits on its bar's centre-line edge,
+   which is where the eye already is. */
+.dt-bars.left .dt-bar { flex-direction: row-reverse; margin-left: 1px; }
+.dt-bars.right .dt-bar { margin-right: 1px; }
+.dt-ico { width: 14px; height: 14px; flex: 0 0 auto; display: block; border-radius: 2px; }
+.dt-bar.killing { outline: 1px solid var(--text); outline-offset: -1px; }
+.dt-total { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.dt-row .dt-total:first-child { text-align: right; }
+.dt-mid { font-size: 10px; color: var(--dim); text-align: center; font-variant-numeric: tabular-nums; }
+.dt-foot { color: var(--dim); font-size: 11px; line-height: 1.5; margin: 9px 0 0; max-width: 70ch; }
+
+/* The shared hover tip: the death recap's bars and the breakdown's ability rows
+   both use it. Own tip rather than the title attribute, because the browser's
+   takes about a second to appear and lands wherever the pointer is, which is
+   useless on a 14px bar in a stack of them. This one is instant and always
+   directly above the thing it describes. */
+.tip {
+  position: absolute;
+  z-index: 20;
+  transform: translate(-50%, -100%);
+  margin-top: -6px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 9px;
+  background: #0d0d14;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  box-shadow: 0 6px 18px rgb(0 0 0 / 0.55);
+  font-size: 11px;
+  white-space: nowrap;
+  /* Never let the tip itself end a hover it is covering. */
+  pointer-events: none;
+}
+/* Dropped below instead, when the row is too near the top of the view for the
+   tip to fit above it. */
+.tip.below { transform: translate(-50%, 0); margin-top: 6px; }
+.tip-ico { width: 26px; height: 26px; border-radius: 3px; flex: 0 0 auto; display: block; }
+.tip-body { display: flex; flex-direction: column; gap: 1px; }
+.tip .dim { color: var(--dim); font-weight: 400; }
+.tip-nums { color: var(--muted); font-variant-numeric: tabular-nums; }
+/* Label-and-figure pairs, for a tip that carries a whole stat block. */
+.tip-rows {
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: 1px 12px;
+  margin-top: 3px;
+  font-variant-numeric: tabular-nums;
+}
+.tip-rows dt { color: var(--dim); }
+.tip-rows dd { margin: 0; color: var(--text); text-align: right; }
+
+/* Two lists side by side: damage by ability, and the healing that answered it. */
+.split { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; align-items: start; }
+@media (max-width: 1180px) { .split { grid-template-columns: 1fr; gap: 14px; } }
+.hits { display: flex; flex-direction: column; gap: 2px; max-height: 260px; overflow-y: auto; }
+.hit { display: grid; grid-template-columns: 46px 1fr auto; gap: 9px; align-items: baseline; font-size: 12px; padding: 2px 0; }
+.hit .t { color: var(--dim); font-variant-numeric: tabular-nums; }
+.hit .amt { font-variant-numeric: tabular-nums; }
+.hit .src { color: var(--muted); }
+.hit.killing { color: var(--danger); font-weight: 600; }
+.chips { display: flex; flex-wrap: wrap; gap: 5px; }
+.chip { background: var(--panel-raised); border: 1px solid var(--border); border-radius: 11px; padding: 2px 9px; font-size: 11px; color: var(--muted); }
+
+.empty { color: var(--muted); padding: 40px 0; text-align: center; }
+.empty h2 { color: var(--text); font-weight: 600; font-size: 16px; margin: 0 0 8px; }
+.empty p { margin: 4px 0; }
+.warn {
+  background: #2e2416;
+  border: 1px solid #5e4a22;
+  color: #e8c98a;
+  border-radius: 6px;
+  padding: 9px 12px;
+  margin-bottom: 14px;
+  font-size: 12px;
+}
+.progress { height: 2px; background: var(--border); }
+.progress > div { height: 100%; background: var(--accent); transition: width 120ms linear; }
+.live {
+  display: inline-flex; align-items: center; gap: 5px;
+  color: var(--boss); font-size: 11px; text-transform: uppercase; letter-spacing: 0.6px;
+}
+.live::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--boss); }

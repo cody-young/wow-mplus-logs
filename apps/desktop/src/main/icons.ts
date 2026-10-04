@@ -1,0 +1,239 @@
+/**
+ * Spell icons, which the combat log does not contain.
+ *
+ * A log line carries a spell id and a name and nothing else, so an icon has to
+ * come from outside: Wowhead's tooltip endpoint turns an id into an icon name
+ * and its CDN serves the 36px jpg. That is the only network traffic this app
+ * ever makes, it is driven entirely by spell ids the user already has in their
+ * own log, and it happens at most once per spell per machine — everything is
+ * written to userData and read from there forever after. Set MPLUS_OFFLINE=1 to
+ * turn it off completely; the UI simply draws no icons.
+ *
+ * Nothing here is allowed to fail loudly. An icon is decoration on a chart that
+ * is already readable without it, so a timeout, a 404 or no network at all
+ * resolves to "no icon" and the renderer never hears about it.
+ *
+ * Two ways in, sharing one on-disk store. `resolveIcons` takes spell ids and
+ * has to ask the tooltip endpoint what an id's icon is called. `resolveNamed`
+ * takes the names directly, for art that is not a spell and so has no id to
+ * look up: the class/spec icons, whose texture names are fixed game data the
+ * renderer already holds. That path skips the tooltip hop entirely and is one
+ * CDN request per icon, once per machine, ever.
+ */
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+
+import { app } from 'electron';
+
+/** Spell id -> icon name, or null for "asked, and there is no icon". */
+type Index = Record<string, string | null>;
+
+const TIMEOUT_MS = 6000;
+const CONCURRENCY = 4;
+const UA = 'mplus-logs (local combat log viewer)';
+
+let dir = '';
+let index: Index | null = null;
+let indexDirty = false;
+/** Icon name -> data URL. The hot path, so disk is touched once per name. */
+const dataUrls = new Map<string, string>();
+const inflight = new Map<number, Promise<void>>();
+const namedInflight = new Map<string, Promise<void>>();
+/**
+ * Names the CDN had nothing for, this session only.
+ *
+ * Not written to the index like a spell miss is: these names come from our own
+ * static tables rather than from a log, so a miss means the table is wrong and
+ * should start working again the moment it is fixed — not be remembered as
+ * fact across every future run.
+ */
+const namedMisses = new Set<string>();
+
+function offline(): boolean {
+  return process.env['MPLUS_OFFLINE'] === '1';
+}
+
+/**
+ * Icon names come from a remote response and are used as a filename, so they
+ * are whitelisted rather than escaped: anything that is not a plain icon name
+ * is treated as "no icon".
+ */
+function safeName(name: unknown): string | null {
+  return typeof name === 'string' && /^[a-z0-9_]{1,80}$/i.test(name) ? name : null;
+}
+
+async function store(): Promise<string> {
+  if (dir === '') {
+    dir = join(app.getPath('userData'), 'spell-icons');
+    await mkdir(dir, { recursive: true });
+  }
+  return dir;
+}
+
+async function loadIndex(): Promise<Index> {
+  if (index !== null) return index;
+  try {
+    const raw = await readFile(join(await store(), 'index.json'), 'utf8');
+    const parsed: unknown = JSON.parse(raw);
+    index = typeof parsed === 'object' && parsed !== null ? (parsed as Index) : {};
+  } catch {
+    index = {};
+  }
+  return index;
+}
+
+async function saveIndex(): Promise<void> {
+  if (!indexDirty || index === null) return;
+  indexDirty = false;
+  try {
+    await writeFile(join(await store(), 'index.json'), JSON.stringify(index), 'utf8');
+  } catch {
+    // A cache that cannot be written just means the next run asks again.
+  }
+}
+
+async function readCached(name: string): Promise<string | null> {
+  const cached = dataUrls.get(name);
+  if (cached !== undefined) return cached;
+  try {
+    const bytes = await readFile(join(await store(), `${name}.jpg`));
+    const url = `data:image/jpeg;base64,${bytes.toString('base64')}`;
+    dataUrls.set(name, url);
+    return url;
+  } catch {
+    return null;
+  }
+}
+
+async function get(url: string, as: 'json' | 'bytes'): Promise<unknown> {
+  const response = await fetch(url, {
+    signal: AbortSignal.timeout(TIMEOUT_MS),
+    headers: { 'user-agent': UA },
+  });
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  return as === 'json' ? await response.json() : Buffer.from(await response.arrayBuffer());
+}
+
+/** Resolves one spell id all the way to a cached file, or records the miss. */
+async function fetchOne(spellId: number): Promise<void> {
+  const map = await loadIndex();
+  const tooltip = await get(
+    `https://nether.wowhead.com/tooltip/spell/${spellId}?dataEnv=1&locale=0`,
+    'json',
+  );
+  const name = safeName((tooltip as { icon?: unknown } | null)?.icon);
+  if (name === null) {
+    // A real answer with no icon in it: remember the miss so it is never asked
+    // again. Network errors deliberately do not get here.
+    map[String(spellId)] = null;
+    indexDirty = true;
+    return;
+  }
+
+  map[String(spellId)] = name;
+  indexDirty = true;
+  if ((await readCached(name)) !== null) return;
+
+  const bytes = (await get(
+    `https://wow.zamimg.com/images/wow/icons/medium/${name}.jpg`,
+    'bytes',
+  )) as Buffer;
+  await writeFile(join(await store(), `${name}.jpg`), bytes);
+  dataUrls.set(name, `data:image/jpeg;base64,${bytes.toString('base64')}`);
+}
+
+/**
+ * Data URLs for whatever is known, keyed by spell id. Ids with no icon are
+ * omitted rather than sent as null, so the renderer can treat the result as
+ * "everything I can draw".
+ */
+export async function resolveIcons(spellIds: number[]): Promise<Record<number, string>> {
+  const wanted = [...new Set(spellIds)].filter((id) => Number.isInteger(id) && id > 0).slice(0, 400);
+  const map = await loadIndex();
+
+  const missing = offline() ? [] : wanted.filter((id) => !(String(id) in map));
+  // A chunked worklist rather than Promise.all over everything: a long key can
+  // carry a couple of hundred unseen spells and firing those at once is both
+  // rude and slower than four at a time.
+  let next = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(CONCURRENCY, missing.length) }, async () => {
+      for (let i = next++; i < missing.length; i = next++) {
+        const id = missing[i]!;
+        let job = inflight.get(id);
+        if (job === undefined) {
+          job = fetchOne(id).catch(() => undefined);
+          inflight.set(id, job);
+        }
+        await job;
+        inflight.delete(id);
+      }
+    }),
+  );
+  await saveIndex();
+
+  const out: Record<number, string> = {};
+  for (const id of wanted) {
+    const name = map[String(id)];
+    if (name === undefined || name === null) continue;
+    const url = await readCached(name);
+    if (url !== null) out[id] = url;
+  }
+  return out;
+}
+
+/** Fetches one named icon to the store, or records the miss for this session. */
+async function fetchNamed(name: string): Promise<void> {
+  try {
+    const bytes = (await get(
+      `https://wow.zamimg.com/images/wow/icons/medium/${name}.jpg`,
+      'bytes',
+    )) as Buffer;
+    await writeFile(join(await store(), `${name}.jpg`), bytes);
+    dataUrls.set(name, `data:image/jpeg;base64,${bytes.toString('base64')}`);
+  } catch {
+    namedMisses.add(name);
+  }
+}
+
+/**
+ * Data URLs for icons asked for by texture name, keyed by that name.
+ *
+ * Same contract as `resolveIcons`: names with nothing behind them are omitted,
+ * and the whole thing resolves to `{}` offline rather than rejecting.
+ */
+export async function resolveNamed(names: string[]): Promise<Record<string, string>> {
+  const wanted = [...new Set(names)]
+    .map((name) => safeName(name))
+    .filter((name): name is string => name !== null)
+    .slice(0, 200);
+
+  const missing: string[] = [];
+  for (const name of wanted) {
+    if (namedMisses.has(name)) continue;
+    if ((await readCached(name)) === null && !offline()) missing.push(name);
+  }
+
+  let next = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(CONCURRENCY, missing.length) }, async () => {
+      for (let i = next++; i < missing.length; i = next++) {
+        const name = missing[i]!;
+        let job = namedInflight.get(name);
+        if (job === undefined) {
+          job = fetchNamed(name);
+          namedInflight.set(name, job);
+        }
+        await job;
+        namedInflight.delete(name);
+      }
+    }),
+  );
+
+  const out: Record<string, string> = {};
+  for (const name of wanted) {
+    const url = await readCached(name);
+    if (url !== null) out[name] = url;
+  }
+  return out;
+}

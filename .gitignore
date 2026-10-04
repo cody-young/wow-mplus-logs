@@ -1,0 +1,11 @@
+node_modules/
+dist/
+*.tsbuildinfo
+.DS_Store
+logs/
+*.log
+!src/**/*.log
+out/
+.vite/
+.ui-smoke.bundle.mjs
+release/

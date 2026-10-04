@@ -1,0 +1,35 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "outDir": "dist-types",
+    "noEmit": false,
+    "emitDeclarationOnly": true,
+    "jsx": "react-jsx",
+    "lib": [
+      "ES2022",
+      "DOM",
+      "DOM.Iterable"
+    ],
+    "types": [
+      "node"
+    ],
+    "moduleResolution": "bundler",
+    "module": "ESNext",
+    "verbatimModuleSyntax": false,
+    "exactOptionalPropertyTypes": false
+  },
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    "electron.vite.config.ts"
+  ],
+  "references": [
+    {
+      "path": "../../packages/parser"
+    },
+    {
+      "path": "../../packages/analysis"
+    }
+  ]
+}

@@ -1,0 +1,66 @@
+# Packaging for Linux and Windows.
+#
+# `files` is only the build output and the manifest, with no node_modules entry,
+# because there is nothing to carry: electron.vite.config.ts bundles the three
+# workspace packages, so the built main process imports nothing but `electron`
+# and `node:*` builtins. That is what keeps this file short — in a monorepo the
+# usual pain is teaching the packager which symlinks to follow.
+appId: io.github.cody_young.mplus-logs
+
+# Set explicitly rather than left to default. electron-builder falls back to the
+# package `name` for the executable, and this package is named `@mplus/desktop`
+# — which it sanitises to `@mplusdesktop`, the exact string the README says the
+# window must never announce itself as.
+productName: mplus-logs
+
+# NOT changed to a prettier "M+ Logs": productName in package.json is what gives
+# the window its WM_CLASS / Wayland app_id, Electron reads it before the main
+# script runs, and the README documents the name users write window rules
+# against. The installers get readable names through artifactName instead.
+directories:
+  output: ../../release
+  buildResources: build
+
+files:
+  - out/**
+  - package.json
+
+asar: true
+
+# Pinned because electron-builder infers the version from the dependency tree,
+# and in a workspace the install is hoisted to the repo root where its usual
+# lookup does not reach.
+electronVersion: 33.4.11
+
+# ${productName} would be the WM_CLASS name; ${name} is the same string here.
+# ${version} and ${arch} are what make two releases distinguishable on disk.
+artifactName: mplus-logs-${version}-${os}-${arch}.${ext}
+
+linux:
+  # Utility rather than Game: it never launches anything, it reads a text file
+  # the game wrote, and it belongs in a menu beside the other log viewers.
+  category: Utility
+  # .deb refuses to build without one, and it is written into the package for
+  # anyone who installs it — so a GitHub noreply rather than a personal address.
+  maintainer: Cody Young <cody-young@users.noreply.github.com>
+  executableName: mplus-logs
+  synopsis: Combat log analysis for Mythic+ keys
+  target:
+    - AppImage
+    - deb
+
+win:
+  target:
+    - nsis
+    - portable
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+
+# Creates a draft release on the tag, so a build is reviewed and its notes
+# written before anyone can download it.
+publish:
+  provider: github
+  releaseType: draft

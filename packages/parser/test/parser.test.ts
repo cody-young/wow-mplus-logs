@@ -1,0 +1,388 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+
+import { ActorKind } from '../src/actors.js';
+import { Ev, EvFlag } from '../src/events.js';
+import { LogSession, type Run } from '../src/session.js';
+import { TimestampReader } from '../src/timestamp.js';
+import { MAX_FIELDS, fieldStr, splitFields } from '../src/tokenizer.js';
+import { ENEMY, HEALER, LEGACY_TEXT, LOG_TEXT, PET, PLAYER, PLAYER_NAME } from './fixture.js';
+
+function parseAll(text: string): LogSession {
+  const session = new LogSession({ assumedYear: 2026 });
+  session.pushText(text);
+  session.end();
+  return session;
+}
+
+function onlyRun(session: LogSession): Run {
+  assert.equal(session.runs.length, 1, 'expected exactly one run');
+  return session.runs[0]!;
+}
+
+/** Rows in a run's store matching a predicate on (code, index). */
+function rows(run: Run, code: Ev): number[] {
+  const out: number[] = [];
+  for (let i = 0; i < run.store.count; i++) {
+    if (run.store.code[i] === code) out.push(i);
+  }
+  return out;
+}
+
+test('tokenizer keeps commas inside quotes and brackets', () => {
+  const line = 'CHALLENGE_MODE_START,"Ara-Kara, City of Echoes",2660,503,12,[10,9,147,148]';
+  const offsets = new Int32Array(MAX_FIELDS * 2);
+  const count = splitFields(line, 'CHALLENGE_MODE_START,'.length, offsets);
+  assert.equal(count, 5);
+  assert.equal(fieldStr(line, offsets, 0), 'Ara-Kara, City of Echoes');
+  assert.equal(fieldStr(line, offsets, 1), '2660');
+  assert.equal(fieldStr(line, offsets, 4), '[10,9,147,148]');
+});
+
+test('timestamp reads the current format with year and zone offset', () => {
+  const reader = new TimestampReader({ assumedYear: 2026 });
+  assert.ok(reader.read('9/30/2026 18:50:23.123-4  SPELL_DAMAGE,x'));
+  assert.equal(reader.hasYear, true);
+  assert.equal(reader.tzOffsetMinutes, -240);
+  assert.equal(reader.ms, Date.UTC(2026, 8, 30, 18, 50, 23, 123));
+  assert.equal('9/30/2026 18:50:23.123-4  SPELL_DAMAGE,x'.slice(reader.bodyStart, reader.bodyStart + 12), 'SPELL_DAMAGE');
+});
+
+test('timestamp reads the legacy format and rolls the year at January', () => {
+  const reader = new TimestampReader({ assumedYear: 2026 });
+  assert.ok(reader.read('12/31 23:59:59.900  SPELL_DAMAGE,x'));
+  const december = reader.ms;
+  assert.ok(reader.read('1/1 00:00:00.100  SPELL_DAMAGE,x'));
+  assert.ok(reader.ms > december, 'January must follow December, not precede it');
+  assert.equal(reader.ms - december, 200);
+});
+
+test('session brackets the run and parses its keystone metadata', () => {
+  const run = onlyRun(parseAll(LOG_TEXT));
+  assert.equal(run.meta.zoneName, 'Ara-Kara, City of Echoes');
+  assert.equal(run.meta.instanceId, 2660);
+  assert.equal(run.meta.challengeModeId, 503);
+  assert.equal(run.meta.keystoneLevel, 12);
+  assert.deepEqual(run.meta.affixes, [10, 9, 147, 148]);
+  assert.equal(run.meta.success, true);
+  assert.equal(run.meta.totalTimeMs, 1_860_000);
+  assert.equal(run.meta.encounters.length, 1);
+  const boss = run.meta.encounters[0]!;
+  assert.equal(boss.name, 'Avanoxx');
+  assert.equal(boss.success, true);
+  // Window bounds are store-relative, so they line up with the event column.
+  assert.equal(boss.startTs, Date.UTC(2026, 8, 30, 19, 5, 0) - run.meta.startMs);
+  assert.equal(boss.endTs, Date.UTC(2026, 8, 30, 19, 8, 30) - run.meta.startMs);
+});
+
+test('events outside a run are not recorded', () => {
+  const session = parseAll(LOG_TEXT);
+  const run = onlyRun(session);
+  // The fixture's last damage line is ten minutes after CHALLENGE_MODE_END.
+  for (let i = 0; i < run.store.count; i++) {
+    assert.ok(run.store.ts[i]! <= run.meta.endMs! - run.meta.startMs);
+  }
+  assert.equal(session.current, null);
+});
+
+test('damage events resolve amount, overkill and the crit flag', () => {
+  const run = onlyRun(parseAll(LOG_TEXT));
+  const damage = rows(run, Ev.SPELL_DAMAGE);
+  // Three player hits, one pet hit, and the _SUPPORT variant folded onto the
+  // same code so callers need only one branch.
+  assert.equal(damage.length, 5);
+
+  const first = damage[0]!;
+  assert.equal(run.store.amount[first], 54321);
+  assert.equal(run.store.waste[first], -1, 'overkill is -1 on a non-killing hit');
+  assert.equal(run.store.flags[first]! & EvFlag.CRITICAL, 0);
+
+  const crit = damage[1]!;
+  assert.equal(run.store.amount[crit], 108642);
+  assert.ok(run.store.flags[crit]! & EvFlag.CRITICAL, 'crit flag must be set');
+
+  const killing = damage[3]!;
+  assert.equal(run.store.amount[killing], 120000);
+  assert.equal(run.store.waste[killing], 7400, 'overkill on the killing blow');
+});
+
+test('advanced block yields target health and position', () => {
+  const run = onlyRun(parseAll(LOG_TEXT));
+  const first = rows(run, Ev.SPELL_DAMAGE)[0]!;
+  assert.ok(run.store.flags[first]! & EvFlag.ADVANCED);
+  assert.equal(run.store.hpCurrent[first], 120000);
+  assert.equal(run.store.hpMax[first], 150000);
+  assert.ok(Math.abs(run.store.posX[first]! - 1234.56) < 0.01);
+  assert.ok(Math.abs(run.store.posY[first]! - 789.01) < 0.01);
+});
+
+test('heals separate effective amount from overhealing', () => {
+  const run = onlyRun(parseAll(LOG_TEXT));
+  const heal = rows(run, Ev.SPELL_HEAL)[0]!;
+  assert.equal(run.store.amount[heal], 32000);
+  assert.equal(run.store.waste[heal], 5000, 'overhealing');
+  assert.ok(run.store.flags[heal]! & EvFlag.CRITICAL);
+});
+
+test('interrupts record the interrupted spell, not just the interrupting one', () => {
+  const run = onlyRun(parseAll(LOG_TEXT));
+  const interrupt = rows(run, Ev.SPELL_INTERRUPT)[0]!;
+  assert.equal(run.store.spellId[interrupt], 183752, 'Disrupt');
+  assert.equal(run.store.extraSpellId[interrupt], 324652, 'Horrific Scream');
+  assert.equal(run.store.flags[interrupt]! & EvFlag.ADVANCED, 0, 'interrupts carry no advanced block');
+});
+
+test('pet damage attributes to its owner', () => {
+  const session = parseAll(LOG_TEXT);
+  const run = onlyRun(session);
+  const pet = session.parser.actors.get(PET);
+  assert.ok(pet, 'pet actor exists');
+  assert.equal(pet.kind, ActorKind.PET);
+  const owner = session.parser.actors.get(PLAYER);
+  assert.ok(owner);
+  assert.equal(pet.ownerIndex, owner.index, 'owner link read from the advanced block');
+  assert.equal(session.parser.actors.attribute(pet.index), owner.index);
+});
+
+test('COMBATANT_INFO spec id is found structurally, not by field index', () => {
+  const session = parseAll(LOG_TEXT);
+  const party = session.parser.actors.party();
+  assert.equal(party.length, 2);
+  const tank = session.parser.actors.get(PLAYER)!;
+  assert.equal(tank.inParty, true);
+  // The fixture pads the stat run past the pre-12.1.0 layout, so a fixed
+  // field index would read a stat here instead of the spec.
+  assert.equal(tank.specId, 268, 'Brewmaster');
+  assert.equal(session.parser.actors.get(HEALER)!.specId, 270, 'Mistweaver');
+});
+
+test('non-ASCII names survive interning', () => {
+  const session = parseAll(LOG_TEXT);
+  const player = session.parser.actors.get(PLAYER)!;
+  assert.equal(session.parser.interner.resolve(player.nameId), PLAYER_NAME);
+});
+
+test('enemy npc id is recovered from the GUID', () => {
+  const session = parseAll(LOG_TEXT);
+  assert.equal(session.parser.actors.get(ENEMY)!.npcId, 191622);
+});
+
+test('swing damage reads its 10-field suffix, which has no ST/AOE category', () => {
+  const run = onlyRun(parseAll(LOG_TEXT));
+  const swing = rows(run, Ev.SWING_DAMAGE)[0]!;
+  assert.equal(run.store.amount[swing], 75979, 'damage taken after armor');
+  assert.equal(run.store.waste[swing], -1);
+  // The advanced block describes the destination, so this is the player's HP.
+  assert.equal(run.store.hpCurrent[swing], 88000);
+  assert.equal(run.store.hpMax[swing], 120000);
+});
+
+test('ENVIRONMENTAL_DAMAGE has no prefix and its type follows the advanced block', () => {
+  const run = onlyRun(parseAll(LOG_TEXT));
+  const fall = rows(run, Ev.ENVIRONMENTAL_DAMAGE)[0]!;
+  assert.equal(run.store.amount[fall], 58734);
+  assert.equal(run.store.waste[fall], 0, 'overkill, read past the environmentalType field');
+  assert.equal(run.store.hpCurrent[fall], 88000, 'advanced block starts right after the base block');
+  assert.ok(Math.abs(run.store.posX[fall]! - 1200.5) < 0.01);
+});
+
+test('advanced block width is measured, so a 17-field block still parses', () => {
+  // LEGACY_TEXT carries the pre-12.1.0 block. If the width were assumed to be
+  // 19, positionX would be read from uiMapID and the suffix would shift by two.
+  const run = onlyRun(parseAll(LEGACY_TEXT));
+  const damage = rows(run, Ev.SPELL_DAMAGE)[0]!;
+  assert.ok(run.store.flags[damage]! & EvFlag.ADVANCED, 'the block is present, just narrower');
+  assert.ok(Math.abs(run.store.posX[damage]! - 1234.56) < 0.01, 'positions located from the block end');
+  assert.ok(Math.abs(run.store.posY[damage]! - 789.01) < 0.01);
+  assert.equal(run.store.hpCurrent[damage], 120000, 'health located from the block start');
+  assert.equal(run.store.amount[damage], 54321);
+  assert.equal(run.store.waste[damage], -1, 'overkill sits one slot earlier without baseAmount');
+});
+
+test('SPELL_ABSORBED reads the hit absorbed, not the shield pool', () => {
+  const run = onlyRun(parseAll(LOG_TEXT));
+  const absorbed = rows(run, Ev.SPELL_ABSORBED);
+  assert.equal(absorbed.length, 3, 'the melee shape, the spell shape and a healer-cast one');
+
+  // 18 fields: no attacker spell, so the prefix slot holds no spell id.
+  assert.equal(run.store.amount[absorbed[0]!], 59945, 'absorbed by this hit');
+  assert.notEqual(run.store.amount[absorbed[0]!], 833881, 'not the shield total');
+  assert.equal(run.store.extraSpellId[absorbed[0]!], 206967, 'the absorbing shield');
+  assert.equal(run.store.spellId[absorbed[0]!], 0, 'melee hit has no spell');
+
+  // 21 fields: attacker spell present ahead of the absorber block.
+  assert.equal(run.store.amount[absorbed[1]!], 21011);
+  assert.equal(run.store.spellId[absorbed[1]!], 1216570, 'the incoming spell');
+  assert.equal(run.store.extraSpellId[absorbed[1]!], 206967, 'the absorbing shield');
+});
+
+test('an absorb names the shield and who cast it, in both shapes', () => {
+  const session = parseAll(LOG_TEXT);
+  const run = onlyRun(session);
+  const { spellNames, interner } = session.parser;
+  const absorbed = rows(run, Ev.SPELL_ABSORBED);
+
+  // Without the name the shield is a bare id, which answers nothing: the only
+  // reason to record the absorb is knowing what stopped the hit.
+  const shieldName = (id: number): string => interner.resolve(spellNames.get(id)!);
+  assert.equal(shieldName(206967), 'Will of the Necropolis');
+  assert.equal(shieldName(17), 'Power Word: Shield');
+
+  // The caster triple sits at the same distance from the end in both shapes,
+  // which is why the melee line and the spell line are both checked.
+  const player = run.actors.get(PLAYER)!.index;
+  const healer = run.actors.get(HEALER)!.index;
+  assert.equal(run.store.extraActor.get(absorbed[0]!), player, 'self-applied, melee shape');
+  assert.equal(run.store.extraActor.get(absorbed[1]!), player, 'self-applied, spell shape');
+  assert.equal(run.store.extraActor.get(absorbed[2]!), healer, 'cast by the healer');
+  assert.equal(run.store.extraSpellId[absorbed[2]!], 17, 'the healer-cast shield');
+});
+
+test('SPELL_HEAL_ABSORBED has no critical flag, so its tail differs', () => {
+  const run = onlyRun(parseAll(LOG_TEXT));
+  const row = rows(run, Ev.SPELL_HEAL_ABSORBED)[0]!;
+  assert.equal(run.store.amount[row], 1225);
+  assert.equal(run.store.extraSpellId[row], 45470, 'the heal that was absorbed');
+  assert.equal(run.store.spellId[row], 116888, 'the absorbing effect');
+});
+
+test('_SUPPORT damage records the supporter without double-counting', () => {
+  const session = parseAll(LOG_TEXT);
+  const run = onlyRun(session);
+  // The event folds onto the base code with the SUPPORT flag, so a damage
+  // table sees one event kind and decides attribution itself.
+  const supportRows = [...run.store.support.keys()];
+  assert.equal(supportRows.length, 1);
+  const row = supportRows[0]!;
+  assert.equal(run.store.code[row], Ev.SPELL_DAMAGE);
+  assert.ok(run.store.flags[row]! & EvFlag.SUPPORT);
+  assert.equal(run.store.amount[row], 4482);
+  assert.equal(run.store.support.get(row), session.parser.actors.get(PLAYER)!.index);
+});
+
+test('auras without a stack amount do not invent one', () => {
+  const run = onlyRun(parseAll(LOG_TEXT));
+  const applied = rows(run, Ev.SPELL_AURA_APPLIED)[0]!;
+  assert.equal(run.store.spellId[applied], 43308);
+  assert.equal(run.store.amount[applied], 0);
+  const extra = rows(run, Ev.SPELL_EXTRA_ATTACKS)[0]!;
+  assert.equal(run.store.amount[extra], 1, 'extra attack count');
+});
+
+test('the advanced block is attributed to the unit its infoGUID names', () => {
+  const run = onlyRun(parseAll(LOG_TEXT));
+  const swings = rows(run, Ev.SWING_DAMAGE);
+  assert.equal(swings.length, 2);
+
+  // First swing: the block describes the victim.
+  assert.equal(run.store.flags[swings[0]!]! & EvFlag.INFO_IS_SOURCE, 0);
+  assert.equal(run.store.hpCurrent[swings[0]!], 88000, "the player's health");
+
+  // Second swing: the block describes the attacker, so the health belongs to
+  // the enemy. Reading it as the victim's would corrupt any death analysis.
+  assert.ok(run.store.flags[swings[1]!]! & EvFlag.INFO_IS_SOURCE);
+  assert.equal(run.store.hpCurrent[swings[1]!], 120000, "the enemy's health");
+});
+
+test('healing a pet does not make the healer that pet owner\'s minion', () => {
+  // The regression that motivated the infoGUID check: the advanced block of a
+  // heal describes the pet and names its owner. Applying that owner to the
+  // event's source made the healer resolve to the pet's owner, and every
+  // per-player total silently read zero.
+  const session = parseAll(LOG_TEXT);
+  const healer = session.parser.actors.get(HEALER)!;
+  const pet = session.parser.actors.get(PET)!;
+  const player = session.parser.actors.get(PLAYER)!;
+
+  assert.equal(healer.ownerIndex, -1, 'the healer owns themselves');
+  assert.equal(session.parser.actors.attribute(healer.index), healer.index);
+  assert.equal(pet.ownerIndex, player.index, 'the pet still links to its owner');
+});
+
+test('byte-level chunking is indistinguishable from a single push', () => {
+  // This is the test that makes live tailing trustworthy: the game flushes
+  // whenever it likes, so every possible split point must behave identically.
+  const whole = parseAll(LOG_TEXT);
+  const bytes = new TextEncoder().encode(LOG_TEXT);
+
+  for (const size of [1, 2, 3, 7, 64, 1024]) {
+    const session = new LogSession({ assumedYear: 2026 });
+    for (let offset = 0; offset < bytes.length; offset += size) {
+      session.push(bytes.subarray(offset, Math.min(offset + size, bytes.length)));
+    }
+    session.end();
+
+    const a = onlyRun(whole);
+    const b = onlyRun(session);
+    assert.equal(b.store.count, a.store.count, `event count at chunk size ${size}`);
+    assert.deepEqual(b.meta.affixes, a.meta.affixes, `affixes at chunk size ${size}`);
+    assert.equal(b.meta.zoneName, a.meta.zoneName, `zone name at chunk size ${size}`);
+    for (let i = 0; i < a.store.count; i++) {
+      assert.equal(b.store.code[i], a.store.code[i], `code[${i}] at chunk size ${size}`);
+      assert.equal(b.store.amount[i], a.store.amount[i], `amount[${i}] at chunk size ${size}`);
+      assert.equal(b.store.ts[i], a.store.ts[i], `ts[${i}] at chunk size ${size}`);
+    }
+    assert.equal(
+      session.parser.interner.resolve(session.parser.actors.get(PLAYER)!.nameId),
+      PLAYER_NAME,
+      `multi-byte name intact at chunk size ${size}`,
+    );
+  }
+});
+
+test('a reset key abandons the partial run instead of merging two', () => {
+  const session = new LogSession({ assumedYear: 2026 });
+  session.pushText(
+    [
+      '9/30/2026 18:00:00.000-4  CHALLENGE_MODE_START,"Ara-Kara, City of Echoes",2660,503,12,[10]',
+      `9/30/2026 18:00:01.000-4  SPELL_DAMAGE,${PLAYER},"A",0x511,0x0,${ENEMY},"B",0xa48,0x0,1,"S",0x1,500,500,-1,1,0,0,0,nil,nil,nil`,
+      '9/30/2026 18:10:00.000-4  CHALLENGE_MODE_START,"Ara-Kara, City of Echoes",2660,503,12,[10]',
+      `9/30/2026 18:10:01.000-4  SPELL_DAMAGE,${PLAYER},"A",0x511,0x0,${ENEMY},"B",0xa48,0x0,1,"S",0x1,700,700,-1,1,0,0,0,nil,nil,nil`,
+      '9/30/2026 18:40:00.000-4  CHALLENGE_MODE_END,2660,1,12,1800000,180',
+      '',
+    ].join('\n'),
+  );
+  const run = onlyRun(session);
+  assert.equal(run.store.count, 1, 'only the second attempt survives');
+  assert.equal(run.store.amount[0], 700);
+});
+
+test('party membership is per run, so a tank swap does not leak across keys', () => {
+  // Actor.inParty is sticky and the actor table spans the file, so a run that
+  // read membership off the table would list everyone who played that evening
+  // and show the absent player with zeros in every column.
+  const other = 'Player-1234-0000CAFE';
+  const stats = '0,1,1,1,1,1,0,0,1,1,1,0,0,1,1,1,0,1,1,1,1,1,1,1';
+  const tail = '[(1,1)],[],[],[],[],1,0,0,0';
+  const session = new LogSession({ assumedYear: 2026 });
+  session.pushText(
+    [
+      '9/30/2026 18:00:00.000-4  CHALLENGE_MODE_START,"Murder Row",2669,500,16,[10]',
+      `9/30/2026 18:00:01.000-4  COMBATANT_INFO,${PLAYER},${stats},250,${tail}`,
+      `9/30/2026 18:00:01.000-4  COMBATANT_INFO,${HEALER},${stats},270,${tail}`,
+      '9/30/2026 18:25:00.000-4  CHALLENGE_MODE_END,2669,1,16,1500000,180',
+      '9/30/2026 19:00:00.000-4  CHALLENGE_MODE_START,"Murder Row",2669,500,16,[10]',
+      `9/30/2026 19:00:01.000-4  COMBATANT_INFO,${other},${stats},581,${tail}`,
+      `9/30/2026 19:00:01.000-4  COMBATANT_INFO,${HEALER},${stats},270,${tail}`,
+      '9/30/2026 19:25:00.000-4  CHALLENGE_MODE_END,2669,1,16,1500000,180',
+      '',
+    ].join('\n'),
+  );
+
+  assert.equal(session.runs.length, 2);
+  const actors = session.parser.actors;
+  const first = session.runs[0]!.meta.party;
+  const second = session.runs[1]!.meta.party;
+  assert.deepEqual(first, [actors.get(PLAYER)!.index, actors.get(HEALER)!.index]);
+  assert.deepEqual(second, [actors.get(other)!.index, actors.get(HEALER)!.index]);
+  assert.ok(!second.includes(actors.get(PLAYER)!.index), 'the swapped-out tank is absent');
+  // The file-wide view still knows all three played.
+  assert.equal(actors.party().length, 3);
+});
+
+test('unparseable lines are counted, not thrown', () => {
+  const session = new LogSession({ assumedYear: 2026 });
+  session.pushText('garbage line with no timestamp\n\n9/30/2026 18:00:00.000-4  TOTALLY_NEW_EVENT,1,2,3\n');
+  assert.equal(session.parser.linesRejected, 1);
+  assert.equal(session.parser.unknownEvents, 1);
+});

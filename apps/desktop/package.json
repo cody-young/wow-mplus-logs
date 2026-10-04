@@ -1,0 +1,39 @@
+{
+  "name": "@mplus/desktop",
+  "productName": "mplus-logs",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Combat log analysis for Mythic+ keys",
+  "author": "Cody Young",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cody-young/wow-mplus-logs.git"
+  },
+  "main": "./out/main/index.js",
+  "scripts": {
+    "dev": "node scripts/electron-vite.mjs dev",
+    "build": "electron-vite build",
+    "start": "node scripts/electron-vite.mjs preview",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder",
+    "dist:linux": "electron-builder --linux",
+    "dist:win": "electron-builder --win"
+  },
+  "devDependencies": {
+    "@mplus/analysis": "*",
+    "@mplus/data": "*",
+    "@mplus/parser": "*",
+    "@types/react": "^19.0.2",
+    "@types/react-dom": "^19.0.2",
+    "@vitejs/plugin-react": "^4.3.4",
+    "electron": "^33.2.1",
+    "electron-builder": "^25.1.8",
+    "electron-vite": "^5.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "uplot": "^1.6.31",
+    "vite": "^6.0.5"
+  }
+}

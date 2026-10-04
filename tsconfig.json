@@ -1,0 +1,4 @@
+{
+  "files": [],
+  "references": [{ "path": "./packages/parser" }, { "path": "./packages/data" }, { "path": "./packages/analysis" }]
+}

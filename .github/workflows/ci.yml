@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A second push to a PR makes the first run irrelevant.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    env:
+      # Nothing here launches Electron — this job typechecks, runs the suites
+      # and bundles — so the 100 MB binary download is pure latency.
+      ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - run: npm ci
+
+      # The portability rule is cheapest to check and the one most likely to be
+      # broken by accident, so it fails first.
+      - name: Portable packages import no Node builtin
+        run: npm run check:pure
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+  # `ui-smoke` is deliberately absent: it needs a real multi-hundred-megabyte
+  # combat log, which cannot be committed and would not be representative if it
+  # were. It stays a local command — see the README.

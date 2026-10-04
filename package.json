@@ -1,0 +1,39 @@
+{
+  "name": "wow-mplus-logs",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Combat log analysis for Mythic+ keys",
+  "author": "Cody Young",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cody-young/wow-mplus-logs.git"
+  },
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "build": "tsc --build && npm run build --workspace @mplus/desktop",
+    "typecheck": "tsc --build --force && tsc -p apps/desktop/tsconfig.json --noEmit",
+    "test": "npm run test --workspaces --if-present",
+    "dev": "npm run dev --workspace @mplus/desktop",
+    "check:pure": "node scripts/check-pure.mjs packages/parser/src packages/data/src packages/analysis/src",
+    "inspect": "node scripts/inspect.mjs",
+    "summary": "node scripts/summary.mjs",
+    "report": "node scripts/report.mjs",
+    "ui-smoke": "node scripts/ui-smoke.mjs",
+    "dist": "npm run build && npm run dist --workspace @mplus/desktop"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2",
+    "@types/node": "^22.10.2"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "allowScripts": {
+    "electron@33.4.11": true
+  }
+}
