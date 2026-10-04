@@ -25,6 +25,7 @@ export {
   deathReports,
   type AbilityTotal,
   type AbsorbReceived,
+  type AuraWindow,
   type CastRecord,
   type DeathOptions,
   type DeathReport,

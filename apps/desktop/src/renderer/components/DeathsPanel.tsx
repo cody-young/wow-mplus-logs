@@ -169,14 +169,19 @@ interface HealingTotal {
 }
 
 /**
- * Heals received, grouped by spell. The analysis keeps them as a flat list
- * because the timeline needs individual timestamps; this is the same data asked
- * the other question — which spells actually did the work.
+ * Heals received in the summary window, grouped by spell.
+ *
+ * The analysis keeps them as a flat list because the timeline needs individual
+ * timestamps; this is the same data asked the other question — which spells
+ * actually did the work. The list reaches back as far as the recap can be
+ * scrolled, which is further than `healingReceived` counts, so it is cut to
+ * the window first: the percentages beside each spell are shares of that
+ * total, and shares of a different window add up to more than all of it.
  */
 function healingBySpell(death: DeathReport): HealingTotal[] {
   const grouped = new Map<number, HealingTotal & { sources: Map<string, number> }>();
   for (const heal of death.healsReceived) {
-    if (heal.amount <= 0) continue;
+    if (heal.amount <= 0 || heal.ts < death.ts - death.windowMs) continue;
     let entry = grouped.get(heal.spellId);
     if (entry === undefined) {
       entry = {

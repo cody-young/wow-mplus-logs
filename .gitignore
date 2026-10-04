@@ -8,4 +8,7 @@ logs/
 out/
 .vite/
 .ui-smoke.bundle.mjs
+.shot.bundle.mjs
+shot*.png
+shot*.html
 release/

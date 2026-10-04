@@ -13,7 +13,7 @@ them yourself.
 packages/parser/    portable combat log engine — bytes in, columnar events out
 packages/analysis/  segmentation, damage/healing breakdowns, death post-mortems
 apps/desktop/       Electron shell: worker-thread parsing, live tail, React UI
-packages/data/      enemy-forces tables and the MDT reader
+packages/data/      enemy-forces tables, the MDT reader, the spell tables
 ```
 
 ## The rule that keeps a web version possible
@@ -188,6 +188,89 @@ for all sixteen dungeons.
 worth nothing, `null` is a creature no table covers. The UI shows the second as
 `—` and says the segment's count is a lower bound, because collapsing them
 would quietly understate a pull.
+
+## Defensives, and why the list is not curated
+
+The death recap has a lane for what the dying player had up. Filling it with
+every buff makes it useless: a real key puts over a hundred distinct buffs on
+five players, and food, weapon imbues, haste procs and seasonal trinkets bury
+the one Shield Wall you are looking for. One logged Kings' Rest key carries 166
+of them.
+
+The obvious fix is a hand-kept list of defensives, which is wrong for the usual
+reason — it is a few hundred spells across thirty-nine specs, it goes stale
+every patch, and whoever forgets to update it is the person who later wonders
+why the lane is empty for a Druid.
+
+So it is derived instead. The game has no flag that says "this is a defensive",
+but it does classify what every spell *effect* does, and the aura types are the
+vocabulary we want: `SCHOOL_ABSORB`, `MOD_DAMAGE_PERCENT_TAKEN`,
+`SCHOOL_IMMUNITY`, `MOD_DODGE_PERCENT`, and six more. A spell that reduces the
+damage you take is a defensive whatever it is called and whichever patch
+invented it. `scripts/spell-effects.mjs` reads `SpellEffect.db2` from
+[wago.tools][wago], keeps the spells carrying one of those ten auras, and writes
+`packages/data/src/defensives.ts`. On the current build that is 629k effect rows
+in, 9k spell ids out. On the key above it cuts the lane from 166 buffs to 27.
+
+What is still a judgement call is the ten aura numbers — but ten numbers that
+have barely moved in a decade is a different maintenance problem from five
+hundred spells that move every patch. Each one is listed in the script beside
+the spell that proves it, every one of them read off the data rather than
+trusted from memory.
+
+Two caveats, both in the script:
+
+- **Dummy auras.** A handful of defensives are implemented as a script behind
+  `SPELL_AURA_DUMMY`, so nothing in the data describes them. Survival Instincts
+  is the notable one. Those are in a short hand-held list, which is allowed to
+  stay short — if a spell's aura is in the data, the aura list is what should
+  change.
+- **`MECHANIC_IMMUNITY` is excluded.** It is crowd-control immunity, which is
+  utility rather than survival, and every real defensive carrying it also
+  carries `MOD_DAMAGE_PERCENT_TAKEN`, so it would have bought noise and nothing
+  else.
+
+The tables are regenerated per patch with `npm run spell-effects`, and
+`npm run spell-effects -- --check` fails without writing if a committed copy is
+out of date. Only spell ids are stored — no names, no descriptions, no art. The
+log already carries the name of every aura it reports.
+
+Classification is a fact about the spell, so the analysis tags every aura with
+it and the chart decides what to do: buffs are narrowed to defensives, debuffs
+are kept whatever they do. A debuff on someone who then died is worth seeing
+even if it was only a slow.
+
+### The one thing the debuff lane does drop
+
+Some of what the game writes on a player as a debuff is the game talking to
+itself. Sated is the example: it is how the client remembers you have had
+Bloodlust, and the refusal to give you another lives in Bloodlust rather than in
+Sated, which does nothing whatsoever. Hypothermia, Cauterized, Cheated Death and
+a spent Demonic Gateway are the same shape — a cooldown written down where you
+can see it. None of them belongs in a chart about dying.
+
+That is readable from the same table. Every effect a spell has is a row in
+`SpellEffect.db2`, and a spell whose rows all apply `SPELL_AURA_DUMMY` and
+trigger nothing has no described effect at all. The second generated table,
+`packages/data/src/markers.ts`, is those spells: 50k of them, which is the
+warning as much as the answer. **Plenty of boss mechanics are in that list**,
+because a debuff that detonates when it expires is implemented in a script and
+the data describes a script as nothing — three of the thirty-eight debuffs in
+the Kings' Rest key land there for exactly that reason.
+
+So the table is never consulted alone. The pairing is: the game's data gives the
+spell no effect, *and* the dying player applied it to themselves. A note you
+wrote on yourself that does nothing is a note. A mechanic a boss put on you
+stays in the chart however little the data says about it. The analysis does that
+pairing once, in `bookkeeping` on `AuraWindow`, rather than leaving the
+dangerous half lying around for a call site to misuse.
+
+The known gap is the other direction: hero sickness applied by the caster rather
+than by the recipient would not be caught. In every log checked it is applied by
+the recipient, and the cost of being wrong is one line of noise rather than a
+missing mechanic.
+
+[wago]: https://wago.tools
 
 ## Segmentation, and why it is keyed on the enemy
 
@@ -364,6 +447,8 @@ npm run inspect -- <log>      # format drift report
 npm run summary -- <log>      # per-run dps/hps/deaths sanity check
 npm run report -- <log> [n]   # segments, breakdowns and death post-mortems
 npm run ui-smoke -- <log> [n] # server-render every view against a real run
+npm run shot -- <log> [--view deaths] [--death 0]   # screenshot a view
+npm run spell-effects         # rebuild the spell tables from Blizzard's DB2
 ```
 
 `ui-smoke` is how the UI is verified without launching Electron: it runs the real
@@ -511,6 +596,12 @@ unofficial fan project, not affiliated with or endorsed by Blizzard, made under
 their [Fan Content Policy][fan]. It reads logs the user's own client wrote, and
 the icon art it draws is fetched to that user's machine at runtime (see
 `## Icons`) rather than shipped in this repository or in a release.
+
+The two tables derived from Blizzard's own game data are the defensive-spell
+list in `packages/data/src/defensives.ts` and the inert-spell list in
+`packages/data/src/markers.ts` (see `## Defensives` above). Both hold spell ids
+and nothing else — no names, no descriptions, no art, no game text — and both
+are regenerated from the current patch rather than copied from anywhere.
 
 **Mythic Dungeon Tools** is GPL-2.0 and is read from the user's own install at
 runtime for exactly that reason — the long version is under `## Enemy forces`

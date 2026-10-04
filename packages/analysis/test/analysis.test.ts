@@ -200,7 +200,7 @@ test('a hit an enemy shield swallows is still damage done', () => {
   // shield that holds is not a wound, and a death already reports it apart.
   const taken = damageReport(context, segments, { direction: 'taken' });
   const tank = taken.actors.find((actor) => actor.actorIndex === indexOf(run, TANK))!;
-  assert.equal(tank.total, 2000 + 400_000 + 100_000);
+  assert.equal(tank.total, 2000 + 12_000 + 400_000 + 100_000);
 });
 
 test('one ability logged under four spell ids is one row, openable', () => {
@@ -409,6 +409,74 @@ test('an absorb in the window names its shield and whose it was', () => {
   assert.equal(external.amount, 15000);
   assert.equal(external.sourceName, 'Heals');
   assert.equal(external.selfApplied, false, 'somebody else put it up');
+});
+
+test('a death carries its auras as spans, buffs told from debuffs', () => {
+  const { context, segments } = load();
+  const death = deathReports(context, segments)[0]!;
+  const by = (name: string) => death.auras.find((aura) => aura.spellName === name)!;
+
+  // Pressed inside the window and never coming off: it ran to the death.
+  const own = by('Icebound Fortitude');
+  assert.equal(own.buff, true);
+  assert.equal(own.selfApplied, true);
+  assert.equal(own.openStart, false, 'the application is in the window');
+  assert.equal(own.openEnd, true, 'they died in it');
+  assert.equal(own.endTs, death.ts);
+  assert.equal(death.ts - own.startTs, 1600, 'pressed 1.6s before dying');
+
+  // Applied before the window and removed inside it. The removal is the only
+  // line naming it, so its auraType is the only thing that calls it a buff.
+  const external = by('Blessing of Protection');
+  assert.equal(external.buff, true, 'a BUFF on a SPELL_AURA_REMOVED');
+  assert.equal(external.openStart, true, 'already up when the window opened');
+  assert.equal(external.startTs, death.ts - death.scrollbackMs);
+  assert.equal(external.sourceName, 'Heals');
+
+  // On and off inside the window: both ends are real.
+  const debuff = by('Crushing Grip');
+  assert.equal(debuff.buff, false);
+  assert.equal(debuff.openStart, false);
+  assert.equal(debuff.openEnd, false);
+  assert.equal(debuff.endTs - debuff.startTs, 4500);
+
+  // A debuff they put on themselves that the game's data gives no effect: the
+  // game's own note that they have had Bloodlust, and nothing to do with dying.
+  const sated = by('Sated');
+  assert.equal(sated.buff, false);
+  assert.equal(sated.selfApplied, true);
+  assert.equal(sated.bookkeeping, true);
+  assert.equal(debuff.bookkeeping, false, 'a boss debuff is not bookkeeping');
+  assert.equal(own.bookkeeping, false, 'buffs are never marked');
+
+  // What was on them when they died is the debuffs still open, and only those:
+  // the tank's own shield was up too, and it belongs in the other column —
+  // as does Sated, which is still up and still not worth saying.
+  assert.deepEqual(
+    death.debuffsAtDeath.map((entry) => entry.name),
+    ['Sundered'],
+  );
+});
+
+test('the event lists reach further back than the totals do', () => {
+  const { context, segments } = load();
+  const death = deathReports(context, segments)[0]!;
+
+  // The recap slides a ten-second view back through the capture, so the lists
+  // have to cover the whole of it while every total stays the ten seconds it
+  // is labelled with everywhere it is shown.
+  assert.ok(death.scrollbackMs > death.windowMs);
+  assert.ok(
+    death.incoming.some((hit) => hit.ts < death.ts - death.windowMs),
+    'a hit older than the summary window is still in the list',
+  );
+  assert.equal(death.damageTaken, 500000, 'and is not in the total');
+
+  // Narrowing the capture to the summary window puts them back in step.
+  const narrow = deathReports(context, segments, { scrollbackMs: 0 })[0]!;
+  assert.equal(narrow.scrollbackMs, narrow.windowMs, 'never shorter than the window');
+  assert.ok(narrow.incoming.every((hit) => hit.ts >= narrow.ts - narrow.windowMs));
+  assert.equal(narrow.damageTaken, death.damageTaken, 'the total is unchanged either way');
 });
 
 test('damage taken names the ability and its biggest source', () => {

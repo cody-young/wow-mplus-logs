@@ -338,21 +338,59 @@ table.roster-table { margin-top: 6px; }
 .trace { width: 100%; height: 118px; display: block; }
 
 /* Second-by-second death recap: damage left of the centre line, healing right,
-   one row per second, both sides on one shared scale. */
+   one row per second, both sides on one shared scale, and the auras that were
+   on them standing as vertical spans at either edge. */
 /* Positioned, because the hover tip is placed over the chart in its coordinates. */
 .dt { display: flex; flex-direction: column; gap: 2px; position: relative; }
+/* The lanes sit outside the rows and have to run their full height, so they are
+   siblings of the row stack rather than cells in it: a span crosses rows, and
+   nothing inside a per-row grid can. */
+.dt-body { display: flex; align-items: stretch; gap: 8px; }
+.dt-grid {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  /* Named here rather than inline, because the two rules down the chart are
+     positioned from the same numbers the columns are laid out with. Hard-coded
+     twice, they drift, and a separator half a column off is worse than none. */
+  --dt-mid: 72px;
+  --dt-total: 54px;
+  --dt-col-gap: 10px;
+}
 .dt-head, .dt-row {
   display: grid;
-  /* Two narrow columns at the centre rather than one: the seconds count down by
-     a fixed step and the health does not, so sharing a cell would leave the
-     percentages ragged down the one column that is meant to be scanned. */
-  grid-template-columns: 54px 1fr 44px 36px 1fr 54px;
-  gap: 7px;
+  /* The centre cell holds the second and the health together: a time without
+     the health it ended on is half a reading, and two cells put a gutter
+     through the one column that is meant to be scanned as a pair. */
+  grid-template-columns: 1fr var(--dt-total) var(--dt-mid) var(--dt-total) 1fr;
+  gap: var(--dt-col-gap);
   align-items: center;
 }
-/* The resolution control. Above the header rather than beside the panel's
-   heading, because it changes what a row means and belongs where the rows are. */
-.dt-zoom { display: flex; align-items: center; justify-content: flex-end; gap: 4px; margin-bottom: 2px; }
+/* The row stack, boxed so the separators have something to span. Not named
+   "dt-rows": every count of the rows is a prefix match on "dt-row", and a
+   wrapper whose class starts the same way quietly becomes one of them. The two 1fr
+   columns either side are equal, so the centre column is centred on the box
+   and each rule sits half a column plus half a gutter out from the middle. */
+.dt-stack { position: relative; display: flex; flex-direction: column; gap: 2px; }
+.dt-stack::before,
+.dt-stack::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  transform: translateX(-50%);
+  background: var(--border);
+  pointer-events: none;
+}
+.dt-stack::before { left: calc(50% - (var(--dt-mid) + var(--dt-col-gap)) / 2); }
+.dt-stack::after { left: calc(50% + (var(--dt-mid) + var(--dt-col-gap)) / 2); }
+/* The controls. Above the chart rather than beside the panel's heading,
+   because they change what a row means and where the rows are. */
+.dt-controls { display: flex; align-items: center; gap: 14px; margin-bottom: 2px; }
+.dt-zoom { display: flex; align-items: center; gap: 4px; margin-left: auto; }
 .dt-zoom > span { font-size: 10px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--dim); margin-right: 3px; }
 .dt-zoom button {
   padding: 1px 7px;
@@ -363,7 +401,30 @@ table.roster-table { margin-top: 6px; }
   font-variant-numeric: tabular-nums;
 }
 .dt-zoom button.active { color: var(--text); background: #1b2231; border-color: #3a5f9f; }
-.dt-head {
+/* The scrubber slides the ten-second view back through the captured span. */
+.dt-scrub { display: flex; align-items: center; gap: 8px; flex: 1 1 auto; min-width: 0; }
+.dt-scrub input[type='range'] {
+  flex: 1 1 auto;
+  min-width: 80px;
+  max-width: 320px;
+  height: 4px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+.dt-scrub button {
+  padding: 1px 7px;
+  font-size: 11px;
+  border-radius: 4px;
+  color: var(--muted);
+  background: transparent;
+}
+.dt-range {
+  font-size: 11px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.dt-head, .dt-lane-head {
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 0.6px;
@@ -374,16 +435,19 @@ table.roster-table { margin-top: 6px; }
 }
 .dt-head span:first-child { grid-column: 1 / span 2; text-align: right; }
 .dt-head span:nth-child(2) { grid-column: 3; text-align: center; }
-.dt-head span:nth-child(3) { grid-column: 4; text-align: right; }
-.dt-head span:last-child { grid-column: 5 / span 2; }
+.dt-head span:last-child { grid-column: 4 / span 2; }
+/* Shares .dt-head's rule above rather than restating a height, so the two
+   headings cannot drift apart and leave the spans a pixel off the rows they
+   are meant to line up with. */
+.dt-lane-head { display: flex; align-items: flex-end; white-space: nowrap; overflow: hidden; }
+.dt-lane.right .dt-lane-head { justify-content: flex-end; }
 .dt-row { height: 20px; border-radius: 3px; }
-.dt-row.death { background: #2a1a20; box-shadow: inset 2px 0 0 var(--danger); }
 .dt-bars { display: flex; height: 14px; overflow: hidden; }
 /* Reversed so the largest bar sits against the centre line on both sides. */
 .dt-bars.left { flex-direction: row-reverse; }
-/* No padding, because the icon is the only content and a 16px bar has to be
-   able to hold a 14px square without cropping it into an unrecognisable
-   smear — which is the whole reason the icon is there. */
+/* No padding, because the icon has to be able to sit on a 16px bar without
+   cropping into an unrecognisable smear — which is the whole reason it is
+   there. The figure gets its own margin instead. */
 .dt-bar {
   height: 100%;
   min-width: 2px;
@@ -397,13 +461,65 @@ table.roster-table { margin-top: 6px; }
 .dt-bars.left .dt-bar { flex-direction: row-reverse; margin-left: 1px; }
 .dt-bars.right .dt-bar { margin-right: 1px; }
 .dt-ico { width: 14px; height: 14px; flex: 0 0 auto; display: block; border-radius: 2px; }
+/* Dark on the bar rather than light: every colour the chart generates sits at
+   46% lightness or above, so ink reads on all of them and white on none. */
+.dt-fig {
+  font-size: 10px;
+  line-height: 1;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: rgb(0 0 0 / 0.72);
+  margin: 0 4px;
+  white-space: nowrap;
+}
 .dt-bar.killing { outline: 1px solid var(--text); outline-offset: -1px; }
 .dt-total { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
-.dt-row .dt-total:first-child { text-align: right; }
-.dt-mid { font-size: 10px; color: var(--dim); text-align: center; font-variant-numeric: tabular-nums; }
+.dt-row .dt-total:first-of-type { text-align: right; }
+/* The second and the health it ended on, as one cell: centred between the two
+   rules and set close enough to be read as a pair rather than as two columns
+   that happen to be adjacent. The halves keep fixed widths and align on their
+   right edges, so the pair is tight without either column wandering — which
+   is what spreading them to the cell's edges was buying, at the cost of the
+   gutter it put between them. */
+.dt-mid {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 5px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.dt-mid .sec { color: var(--dim); font-size: 10px; min-width: 22px; text-align: left; }
 /* The colour is set per row from the health itself, so the column reads as a
    health bar laid on its side before any number is. */
-.dt-hp { font-size: 11px; text-align: right; font-variant-numeric: tabular-nums; }
+.dt-hp { min-width: 26px; text-align: right; font-variant-numeric: tabular-nums; }
+/* The death row's mark, in place of the 0 and the 0% it would otherwise hold.
+   Set a little larger than the numbers and in the danger colour, because it is
+   the one thing in the chart meant to be found before anything is read. */
+.dt-skull { color: var(--danger); font-size: 14px; line-height: 1; }
+
+/* The aura lanes. A fixed width whether or not anything is in them: a chart
+   whose bars shift sideways between deaths cannot be compared across them. */
+.dt-lane { flex: 0 0 76px; width: 76px; display: flex; flex-direction: column; gap: 2px; }
+.dt-lane-track { flex: 1 1 auto; position: relative; display: flex; gap: 2px; }
+.dt-lane.right .dt-lane-track { flex-direction: row-reverse; }
+.dt-lane-col { position: relative; flex: 1 1 0; min-width: 0; }
+/* Positioned by time, so the height is the duration and nothing else. */
+.dt-span {
+  position: absolute;
+  left: 0;
+  right: 0;
+  min-height: 3px;
+  border-radius: 2px;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  overflow: hidden;
+  opacity: 0.85;
+}
+.dt-span:hover { opacity: 1; }
+/* Still up when they died, so the span has no end of its own to draw. */
+.dt-span.open { border-radius: 2px 2px 0 0; }
 .dt-foot { color: var(--dim); font-size: 11px; line-height: 1.5; margin: 9px 0 0; max-width: 70ch; }
 
 /* The shared hover tip: the death recap's bars and the breakdown's ability rows

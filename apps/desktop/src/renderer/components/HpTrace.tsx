@@ -14,8 +14,11 @@ export function HpTrace({ death }: { death: DeathReport }): React.JSX.Element {
   const pad = { top: 8, bottom: 16, left: 0, right: 0 };
   const plot = height - pad.top - pad.bottom;
 
-  const start = death.ts - death.windowMs;
-  const x = (ts: number): number => ((ts - start) / death.windowMs) * width;
+  // The whole captured span, not the ten seconds the totals describe: the
+  // trace and the hits both reach back that far, and plotting them against the
+  // shorter window walks everything older than it off the left edge.
+  const start = death.ts - death.scrollbackMs;
+  const x = (ts: number): number => ((ts - start) / death.scrollbackMs) * width;
   const y = (fraction: number): number => pad.top + (1 - Math.max(0, Math.min(1, fraction))) * plot;
 
   const samples = death.trace.filter((sample) => sample.fraction >= 0);
@@ -33,7 +36,7 @@ export function HpTrace({ death }: { death: DeathReport }): React.JSX.Element {
 
   return (
     <svg className="trace" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" role="img"
-      aria-label={`Health trace over the ${death.windowMs / 1000} seconds before death`}>
+      aria-label={`Health trace over the ${death.scrollbackMs / 1000} seconds before death`}>
       {[0.25, 0.5, 0.75].map((fraction) => (
         <line key={fraction} x1={0} x2={width} y1={y(fraction)} y2={y(fraction)} stroke="#242430" strokeWidth={1} />
       ))}
@@ -63,7 +66,7 @@ export function HpTrace({ death }: { death: DeathReport }): React.JSX.Element {
         {short(samples[0]!.hpMax)} max
       </text>
       <text x={4} y={height - 4} fill="#5e5e75" fontSize={10}>
-        −{death.windowMs / 1000}s
+        −{death.scrollbackMs / 1000}s
       </text>
       <text x={width - 4} y={height - 4} fill="#5e5e75" fontSize={10} textAnchor="end">
         death

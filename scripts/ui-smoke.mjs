@@ -249,17 +249,37 @@ if (analysis.deaths.length > 0) {
     countOf(views.deaths, 'class="dt-bar') > 0 || death.incoming.length === 0);
   // Newest at the top. The death is why the recap was opened, so it has to be
   // the first row rather than the fortieth, and time counts backwards from it.
-  const rowSeconds = [...views.deaths.matchAll(/class="dt-mid">\u2212([\d.]+)</g)]
-    .map((match) => Number(match[1]));
+  // A row is labelled by the second it ends on, so the row the killing blow
+  // lands in is 0 and the one before it is \u22121 \u2014 a chart of a death whose
+  // rows begin at \u22121 has nowhere to put the death. That row then shows a
+  // skull rather than its own numbers, so the labels left to read start at \u22121.
+  const rowSeconds = [...views.deaths.matchAll(/class="sec">(\u2212?[\d.]+)</g)]
+    .map(([, text]) => (text.startsWith('\u2212') ? -Number(text.slice(1)) : Number(text)));
   check('death recap puts the death row first and counts backwards from it',
     rowSeconds.length > 0 &&
-      rowSeconds.every((value, index) => index === 0 || value > rowSeconds[index - 1]) &&
+      rowSeconds.every((value, index) => index === 0 || value < rowSeconds[index - 1]) &&
       views.deaths.indexOf('class="dt-row') === views.deaths.indexOf('class="dt-row death"'),
     `row labels read ${rowSeconds.join(' ')}`);
-  // The health column holds its cell open on every row, trace or no trace: a
-  // row that drops the cell shunts the bars either side of it sideways.
-  check('death recap carries a health cell on every row',
-    countOf(views.deaths, 'class="dt-hp') === countOf(views.deaths, 'class="dt-row'),
+  // The death row's 0 and 0% are the two numbers in the chart that say nothing:
+  // the second is 0 because the death defines it, the health 0 because they
+  // died. A skull stands in for both. End-labelling is still what is under
+  // test \u2014 labelled by their start the visible rows would run \u22122 to \u221210.
+  check('the row the death falls in carries a skull, not a 0 and a 0%',
+    countOf(views.deaths, 'class="dt-skull"') === 1 &&
+      !views.deaths.includes('class="sec">0<') &&
+      rowSeconds[0] === -1 &&
+      rowSeconds[rowSeconds.length - 1] === -(death.windowMs / 1000 - 1),
+    `${countOf(views.deaths, 'class="dt-skull"')} skulls, labels run ${rowSeconds[0]} to ${rowSeconds[rowSeconds.length - 1]}`);
+  // The two rules that separate the centre column from the bars are drawn on
+  // the row box, not on each row, so they run unbroken past the row gaps.
+  check('the centre column is ruled off from the bars',
+    countOf(views.deaths, 'class="dt-stack"') === 1);
+  // The health column holds its cell open on every row it has, trace or no
+  // trace: a row that drops the cell shunts the bars either side of it
+  // sideways. The death row is the exception, and only because the skull
+  // replaces the whole pair rather than half of it.
+  check('death recap carries a health cell on every row but the death',
+    countOf(views.deaths, 'class="dt-hp') === countOf(views.deaths, 'class="dt-row') - 1,
     `${countOf(views.deaths, 'class="dt-hp')} health cells for ${countOf(views.deaths, 'class="dt-row')} rows`);
   check('death recap reads out the health beside each second',
     /class="dt-hp"[^>]*aria-label="\d+% health"/.test(views.deaths) ||
@@ -280,23 +300,134 @@ if (analysis.deaths.length > 0) {
   // Reversing the rows must not take the health column with it: the walk over
   // the trace runs forwards, so the top row — the death — has to carry the last
   // health the log recorded, not the first.
-  const lastHp = [...death.trace].reverse().find((sample) => sample.fraction >= 0);
+  // The death row carries a skull now, so the topmost health cell belongs to
+  // the row ending a second before it. Walked the wrong way that cell would
+  // hold the health at the far end of the window instead, which is the bug.
+  const asPercent = (sample) => (sample.hp > 0 ? Math.max(1, Math.round(sample.fraction * 100)) : 0);
+  const nearDeath = [...death.trace]
+    .reverse()
+    .find((sample) => sample.fraction >= 0 && sample.ts <= death.ts - 1000);
+  const topHp = /class="dt-hp"[^>]*aria-label="(\d+)% health"/.exec(views.deaths)?.[1];
   check('the health column survives the row order being flipped',
-    lastHp === undefined ||
-      views.deaths.includes(
-        `aria-label="${lastHp.hp > 0 ? Math.max(1, Math.round(lastHp.fraction * 100)) : 0}% health"`,
-      ) &&
-        /class="dt-hp"[^>]*aria-label="(\d+)% health"/.exec(views.deaths)?.[1] ===
-          String(lastHp.hp > 0 ? Math.max(1, Math.round(lastHp.fraction * 100)) : 0),
-    `first health cell is ${/class="dt-hp"[^>]*aria-label="(\d+)% health"/.exec(views.deaths)?.[1]}%, trace ends at ${lastHp === undefined ? 'nothing' : Math.round(lastHp.fraction * 100) + '%'}`);
-  check('zoomed row labels carry the quarter seconds',
+    nearDeath === undefined || topHp === String(asPercent(nearDeath)),
+    `top health cell reads ${topHp}%, the trace reads ${nearDeath === undefined ? 'nothing' : asPercent(nearDeath) + '%'} a second before the death`);
+  check('zoomed row labels carry the quarter seconds, with the skull on the death',
     views.deathZoomed === '' ||
-      views.deathZoomed.includes('\u2212' + (death.windowMs / 1000 - 0.25).toFixed(2)),
+      (views.deathZoomed.includes('\u2212' + (death.windowMs / 1000 - 0.25).toFixed(2)) &&
+        views.deathZoomed.includes('class="sec">\u22120.25<') &&
+        !views.deathZoomed.includes('class="sec">0.00<') &&
+        countOf(views.deathZoomed, 'class="dt-skull"') === 1),
     views.deathZoomed.slice(0, 400));
   check('the zoomed recap still bars and still shows health',
     views.deathZoomed === '' ||
-      (countOf(views.deathZoomed, 'class="dt-hp') === countOf(views.deathZoomed, 'class="dt-row') &&
+      (countOf(views.deathZoomed, 'class="dt-hp') === countOf(views.deathZoomed, 'class="dt-row') - 1 &&
         !/width:\s*(NaN|Infinity|-)/.test(views.deathZoomed)));
+  // The second and the health it ended on share one cell: a time without its
+  // health is half a reading, and two cells put a gutter through the column
+  // that is meant to be scanned as a pair.
+  check('the second and the health are one cell',
+    countOf(views.deaths, 'class="dt-mid"') === countOf(views.deaths, 'class="dt-row') &&
+      countOf(views.deaths, 'class="dt-mid"') === countOf(views.deaths, 'class="sec"') + 1,
+    `${countOf(views.deaths, 'class="dt-mid"')} centre cells, ${countOf(views.deaths, 'class="sec"')} seconds, ${countOf(views.deaths, 'class="dt-row')} rows`);
+  // Both totals sit between the centre cell and the bars, so the row reads
+  // outwards: what it left them on, how much it was, then what it was made of.
+  check('each row carries a total on either side of the centre',
+    countOf(views.deaths, 'class="dt-total"') === countOf(views.deaths, 'class="dt-row') * 2);
+
+  // A bar wide enough to hold its own figure carries it, so the big hits can
+  // be read without hovering. Every figure must be one the analysis reported.
+  const figures = [...views.deaths.matchAll(/class="dt-fig">([^<]+)</g)].map(([, text]) => text);
+  check('wide bars carry their own figure',
+    figures.length > 0 || death.incoming.length === 0,
+    `${figures.length} figures over ${countOf(views.deaths, 'class="dt-bar ') + countOf(views.deaths, 'class="dt-bar"')} bars`);
+  check('a figure is a number, with an asterisk only for a crit',
+    figures.every((text) => /^[\d.]+[KMB]?\*?$/.test(text)), figures.join(' '));
+  // The asterisk marks a crit, and marks nothing else: a 400K hit and a 400K
+  // hit that could have been 200K are different problems.
+  const critInView = death.incoming.some(
+    (hit) => hit.critical && hit.amount > 0 && hit.ts >= death.ts - death.windowMs,
+  );
+  check('an asterisk appears exactly where something crit',
+    critInView === figures.some((text) => text.endsWith('*')),
+    `${critInView ? 'a crit landed' : 'nothing crit'}, figures read ${figures.join(' ')}`);
+
+  // The aura lanes. They keep their width with nothing in them, because a
+  // chart whose bars shift sideways between deaths cannot be compared across
+  // them — so the headings are there either way and only the spans vary.
+  check('the recap has a lane at either edge',
+    views.deaths.includes('class="dt-lane left"') && views.deaths.includes('class="dt-lane right"'));
+  check('the lanes are labelled',
+    views.deaths.includes('>Debuffs<') && views.deaths.includes('>Defensives<'));
+  const spanStyles = [...views.deaths.matchAll(/class="dt-span[^"]*" style="top:([\d.]+)%;height:([\d.]+)%/g)]
+    .map(([, top, height]) => ({ top: Number(top), height: Number(height) }));
+  // Buffs are narrowed to the ones that do something about damage. A real key
+  // puts well over a hundred distinct buffs on the party, and a lane carrying
+  // food, procs and weapon imbues answers no question a death recap asks.
+  const visibleAuras = death.auras.filter(
+    (aura) =>
+      (!aura.buff || aura.defensive) &&
+      !aura.bookkeeping &&
+      !(aura.openStart && aura.openEnd) &&
+      aura.endTs > death.ts - death.windowMs &&
+      aura.startTs < death.ts,
+  );
+  check('every defensive and every debuff overlapping the view is a span',
+    spanStyles.length === visibleAuras.length,
+    `${spanStyles.length} spans for ${visibleAuras.length} auras`);
+  // The narrowing is the point, so it is asserted rather than assumed: a buff
+  // the table does not call a defensive must not reach the lane. Named, because
+  // a count that happens to match proves nothing about which ones got through.
+  const droppedBuffs = death.auras.filter(
+    (aura) =>
+      aura.buff &&
+      !aura.defensive &&
+      !(aura.openStart && aura.openEnd) &&
+      aura.endTs > death.ts - death.windowMs &&
+      aura.startTs < death.ts,
+  );
+  check('the defensives lane drops the buffs that do nothing about damage',
+    droppedBuffs.every((aura) => !views.deaths.includes(`aria-label="${escapeHtml(aura.spellName)},`)),
+    `${droppedBuffs.length} dropped: ${droppedBuffs.map((aura) => aura.spellName).join(', ')}`);
+  // The same, for the other lane: a note the player wrote on themselves —
+  // Sated, Hypothermia, a spent gateway — is not a thing that happened to them.
+  const droppedNotes = death.auras.filter(
+    (aura) =>
+      aura.bookkeeping &&
+      !(aura.openStart && aura.openEnd) &&
+      aura.endTs > death.ts - death.windowMs &&
+      aura.startTs < death.ts,
+  );
+  check("the debuff lane drops the game's notes to itself",
+    droppedNotes.every((aura) => !views.deaths.includes(`aria-label="${escapeHtml(aura.spellName)},`)),
+    `${droppedNotes.length} dropped: ${droppedNotes.map((aura) => aura.spellName).join(', ') || 'none in this window'}`);
+  check('aura spans are positioned by time and stay inside the lane',
+    spanStyles.every((s) => s.top >= 0 && s.height >= 0 && s.top + s.height <= 100.01),
+    JSON.stringify(spanStyles.slice(0, 4)));
+  // An aura still up at the death reaches the top of the lane, because the top
+  // of the lane is the death.
+  check('an aura that never came off reaches the death row',
+    visibleAuras.every((aura) => !aura.openEnd) ||
+      spanStyles.some((s) => s.top === 0),
+    JSON.stringify(spanStyles.slice(0, 4)));
+  // A clamped span must never be described by its clamped length: that is the
+  // length of the window, and it is a number somebody would quote.
+  check('an aura clamped by the window does not claim a duration',
+    visibleAuras.every((aura) => !aura.openStart) ||
+      /aria-label="[^"]*already up/.test(views.deaths),
+    views.deaths.slice(views.deaths.indexOf('dt-span'), views.deaths.indexOf('dt-span') + 300));
+
+  // The scrubber slides the ten-second view back through the captured span.
+  check('the recap offers a scrubber over the captured span',
+    death.scrollbackMs === death.windowMs ||
+      views.deaths.includes(`max="${death.scrollbackMs - death.windowMs}"`),
+    views.deaths.slice(views.deaths.indexOf('dt-scrub'), views.deaths.indexOf('dt-scrub') + 300));
+  check('the scrubber opens at the death, with no way back from there',
+    views.deaths.includes(`value="${death.scrollbackMs - death.windowMs}"`) &&
+      /title="Back to the death">death<\/button>/.test(views.deaths) &&
+      views.deaths.includes('disabled=""'));
+  check('the scrubber names the seconds it is showing',
+    views.deaths.includes(`\u2212${death.windowMs / 1000}s`));
+
   check('death recap shows the healing side',
     death.healsReceived.length === 0
       ? views.deaths.includes('No healing landed')

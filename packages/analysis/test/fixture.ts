@@ -107,14 +107,22 @@ export function taken(
   dst: string,
   dstName: string,
   amount: number,
-  opts: { hp?: number; hpMax?: number; spellId?: number; spellName?: string; overkill?: number } = {},
+  opts: {
+    hp?: number;
+    hpMax?: number;
+    spellId?: number;
+    spellName?: string;
+    overkill?: number;
+    crit?: boolean;
+  } = {},
 ): string {
   const hp = opts.hp ?? 500000;
   const hpMax = opts.hpMax ?? 1000000;
   const spellId = opts.spellId ?? 500;
   const spellName = opts.spellName ?? 'Cleave';
   const overkill = opts.overkill ?? -1;
-  return `${at(seconds)}  SPELL_DAMAGE,${src},"${srcName}",0xa48,0x0,${dst},"${dstName}",0x511,0x0,${spellId},"${spellName}",0x8,${adv(dst, hp, hpMax)},${amount},${amount},${overkill},8,0,0,0,nil,nil,nil,ST`;
+  const crit = opts.crit === true ? '1' : 'nil';
+  return `${at(seconds)}  SPELL_DAMAGE,${src},"${srcName}",0xa48,0x0,${dst},"${dstName}",0x511,0x0,${spellId},"${spellName}",0x8,${adv(dst, hp, hpMax)},${amount},${amount},${overkill},8,0,0,0,${crit},nil,nil,ST`;
 }
 
 export function heal(
@@ -208,9 +216,12 @@ export function aura(
   spellId: number,
   spellName: string,
   up: boolean,
+  opts: { buff?: boolean; dstFlags?: string } = {},
 ): string {
   const event = up ? 'SPELL_AURA_APPLIED' : 'SPELL_AURA_REMOVED';
-  return `${at(seconds)}  ${event},${src},"${srcName}",0x511,0x0,${dst},"${dstName}",0xa48,0x0,${spellId},"${spellName}",0x8,DEBUFF`;
+  const dstFlags = opts.dstFlags ?? '0xa48';
+  const auraType = opts.buff === true ? 'BUFF' : 'DEBUFF';
+  return `${at(seconds)}  ${event},${src},"${srcName}",0x511,0x0,${dst},"${dstName}",${dstFlags},0x0,${spellId},"${spellName}",0x8,${auraType}`;
 }
 
 export function cast(seconds: number, src: string, srcName: string, spellId: number, spellName: string): string {
@@ -323,6 +334,9 @@ export const LINES: string[] = [
   died(44.5, LATER_A, 'Ogre', '0xa48'),
 
   hit(60, DPS, 'Dee', DRAGGED, 'Straggler', 500),
+  // A hit on the tank seventeen seconds before they die: inside the recap's
+  // capture and outside the ten seconds its totals describe.
+  taken(62, DRAGGED, 'Straggler', TANK, 'Tank', 12000, { hp: 900000, hpMax: 1000000 }),
   hit(66, DPS, 'Dee', BOSS, 'Big Bad', 5000, { hp: 500000, hpMax: 500000 }),
 
   `${at(70)}  ENCOUNTER_START,9001,"Big Bad",8,5,2000`,
@@ -357,13 +371,43 @@ export const LINES: string[] = [
   }),
   aura(94.5, DPS, 'Dee', BOSS, 'Big Bad', 310, 'Agony', false),
 
+  // The tank's auras through the fight, which is what the recap's side lanes
+  // are made of. Four shapes, because each one is read differently:
+  //   1022  a buff whose application predates the window — only its removal
+  //         is logged inside it, so the auraType on a SPELL_AURA_REMOVED is
+  //         the only thing that can file it as a buff
+  //   888   a debuff that went on and came off inside the window
+  //   48792 their own defensive, pressed and still up when they died
+  //   889   a debuff still on them at the death
+  //   57724 Sated — a debuff they put on themselves that does nothing, which
+  //         the recap drops from both the lane and the list
+  aura(70, HEALER, 'Heals', TANK, 'Tank', 1022, 'Blessing of Protection', false, {
+    buff: true,
+    dstFlags: '0x511',
+  }),
+  aura(74, BOSS, 'Big Bad', TANK, 'Tank', 888, 'Crushing Grip', true, { dstFlags: '0x511' }),
   heal(77, HEALER, 'Heals', TANK, 'Tank', 30000, 10000),
   cast(77.5, TANK, 'Tank', 48792, 'Icebound Fortitude'),
-  taken(78, BOSS, 'Big Bad', TANK, 'Tank', 400000, { hp: 100000, hpMax: 1000000, spellId: 777, spellName: 'Smash' }),
+  aura(77.5, TANK, 'Tank', TANK, 'Tank', 48792, 'Icebound Fortitude', true, {
+    buff: true,
+    dstFlags: '0x511',
+  }),
+  aura(77.6, TANK, 'Tank', TANK, 'Tank', 57724, 'Sated', true, { dstFlags: '0x511' }),
+  // A crit, which the recap marks on the bar with an asterisk: a 400K hit and
+  // a 400K hit that could have been 200K are different problems.
+  taken(78, BOSS, 'Big Bad', TANK, 'Tank', 400000, {
+    hp: 100000,
+    hpMax: 1000000,
+    spellId: 777,
+    spellName: 'Smash',
+    crit: true,
+  }),
   // Two shields on the same hit, one the tank's own and one the healer's, so a
   // recap has to say which absorbed what rather than just "absorbed 45000".
   absorbed(78.1, BOSS, 'Big Bad', TANK, 'Tank', TANK, 'Tank', 48792, 'Icebound Fortitude', 30000),
   absorbed(78.2, BOSS, 'Big Bad', TANK, 'Tank', HEALER, 'Heals', 17, 'Power Word: Shield', 15000),
+  aura(78.5, BOSS, 'Big Bad', TANK, 'Tank', 888, 'Crushing Grip', false, { dstFlags: '0x511' }),
+  aura(78.6, BOSS, 'Big Bad', TANK, 'Tank', 889, 'Sundered', true, { dstFlags: '0x511' }),
   taken(79, BOSS, 'Big Bad', TANK, 'Tank', 150000, { hp: 0, hpMax: 1000000, spellId: 777, spellName: 'Smash', overkill: 50000 }),
   died(79.1, TANK, 'Tank'),
   // A pet death, which must not count as a player death.
