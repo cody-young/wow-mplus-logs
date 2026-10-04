@@ -17,8 +17,9 @@ import { EnemyRoster, RosterTable } from '../src/renderer/components/EnemyRoster
 import { RunRow, partyOf } from '../src/renderer/components/RunRow.js';
 import { SegmentTimeline } from '../src/renderer/components/SegmentTimeline.js';
 import { SpecIcon } from '../src/renderer/components/SpecIcon.js';
+import { UpdateFooter } from '../src/renderer/components/UpdateFooter.js';
 import { SPECS } from '../src/renderer/specs.js';
-import type { RunAnalysis, RunForces } from '../src/shared.js';
+import type { RunAnalysis, RunForces, UpdateState, UpdateStatus } from '../src/shared.js';
 
 /** A run whose dungeon no forces table covered, which drops the count columns. */
 const NO_FORCES: RunForces = {
@@ -31,6 +32,32 @@ const NO_FORCES: RunForces = {
   fraction: 0,
   unknown: [],
 };
+
+/**
+ * The update strip, which has more states than the rest of the sidebar put
+ * together and reaches none of them on a machine that is already current. Every
+ * phase is rendered here because the one that matters — a staged update, a
+ * failed check — is the one nobody sees until it happens to them.
+ */
+function updateView(status: UpdateStatus, capability: UpdateState['capability'] = 'install'): string {
+  const state: UpdateState = {
+    capability,
+    automatic: true,
+    currentVersion: '0.1.2',
+    releasesUrl: 'https://example.invalid/releases',
+    status,
+  };
+  return renderToString(
+    <UpdateFooter
+      state={state}
+      onCheck={() => undefined}
+      onDownload={() => undefined}
+      onInstall={() => undefined}
+      onOpenReleases={() => undefined}
+      onToggleAutomatic={() => undefined}
+    />,
+  );
+}
 
 export function render(analysis: RunAnalysis): Record<string, string> {
   const span = Math.max(analysis.meta.totalTimeMs ?? 0, ...analysis.segments.map((s) => s.endTs));
@@ -139,6 +166,41 @@ export function render(analysis: RunAnalysis): Record<string, string> {
         onSelect={() => undefined}
       />,
     ),
+    // --- Updates -----------------------------------------------------------
+    updateIdle: updateView({ phase: 'idle' }),
+    updateChecking: updateView({ phase: 'checking' }),
+    updateCurrent: updateView({ phase: 'none', checkedAt: Date.now() }),
+    updateAvailable: updateView({
+      phase: 'available',
+      version: '0.1.3',
+      notes: 'Fixes the count column.',
+      sizeBytes: 113_246_208,
+    }),
+    // The feed knew about the version but not the file size, which is what a
+    // release assembled by hand tends to look like.
+    updateAvailableNoSize: updateView({
+      phase: 'available',
+      version: '0.1.3',
+      notes: null,
+      sizeBytes: null,
+    }),
+    // The same update seen by the portable .exe or the .deb, which cannot
+    // apply it: no Download button, a link to the page instead.
+    updateNotify: updateView(
+      { phase: 'available', version: '0.1.3', notes: null, sizeBytes: 113_246_208 },
+      'notify',
+    ),
+    updateDownloading: updateView({
+      phase: 'downloading',
+      version: '0.1.3',
+      percent: 42.5,
+      bytesPerSecond: 2_600_000,
+    }),
+    updateReady: updateView({ phase: 'ready', version: '0.1.3' }),
+    updateFailed: updateView({ phase: 'failed', message: 'net::ERR_NAME_NOT_RESOLVED' }),
+    // A dev run, where there is no feed to ask and the strip renders nothing.
+    updateDev: updateView({ phase: 'idle' }, 'none'),
+
     // The same key for someone with no MDT: no count, no dungeon art.
     runRowNoMdt: renderToString(
       <RunRow

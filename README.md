@@ -374,7 +374,9 @@ states say something useful. A visual check would not catch most of those.
 
 It renders all 39 spec icons at once for the same reason: a spec whose texture
 name was never filled in is invisible until someone plays that spec, and the
-assertion costs nothing. The key selector is rendered through `RunRow`, which is
+assertion costs nothing. The update strip is in there for the same reason again:
+its interesting states — a staged update, a failed check — are ones you cannot
+reach on demand on a machine that is already current. The key selector is rendered through `RunRow`, which is
 a component rather than inline JSX in `App` largely so this test can reach it.
 
 ## Building a release
@@ -432,13 +434,70 @@ is simply turned off.
 **Nothing is signed.** Windows shows a SmartScreen warning on first run; Linux
 does not care. Signing needs a certificate — an EV one, realistically, to clear
 SmartScreen immediately — at a few hundred dollars a year. Until that is worth
-it, the warning is the honest cost of an unsigned build.
+it, the warning is the honest cost of an unsigned build. Automatic updates work
+regardless: electron-updater only verifies a publisher when there is one to
+verify. The warning simply returns with each update's installer.
 
 **`productName` and `executableName` are pinned in `electron-builder.yml`,** not
 left to default. electron-builder falls back to the package `name` for the
 executable, and this package is `@mplus/desktop`, which it sanitises to
 `@mplusdesktop` — the exact string the window must not announce itself as. A
 packaged build reports `WM_CLASS=mplus-logs`, which is what window rules match.
+
+## Automatic updates
+
+`electron-updater` reads the feed the packaging run already produces —
+`latest.yml` / `latest-linux.yml` beside the installers, and `app-update.yml`
+inside the app pointing at this repo's releases. `src/main/updater.ts` holds the
+policy; the strip at the bottom of the key list is the whole UI.
+
+**A tag does not ship an update.** `publish.releaseType` is `draft`, and the
+client resolves the newest version through the public `releases.atom` feed,
+which does not list drafts. So the workflow attaching installers to a draft is
+invisible to every installed copy until the release is **published** — which is
+the intent, but it does mean clicking Publish is the step that ships, not
+pushing the tag.
+
+**Only two of the four targets can update themselves.** The NSIS installer
+replaces itself and the AppImage rewrites its own file. The portable `.exe`
+installs nothing, so there is nothing to replace, and the `.deb` belongs to
+dpkg — electron-updater's deb path shells out to `sudo`/`pkexec`, which is not
+something a combat log viewer should ask for. Those two builds still check the
+feed and link to the releases page instead; `capability()` is that decision and
+the UI renders from it rather than guessing.
+
+**The check is automatic, the download is not.** `autoDownload` defaults to on,
+which means a 110 MB pull starting by itself while someone is mid-key, against
+the same connection the game is using. Nothing downloads until it is asked for,
+and once downloaded `autoInstallOnAppQuit` applies it on the next quit rather
+than interrupting a run. The startup check is delayed eight seconds so it never
+competes with opening a log, and `settings.json` in userData remembers it being
+turned off.
+
+**`MPLUS_UPDATE_LOG=1` turns the updater's own logging back on.** It is off by
+default — in a packaged app it writes to a stdout nobody is reading — but it is
+the only way to see which release the feed resolved and why a check decided what
+it did, the same escape hatch `MPLUS_OFFLINE=1` is for icon fetching.
+
+**A failed check is only an error if someone asked.** No network, a timeout or a
+rate-limited API on the startup check resolves to silence; the same failure
+after clicking Check for updates is reported, because there someone is waiting
+for an answer. The `error` listener is not optional either way — `AppUpdater` is
+an `EventEmitter`, and an unhandled `error` event would take the process down.
+
+**electron-updater is bundled, not externalized.** It is a `devDependency` so
+`externalizeDepsPlugin` bundles it into `out/main/index.js` along with the
+workspace packages, which keeps the "no runtime dependencies" property above
+intact: the asar is still the build output and `package.json`, with nothing for
+the packager to trace. The bundle grows by about 570 KB.
+
+**The updater's cache directory needed the `productName` treatment too.**
+electron-builder derives it as `sanitize(name) + "-updater"` with no option to
+set it, and this package is `@mplus/desktop` — so left alone the updater creates
+`@mplusdesktop-updater` in `%LOCALAPPDATA%`. `extraMetadata.name` in
+`electron-builder.yml` overrides the packaged manifest's name before any of
+those paths are derived, which makes it `mplus-logs-updater`. `app.getName()` is
+unaffected, because Electron reads `productName` first.
 
 ## Licensing and fan content
 

@@ -24,3 +24,8 @@ export function percent(fraction: number): string {
 export function integer(value: number): string {
   return value.toLocaleString('en-US');
 }
+
+/** Byte counts, for download sizes and rates. */
+export function megabytes(value: number): string {
+  return `${(value / 1_048_576).toFixed(1)} MB`;
+}

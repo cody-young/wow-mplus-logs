@@ -78,6 +78,44 @@ export type WorkerEvent =
   | { type: 'done'; runCount: number }
   | { type: 'failed'; message: string };
 
+/**
+ * What the running build can do about a new version.
+ *
+ * `install` is the NSIS installer and the AppImage, which can replace
+ * themselves. `notify` is the portable .exe and the .deb, which can see an
+ * update but cannot apply it — those builds get a link to the releases page.
+ * `none` is a dev run, where there is no update feed at all.
+ */
+export type UpdateCapability = 'install' | 'notify' | 'none';
+
+export type UpdateStatus =
+  /** Nothing to say: never checked, or a quiet automatic check found nothing. */
+  | { phase: 'idle' }
+  | { phase: 'checking' }
+  | {
+      phase: 'available';
+      version: string;
+      /** Release notes, when the feed carried them as text. */
+      notes: string | null;
+      sizeBytes: number | null;
+    }
+  | { phase: 'downloading'; version: string; percent: number; bytesPerSecond: number }
+  /** Downloaded and staged. Installs on the next quit, or on request. */
+  | { phase: 'ready'; version: string }
+  /** Up to date, and someone asked — so it is worth confirming. */
+  | { phase: 'none'; checkedAt: number }
+  | { phase: 'failed'; message: string };
+
+export interface UpdateState {
+  capability: UpdateCapability;
+  /** Whether the startup check runs. Persisted across launches. */
+  automatic: boolean;
+  currentVersion: string;
+  /** Where a `notify` build sends the reader. */
+  releasesUrl: string;
+  status: UpdateStatus;
+}
+
 /** What the preload bridge exposes on window.mplus. */
 export interface DesktopApi {
   /** Opens a file picker and begins parsing. Resolves to the chosen path. */
@@ -102,4 +140,15 @@ export interface DesktopApi {
   onAnalysis(handler: (analysis: RunAnalysis) => void): () => void;
   onDone(handler: (runCount: number) => void): () => void;
   onFailed(handler: (message: string) => void): () => void;
+  /** The update state as it stands, for the first render. */
+  updateState(): Promise<UpdateState>;
+  /** Check now, on behalf of the reader: failures are reported, not swallowed. */
+  checkForUpdate(): Promise<void>;
+  downloadUpdate(): Promise<void>;
+  /** Quit and install a staged update. Does not return. */
+  installUpdate(): Promise<void>;
+  setAutomaticUpdates(on: boolean): Promise<void>;
+  /** Opens the releases page in the system browser. */
+  openReleases(): Promise<void>;
+  onUpdateState(handler: (state: UpdateState) => void): () => void;
 }

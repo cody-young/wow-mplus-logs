@@ -17,6 +17,17 @@ productName: mplus-logs
 # the window its WM_CLASS / Wayland app_id, Electron reads it before the main
 # script runs, and the README documents the name users write window rules
 # against. The installers get readable names through artifactName instead.
+# The packaged manifest's `name`, which is `@mplus/desktop` and has the same
+# problem `productName` did. electron-updater's cache directory is
+# `sanitize(name) + "-updater"`, and there is no option for it — so left alone
+# the updater creates `@mplusdesktop-updater` next to the app's own data, in
+# `%LOCALAPPDATA%` on Windows. Overriding the name here is the only lever:
+# electron-builder merges `extraMetadata` into the metadata before it derives
+# any of those paths. `app.getName()` is unaffected, because Electron reads
+# `productName` first and that is already right.
+extraMetadata:
+  name: mplus-logs
+
 directories:
   output: ../../release
   buildResources: build
@@ -90,6 +101,13 @@ portable:
 
 # Creates a draft release on the tag, so a build is reviewed and its notes
 # written before anyone can download it.
+#
+# This is also what points the updater at its feed: the same block is written
+# into the app's `app-update.yml`, and `electron-updater` reads the release
+# list from there. `releaseType` is a publishing option only — the client side
+# resolves the newest release through the public `releases.atom` feed, which
+# does not list drafts. So a tag alone ships nothing to anyone: until the draft
+# release is published, every installed copy correctly sees no update.
 publish:
   provider: github
   releaseType: draft

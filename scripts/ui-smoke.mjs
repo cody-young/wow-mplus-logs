@@ -176,6 +176,39 @@ check('summons are labelled as summons',
   widest.roster.every((g) => !g.summon) || views.rosterTable.includes('>summon<'));
 console.log(`  (widest pull: ${widest.label} — ${widest.roster.map((g) => `${g.name} x${g.spawns}${g.summon ? ' [summon]' : ''}`).join(', ')})`);
 
+// --- Updates -----------------------------------------------------------------
+// The strip is the only part of the UI that shows state nobody can reach on
+// demand: you cannot make a release fail to download to see what that looks
+// like.
+check('the version is always on show', views.updateIdle.includes('v0.1.2'));
+check('an idle strip offers a check and nothing else',
+  views.updateIdle.includes('Check for updates') && !views.updateIdle.includes('update-banner'));
+check('a check in flight says so instead of offering another',
+  views.updateChecking.includes('Checking') && !views.updateChecking.includes('Check for updates'));
+check('being current is stated, not banner-ed',
+  views.updateCurrent.includes('Up to date') && !views.updateCurrent.includes('update-banner'));
+check('an available update names the version and its size',
+  views.updateAvailable.includes('Version 0.1.3') && views.updateAvailable.includes('108.0 MB download'),
+  views.updateAvailable);
+check('release notes stay in the tooltip', views.updateAvailable.includes('title="Fixes the count column."'));
+check('a feed with no size still offers the download',
+  views.updateAvailableNoSize.includes('Ready to download') &&
+    views.updateAvailableNoSize.includes('>Download</button>'));
+check('a build that cannot update itself offers no Download',
+  !views.updateNotify.includes('>Download</button>') && views.updateNotify.includes('releases page'));
+check('a download in progress renders a real percentage bar',
+  /class="progress"><div style="width:42\.5%"/.test(views.updateDownloading),
+  views.updateDownloading);
+check('a download in progress shows its rate', views.updateDownloading.includes('43% \u00b7 2.5 MB/s'),
+  views.updateDownloading);
+check('a staged update says when it installs',
+  views.updateReady.includes('0.1.3 is ready') && views.updateReady.includes('when you quit'));
+check('a failed check shows the reason and a way to retry',
+  views.updateFailed.includes('ERR_NAME_NOT_RESOLVED') && views.updateFailed.includes('Try again'));
+check('a dev run renders no update strip at all', views.updateDev === '');
+check('the automatic-check box reflects the setting',
+  countOf(views.updateIdle, 'type="checkbox" checked') === 1, views.updateIdle);
+
 // --- Enemy forces ------------------------------------------------------------
 check('the count columns appear only with a forces table',
   analysis.forces.known

@@ -6,7 +6,14 @@
  */
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
 
-import type { DesktopApi, LogSummary, ParseProgress, RunAnalysis, WorkerEvent } from '../shared.js';
+import type {
+  DesktopApi,
+  LogSummary,
+  ParseProgress,
+  RunAnalysis,
+  UpdateState,
+  WorkerEvent,
+} from '../shared.js';
 
 type Handler<T> = (value: T) => void;
 
@@ -16,6 +23,7 @@ const handlers = {
   analysis: new Set<Handler<RunAnalysis>>(),
   done: new Set<Handler<number>>(),
   failed: new Set<Handler<string>>(),
+  update: new Set<Handler<UpdateState>>(),
 };
 
 ipcRenderer.on('mplus:event', (_event: IpcRendererEvent, event: WorkerEvent) => {
@@ -38,6 +46,10 @@ ipcRenderer.on('mplus:event', (_event: IpcRendererEvent, event: WorkerEvent) => 
   }
 });
 
+ipcRenderer.on('mplus:update', (_event: IpcRendererEvent, state: UpdateState) => {
+  for (const handler of handlers.update) handler(state);
+});
+
 function subscribe<T>(set: Set<Handler<T>>, handler: Handler<T>): () => void {
   set.add(handler);
   return () => set.delete(handler);
@@ -56,6 +68,13 @@ const api: DesktopApi = {
   onAnalysis: (handler) => subscribe(handlers.analysis, handler),
   onDone: (handler) => subscribe(handlers.done, handler),
   onFailed: (handler) => subscribe(handlers.failed, handler),
+  updateState: () => ipcRenderer.invoke('mplus:updateState') as Promise<UpdateState>,
+  checkForUpdate: () => ipcRenderer.invoke('mplus:checkForUpdate') as Promise<void>,
+  downloadUpdate: () => ipcRenderer.invoke('mplus:downloadUpdate') as Promise<void>,
+  installUpdate: () => ipcRenderer.invoke('mplus:installUpdate') as Promise<void>,
+  setAutomaticUpdates: (on) => ipcRenderer.invoke('mplus:setAutomaticUpdates', on) as Promise<void>,
+  openReleases: () => ipcRenderer.invoke('mplus:openReleases') as Promise<void>,
+  onUpdateState: (handler) => subscribe(handlers.update, handler),
 };
 
 contextBridge.exposeInMainWorld('mplus', api);

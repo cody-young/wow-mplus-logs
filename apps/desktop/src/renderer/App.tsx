@@ -8,6 +8,7 @@ import { EnemyRoster } from './components/EnemyRoster.js';
 import { RunRow, memberTitle, partyOf } from './components/RunRow.js';
 import { SegmentTimeline } from './components/SegmentTimeline.js';
 import { SpecIcon } from './components/SpecIcon.js';
+import { UpdateFooter, useUpdates } from './components/UpdateFooter.js';
 import { clock, integer, percent, short } from './format.js';
 import { shortName, specOf } from './specs.js';
 import type { LogSummary, ParseProgress, RunAnalysis } from '../shared.js';
@@ -31,6 +32,7 @@ export function App(): React.JSX.Element {
    * log is opened, since the choice was about the keys in the previous one.
    */
   const browsingOlder = useRef(false);
+  const updates = useUpdates();
 
   useEffect(() => {
     const off = [
@@ -180,6 +182,8 @@ export function App(): React.JSX.Element {
             />
           ))}
         </div>
+
+        {updates !== null ? <UpdateFooter {...updates} /> : null}
       </aside>
 
       <main className="main">

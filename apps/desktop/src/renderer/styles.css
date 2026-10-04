@@ -478,3 +478,45 @@ table.roster-table { margin-top: 6px; }
   color: var(--boss); font-size: 11px; text-transform: uppercase; letter-spacing: 0.6px;
 }
 .live::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--boss); }
+
+/* --- Updates --------------------------------------------------------------
+   Bottom of the sidebar. One dim line most of the time; the banner above it
+   appears only when there is a decision to make. */
+.updates { border-top: 1px solid var(--border); padding: 8px 9px; flex: none; }
+.update-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--dim);
+  font-variant-numeric: tabular-nums;
+}
+.update-row label { display: flex; align-items: center; gap: 3px; margin-left: auto; cursor: pointer; }
+.update-row input { accent-color: var(--accent); margin: 0; width: 12px; height: 12px; }
+.update-note { color: var(--muted); }
+.linkish {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.linkish:hover:not(:disabled) { background: none; color: var(--text); }
+.update-banner {
+  background: var(--panel-raised);
+  border: 1px solid #35507a;
+  border-radius: 6px;
+  padding: 9px 10px;
+  margin-bottom: 8px;
+  font-size: 11px;
+}
+.update-banner strong { display: block; font-size: 12px; margin-bottom: 3px; }
+.update-banner p { margin: 0; color: var(--muted); line-height: 1.45; }
+.update-banner .progress { margin: 7px 0 5px; border-radius: 1px; }
+.update-banner.ready { border-color: #2f6b49; }
+.update-banner.failed { border-color: #6b3131; }
+.update-banner.failed p { color: var(--danger); word-break: break-word; }
+.update-actions { display: flex; gap: 6px; margin-top: 8px; }
+.update-actions button { padding: 3px 9px; font-size: 11px; }

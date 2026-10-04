@@ -3,10 +3,19 @@ import { Worker } from 'node:worker_threads';
 
 import { BrowserWindow, app, dialog, ipcMain, shell } from 'electron';
 
-import type { WorkerEvent, WorkerRequest } from '../shared.js';
+import type { UpdateState, WorkerEvent, WorkerRequest } from '../shared.js';
 import { resolveIcons, resolveNamed } from './icons.js';
 import { findLatestLog } from './logs.js';
 import { loadForces } from './mdt.js';
+import {
+  check as checkForUpdate,
+  download as downloadUpdate,
+  initUpdates,
+  install as installUpdate,
+  openReleases,
+  setAutomatic,
+  updateState,
+} from './updater.js';
 
 const isDev = !app.isPackaged;
 
@@ -97,6 +106,13 @@ ipcMain.handle('mplus:namedIcons', (_event, names: string[]) =>
   resolveNamed(Array.isArray(names) ? names : []),
 );
 
+ipcMain.handle('mplus:updateState', () => updateState());
+ipcMain.handle('mplus:checkForUpdate', () => checkForUpdate(true));
+ipcMain.handle('mplus:downloadUpdate', () => downloadUpdate());
+ipcMain.handle('mplus:installUpdate', () => installUpdate());
+ipcMain.handle('mplus:setAutomaticUpdates', (_event, on: boolean) => setAutomatic(on === true));
+ipcMain.handle('mplus:openReleases', () => openReleases());
+
 ipcMain.handle('mplus:open', async (_event, path: string, tail: boolean) => {
   // Awaited rather than loaded in parallel with the parse: the analysis needs
   // the table from its first pass, and re-running a 200 MB key to attach the
@@ -106,10 +122,16 @@ ipcMain.handle('mplus:open', async (_event, path: string, tail: boolean) => {
   send({ type: 'open', path, tail, forces: table });
 });
 
-void app.whenReady().then(() => {
+void app.whenReady().then(async () => {
   createWindow();
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
+  });
+  // After the window, so the first state it pushes has somewhere to land. The
+  // renderer also asks for the state once on mount, which covers the gap for a
+  // window that is still loading when a check finishes.
+  await initUpdates((state: UpdateState) => {
+    window?.webContents.send('mplus:update', state);
   });
 });
 
