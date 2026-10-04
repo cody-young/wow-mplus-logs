@@ -214,6 +214,56 @@ if (analysis.deaths.length > 0) {
     `${countOf(views.deaths, 'class="dt-row')} rows for a ${death.windowMs / 1000}s window`);
   check('death recap bars every incoming hit it has room for',
     countOf(views.deaths, 'class="dt-bar') > 0 || death.incoming.length === 0);
+  // Newest at the top. The death is why the recap was opened, so it has to be
+  // the first row rather than the fortieth, and time counts backwards from it.
+  const rowSeconds = [...views.deaths.matchAll(/class="dt-mid">\u2212([\d.]+)</g)]
+    .map((match) => Number(match[1]));
+  check('death recap puts the death row first and counts backwards from it',
+    rowSeconds.length > 0 &&
+      rowSeconds.every((value, index) => index === 0 || value > rowSeconds[index - 1]) &&
+      views.deaths.indexOf('class="dt-row') === views.deaths.indexOf('class="dt-row death"'),
+    `row labels read ${rowSeconds.join(' ')}`);
+  // The health column holds its cell open on every row, trace or no trace: a
+  // row that drops the cell shunts the bars either side of it sideways.
+  check('death recap carries a health cell on every row',
+    countOf(views.deaths, 'class="dt-hp') === countOf(views.deaths, 'class="dt-row'),
+    `${countOf(views.deaths, 'class="dt-hp')} health cells for ${countOf(views.deaths, 'class="dt-row')} rows`);
+  check('death recap reads out the health beside each second',
+    /class="dt-hp"[^>]*aria-label="\d+% health"/.test(views.deaths) ||
+      death.trace.every((sample) => sample.fraction < 0),
+    views.deaths.slice(views.deaths.indexOf('dt-hp') - 200, views.deaths.indexOf('dt-hp') + 120));
+  // Zooming in is the only way to tell a two-hit overlap from one huge hit, so
+  // the control has to be there, and exactly one of its lengths selected.
+  check('death recap offers finer row lengths with one of them selected',
+    countOf(views.deaths, 'aria-pressed="true"') === 1 &&
+      views.deaths.includes('>.5s<') && views.deaths.includes('>.25s<'),
+    views.deaths.slice(views.deaths.indexOf('dt-zoom'), views.deaths.indexOf('dt-zoom') + 420));
+  // Zoomed in, every row has to split rather than the window shrinking: the
+  // same ten seconds, four times the rows, and labels carrying the quarters.
+  check('zooming the death recap splits the same window into more rows',
+    countOf(views.deathZoomed, 'class="dt-row') === Math.round(death.windowMs / 250) ||
+      views.deathZoomed === '',
+    `${countOf(views.deathZoomed, 'class="dt-row')} rows at .25s for a ${death.windowMs / 1000}s window`);
+  // Reversing the rows must not take the health column with it: the walk over
+  // the trace runs forwards, so the top row — the death — has to carry the last
+  // health the log recorded, not the first.
+  const lastHp = [...death.trace].reverse().find((sample) => sample.fraction >= 0);
+  check('the health column survives the row order being flipped',
+    lastHp === undefined ||
+      views.deaths.includes(
+        `aria-label="${lastHp.hp > 0 ? Math.max(1, Math.round(lastHp.fraction * 100)) : 0}% health"`,
+      ) &&
+        /class="dt-hp"[^>]*aria-label="(\d+)% health"/.exec(views.deaths)?.[1] ===
+          String(lastHp.hp > 0 ? Math.max(1, Math.round(lastHp.fraction * 100)) : 0),
+    `first health cell is ${/class="dt-hp"[^>]*aria-label="(\d+)% health"/.exec(views.deaths)?.[1]}%, trace ends at ${lastHp === undefined ? 'nothing' : Math.round(lastHp.fraction * 100) + '%'}`);
+  check('zoomed row labels carry the quarter seconds',
+    views.deathZoomed === '' ||
+      views.deathZoomed.includes('\u2212' + (death.windowMs / 1000 - 0.25).toFixed(2)),
+    views.deathZoomed.slice(0, 400));
+  check('the zoomed recap still bars and still shows health',
+    views.deathZoomed === '' ||
+      (countOf(views.deathZoomed, 'class="dt-hp') === countOf(views.deathZoomed, 'class="dt-row') &&
+        !/width:\s*(NaN|Infinity|-)/.test(views.deathZoomed)));
   check('death recap shows the healing side',
     death.healsReceived.length === 0
       ? views.deaths.includes('No healing landed')

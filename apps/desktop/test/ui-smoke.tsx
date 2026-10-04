@@ -10,6 +10,7 @@
 import { renderToString } from 'react-dom/server';
 
 import { BreakdownTable } from '../src/renderer/components/BreakdownTable.js';
+import { DeathTimeline } from '../src/renderer/components/DeathTimeline.js';
 import { DeathsPanel } from '../src/renderer/components/DeathsPanel.js';
 import { DungeonIcon } from '../src/renderer/components/DungeonIcon.js';
 import { EnemyRoster, RosterTable } from '../src/renderer/components/EnemyRoster.js';
@@ -83,6 +84,13 @@ export function render(analysis: RunAnalysis): Record<string, string> {
     ),
     // A single segment's reports, which is what clicking a pull shows.
     segmentDamage: perSegment === undefined ? '' : renderToString(<BreakdownTable report={perSegment.damage} mode="done" />),
+    // The death recap zoomed all the way in, which is where the row count
+    // quadruples and the labels grow decimals. Rendered on its own because the
+    // resolution is the chart's own state and a string render cannot click.
+    deathZoomed:
+      analysis.deaths[0] === undefined
+        ? ''
+        : renderToString(<DeathTimeline death={analysis.deaths[0]} defaultResolutionMs={250} />),
     // Degenerate inputs the UI must tolerate.
     emptyDeaths: renderToString(<DeathsPanel deaths={[]} />),
     emptyDamage: renderToString(
