@@ -37,6 +37,22 @@ jobs:
       - name: Build
         run: npm run build
 
+      # Temporary: the packaging step fails on both runners with ENOENT on
+      # app-builder's platform binary, which a clean `npm ci` reproduces
+      # nowhere locally. This says whether the package arrived incomplete.
+      - name: Diagnose app-builder-bin
+        shell: bash
+        run: |
+          npm -v
+          echo "--- package dir ---"
+          ls -la node_modules/app-builder-bin/ || echo "MISSING package"
+          echo "--- linux/x64 ---"
+          ls -la node_modules/app-builder-bin/linux/x64/ || echo "MISSING linux/x64"
+          echo "--- win/x64 ---"
+          ls -la node_modules/app-builder-bin/win/x64/ || echo "MISSING win/x64"
+          echo "--- resolved ---"
+          node -e "console.log(require.resolve('app-builder-bin'))" || true
+
       - name: Package
         working-directory: apps/desktop
         run: npx electron-builder ${{ matrix.platform }} --publish ${{ startsWith(github.ref, 'refs/tags/v') && 'always' || 'never' }}
