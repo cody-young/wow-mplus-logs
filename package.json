@@ -1,7 +1,7 @@
 {
   "name": "wow-mplus-logs",
   "private": true,
-  "version": "0.1.1",
+  "version": "0.1.2",
   "type": "module",
   "description": "Combat log analysis for Mythic+ keys",
   "author": "Cody Young",
