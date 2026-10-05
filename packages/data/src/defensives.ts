@@ -38,7 +38,7 @@ export const Defense = {
 
 export type DefenseKind = (typeof Defense)[keyof typeof Defense];
 
-/** 1702 spells. */
+/** 1712 spells. */
 const ABSORB =
   'h.k3.dq.1l2.ld.k.27j.85.6.3.3.9.4p.o.a5.10.1i8.fs.6y.mg.j.5m.a.4y.3v.1u.eh.ip.1e7.3.12j.jo.35.83' +
   '.1.1.1.2.1.23.1k5.r3.25.9.yq.6f.6e.u9.dh.19u.2x.1.3.k0.tj.1.1.1.2.2.1v.19.10.2j.kc.1.1.e.9.1.1.7' +
@@ -88,11 +88,12 @@ const ABSORB =
   '.70.1m.33.m.2.2g.5d.8p.26.4q.8b.br.38.8h.4z.ax.2q.96.k3.4c.3y.10.6s.bi.45.3t.t.b.4m.2m.11l.c3.zi' +
   '.1q.88.sx.1e.5.2n.3o.ct.6q.fo.9x.s.95.fo.6.re.4w.3l.z.bx.6e.c.e.83.8r.127.2o.i.gn.5s.6.3a.3.fj.4' +
   'n.2b.2d.4n.1x.136.3d.5n.1f.ru.ga.ng.5v.3e.a0.37.s.cv.yd.h5.3k.a2.2o.bl.8f.9j.f6.cc.25.77.9.3k.73' +
-  '.1y.15.58.74.4d.18x.yi.mj.f2.3.30.bj.dy.8l.gb.2ui.6z.42.9y.rr.bp.1s3.7n.b2.2a8.9.d9.3k.3t.rs.4n.' +
-  'cm.bq.273.4.4e.io.3t.ax.ba.gm.ix.d2.9.en.7r.34.1b.x.6d.by.er.db.8m.3u.4t.1w.3x.ay.47.t.dv.9s.j.a' +
-  'j.9y.1.hl.4v.pm.qb.j8.l1.196.h0.7q.da.g.3u.87.4.k.4j.ow.n8.2.ns.1jv';
+  '.1y.15.58.74.4d.18x.yi.mj.f2.3.30.bj.dy.8l.gb.2ui.6z.42.9y.rr.ap.10.1s3.7n.b2.1v0.f8.9.d9.3k.3t.' +
+  'rs.4n.cm.bq.273.4.4e.io.3t.ax.ba.gm.ix.d2.9.en.7r.34.1b.x.6d.by.er.db.8m.3u.4t.1w.3x.ay.47.t.dv.' +
+  '9s.j.aj.9y.1.hl.4v.pm.qb.3v.fd.l1.17i.1o.cr.49.7q.da.g.3u.87.4.k.4j.ow.hb.5x.2.53.ip.1jv.1ty.9w.' +
+  '28i';
 
-/** 4117 spells. */
+/** 4141 spells. */
 const REDUCTION =
   '1z.6.y.9u.x.2g.6k.1.1c.2v.1c.4c.8o.d8.zl.5.c.2k.14.v.9.3.3r.11q.9l.3s.22.8z.tj.1d.i.50.j.1.6b.du' +
   '.5j.21.2e.m.d.o.w.gj.r.hq.2b.1.m2.5j.2.c4.9d.mr.3.v.7d.1.b.52.5o.nh.2l.x.5r.b1.1.e.1.6.ej.e6.em.' +
@@ -205,13 +206,13 @@ const REDUCTION =
   's5.8l.h2.3p.29.2y.a0.1x.3w.1w.j.2t.6m.3k.ex.56.p.cn.45.2.70.n.1p.9.3v.3z.i6.7.2t.3.c9.56.89.n.35' +
   '.65.n.1g.2h.u.1.k.9e.jk.4z.3a.2.1h.8e.4e.77.a.ik.21.f1.cw.b.bj.45.48.h1.s.a2.98.5.6r.2n.jq.30.9m' +
   '.2t.25.5d.1f.3o.r.1u.58.s.9r.9c.2u.b.1v.e5.f.1g.2.2.k.1g.24.11.a1.1u.c4.1bu.2g.35.y8.l.7i.1y.63.' +
-  '3.5a.1h.3u.2f.1.u.q.3m.76.91.5l.3s.bj.46.48.2.97.5z.ca.13.15y.51.6m.oc.b5.8n.16.so.bp.fm.54.az.g' +
-  's.cb.3l.p.2x.qg.7x.j.cl.1e.9z.gn.1a.1y.3b.i.2l.2b.46.cf.2z.2v.6k.5s.t4.4.dy.20.i.3y.e5.zs.1.27.d' +
-  'p.4.ac.23.4j.2h.4c.32.8m.6u.ci.q.4f.1gl.9.2f.e3.q.3t.3.ap.a5.6e.3.12.p.1e.bh.q.3d.4.7y.j5.l0.18.' +
-  'es.b.1b.7.2y.ah.k.62.b9.jo.h4.ev.nb.6k.7n.w.h6.5.x4.1g2.w.14.13l.1n.1z.2t.7q.a6.f6.1.8d.1.1.1lq.' +
-  'mm.1q1';
+  '3.5a.1h.3u.2f.1.u.q.3m.76.91.5l.3s.bj.46.48.2.97.5z.ca.13.15y.51.6m.oc.b5.8n.16.so.bp.93.6j.54.a' +
+  'z.gs.cb.3l.p.2x.qg.7x.j.cl.1e.9z.gn.1a.1y.3b.i.2l.2b.46.cf.2z.2v.6k.5s.t4.4.dy.20.i.3y.e5.k8.cm.' +
+  '2y.1.27.dp.4.ac.23.4j.2h.4c.32.8m.6u.ci.q.4f.jk.x1.9.2f.e3.q.3t.3.ap.a5.6e.3.12.p.1e.bh.q.3d.4.7' +
+  'y.j5.l0.18.es.b.1b.7.2y.ah.k.62.b9.jo.dz.e.2r.ev.m5.16.6k.7n.w.h6.5.dp.bq.1o.61.1g2.w.14.uq.8v.1' +
+  'n.1z.2t.7q.a6.5j.9n.1.6j.1u.1.1.1bf.ab.a.4p.hn.7m.nv.uk.27m.4b.47.1nh.2e.1bd';
 
-/** 1415 spells. */
+/** 1417 spells. */
 const IMMUNITY =
   'hu.1w.8o.2jb.hb.1c.z0.38.a8.b1.n.6n.a0.5h.1.1.bn.6y.ai.5.cc.1w4.qh.1b.39.6c.hr.1cy.mn.4q.fg.21.b' +
   '5.39t.lf.kw.gu.5m.tf.bk.nq.s5.1i.128.8q.21.nl.jp.w.mx.gv.bw.qi.b0.2.i.1.1.1.2r.1.1.1.1.1.1.1.5r.' +
@@ -254,7 +255,7 @@ const IMMUNITY =
   'fu.f.3w.5c.xn.j6.dh.d5.u2.9r.1jk.52.l.n.ib.11t.31.9.aj.ym.6e.4.hf.1te.ac.3.6m.3.1.gz.1mn.8f.5j.7' +
   '0.a1.f4.b.k8.2p.10z.5t.9a.gv.zq.ge.4y.1zm.81.145.1q6.d.1t.t.7l.u.138.vb.m9.8.203.f4.4d.e.k.1.1.3' +
   'r.4p.8x.54f.2x7.eq.16.b.9.1sc.tc.2.mh.x6.93.as.uj.2.1h.bi.c8.qk.56.6h.gu.4r.2.ct.9m.3a.45.3.9o.1' +
-  '.1.4.2.2.8a.1gl.8t.m2.gg.1mg.m6.2ae.379.gt.g9.qw.6b.m.fs.2c3.3l9';
+  '.1.4.2.2.8a.1gl.8t.5a.gs.gg.1mg.m6.2ae.379.gt.g9.qw.6b.m.fs.2c3.3l9.7';
 
 /** 278 spells. */
 const AVOIDANCE =
@@ -269,7 +270,7 @@ const AVOIDANCE =
   '.7d.8w.cc.1x5.4dm.1q8.4yk.199.d9.xo.1hv.o.es.an6.1qe.o6.590.v4.51n.kr.4qe.c56.s.a6.4y7.8e.3z1.87' +
   's.g5h5.agt.5g0.1ff.mm.27w.7lo.7l.j3.129.hby.4x5.1vc.13.8cp';
 
-/** 1171 spells. */
+/** 1174 spells. */
 const HEALTH =
   'ma.17s.xr.13o.8s.1v.19g.aj.94.2v.3yd.ig.67.24b.hn.am.3x.9o.1c.tt.3n.5y.bd.24p.1p.56.8.r.3.e.1.77' +
   '.2.8j.22.2h.tw.1e6.af.gz.8h.fb.c.5s.o.gm.i2.br.159.vv.h3.km.2t.bp.1u.dy.9z.gf.2g7.nb.22.1u.6v.51' +
@@ -304,9 +305,9 @@ const HEALTH =
   '63.b9.py.3d.1rd.km.a0.4e1.76.j4.b9.wq.1n.r.fty5.10b.b7.1.1.2h.g9.oc.3p.sj.7m.ea.2j.1.1.2h3.1fc.7' +
   '.1mr.72.93.a.17.1k8.ox.1ed.22.4fz.t1.2z.i.kz.12l.57.2.b3.bd.e.27.2g.5p.1.7g.jq.1e3.1db.19a.4o.3p' +
   '.3.197.1ad.1tt.26q.3s.pd.ly.10.l.e.20c.7r.ec.lu.5z.1l.7.20b.em.ji.2pd.t7.1.16u.c9.2g.3df.at.18a.' +
-  'nm.8v.cd.1.366.4i.he.oq.h.1hb.d.1.2.1.1.yu.1eu.226.24y.np.5.1.ro.5m8.1lv.21v';
+  'nm.8v.cd.1.366.4i.he.9w.eu.h.1hb.d.1.2.1.1.yu.1eu.226.24y.np.5.1.ro.5m8.1lv.21v.2n5.fg';
 
-/** 649 spells. */
+/** 650 spells. */
 const HEALING =
   'du.5w.46q.p5.r.18s.3s7.4a.1ir.vw.au.8d.7l.1en.21.2aj.3h.u.h.8m.1j.11h.2t.r0.1hq.n2.u.r.8l.m4.ht.' +
   '5u.62.5m.3x.dc.aq.1p.1u.9e.1r.9y.y.s8.7z.85.77.bx.3r.n6.im.3d.2v.1l.a1.t8.55.5i.mx.1y.ff.aj.j9.1' +
@@ -329,11 +330,11 @@ const HEALING =
   '.24s.1bd.7c.o2.h8.16a.4b.o.1lh.2ao.wy.eb.f.6vy.203.1n3.10.57.h5.f7.20.36.ij.c0.6v.oh.5.5.iy.1l5.' +
   '43.1t4.f.ev.q1.cs.d0.o2.85.f9.1nk.1r5.p.7j.k9.fvm6.1cm.10v.6bj.17t.20h.4bk.x3.u1.tt.86.r6.12y.3o' +
   '.l8.bz.52r.3g.1bw.3gd.ac.26s.10.3y.1aj.de.s6.169.5ko.gw.8jr.uo.5oi.1g1.1g8.k.e0.1oa.tm.1pm.2te.1' +
-  'ck';
+  'ck.48a';
 
-/** 22 spells. */
+/** 23 spells. */
 const SHARED =
-  '5cs.2b2.32d.g45.11l.3xu.38.efv.11bk.5sv.57d.2i7.1mmm.97g.7jv.50h.12yy.oh.z3r.2it5.mv1.ghxk';
+  '5cs.2b2.32d.g45.11l.3xu.38.efv.11bk.5sv.57d.2i7.1mmm.97g.7jv.50h.12yy.oh.z3r.2it5.mv1.ghxk.1ehn';
 
 const LISTS: readonly (readonly [string, number])[] = [
   [ABSORB, 1],
