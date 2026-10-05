@@ -13,6 +13,19 @@ export {
   type AnalysisContext,
 } from './context.js';
 export {
+  controlKindNames,
+  crowdControlReport,
+  summarizeCrowdControl,
+  type ControlAbility,
+  type ControlActor,
+  type ControlApplication,
+  type ControlEnd,
+  type ControlOptions,
+  type ControlReport,
+  type ControlSpell,
+  type ControlSummary,
+} from './crowd-control.js';
+export {
   damageReport,
   healingReport,
   type ActorBreakdown,

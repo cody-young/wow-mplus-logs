@@ -260,12 +260,30 @@ export function aura(
   spellId: number,
   spellName: string,
   up: boolean,
-  opts: { buff?: boolean; dstFlags?: string } = {},
+  opts: { buff?: boolean; dstFlags?: string; srcFlags?: string } = {},
 ): string {
   const event = up ? 'SPELL_AURA_APPLIED' : 'SPELL_AURA_REMOVED';
   const dstFlags = opts.dstFlags ?? '0xa48';
+  const srcFlags = opts.srcFlags ?? '0x511';
   const auraType = opts.buff === true ? 'BUFF' : 'DEBUFF';
-  return `${at(seconds)}  ${event},${src},"${srcName}",0x511,0x0,${dst},"${dstName}",${dstFlags},0x0,${spellId},"${spellName}",0x8,${auraType}`;
+  return `${at(seconds)}  ${event},${src},"${srcName}",${srcFlags},0x0,${dst},"${dstName}",${dstFlags},0x0,${spellId},"${spellName}",0x8,${auraType}`;
+}
+
+/**
+ * An aura damage took off early, which the log reports as its own event rather
+ * than as a removal. SPELL_AURA_BROKEN_SPELL names what broke it.
+ */
+export function auraBroken(
+  seconds: number,
+  src: string,
+  srcName: string,
+  dst: string,
+  dstName: string,
+  spellId: number,
+  spellName: string,
+  byName = 'Cleave',
+): string {
+  return `${at(seconds)}  SPELL_AURA_BROKEN_SPELL,${src},"${srcName}",0x511,0x0,${dst},"${dstName}",0xa48,0x0,${spellId},"${spellName}",0x8,200,"${byName}",0x1,DEBUFF`;
 }
 
 export function cast(
@@ -387,7 +405,6 @@ export const FORCES: ForcesTable = {
       challengeModeId: 500,
       name: 'Test Hold',
       total: 100,
-      nonKillForces: 0,
       teleportSpellId: 393256,
       enemies: [
         { npcId: 1001, count: 4 },
@@ -436,6 +453,12 @@ export const LINES: string[] = [
   died(44.5, LATER_A, 'Ogre', '0xa48'),
 
   hit(60, DPS, 'Dee', DRAGGED, 'Straggler', 500),
+
+  // Control, measured from the aura rather than from the press. A sheep that
+  // ran its course: thirty seconds, which is what the seconds column exists
+  // for. Pressed as 118 and applied as 28271, which is why the control table
+  // holds aura ids rather than button ids.
+  aura(60.1, HEALER, 'Heals', DRAGGED, 'Straggler', 28271, 'Polymorph', true),
   // A hit on the tank seventeen seconds before they die: inside the recap's
   // capture and outside the ten seconds its totals describe.
   taken(62, DRAGGED, 'Straggler', TANK, 'Tank', 12000, { hp: 900000, hpMax: 1000000 }),
@@ -580,6 +603,11 @@ export const LINES: string[] = [
   // The add dies; the straggler is tagged at t=60 and t=76 and never killed,
   // which is the case that separates "engaged" from "counted".
   died(80, BOSS_ADD, 'Minion', '0xa48'),
+
+  // Thirty seconds after it went on, the sheep comes off on its own. The
+  // straggler is never killed, so nothing but the removal ends this one.
+  aura(90.1, HEALER, 'Heals', DRAGGED, 'Straggler', 28271, 'Polymorph', false),
+
   died(94.9, BOSS, 'Big Bad', '0xa48'),
 
   `${at(95)}  ENCOUNTER_END,9001,"Big Bad",8,5,1`,
@@ -601,6 +629,69 @@ export const LINES: string[] = [
   died(103.5, SHAMAN, 'Flame Shaman', '0xa48'),
   // The despawning wave. Worth 9 apiece in the table, so counting them would
   // add 18 — and the party never touched either one.
+
+  /*
+   * The rest of the control, in the quiet stretch before the wave dies.
+   *
+   * Every shape the report has to tell apart is here, because each one is a
+   * way to get the three headline numbers wrong: an area stun that is one
+   * press and not two, a control broken early, a mob that died still held, an
+   * aura the log never takes off, and four auras that look like the party
+   * controlling an enemy and are not.
+   */
+
+  // One Leg Sweep, two totems, same millisecond. One press, two targets —
+  // counting applications would report this as two casts.
+  aura(104, DPS, 'Dee', TOTEM_C, 'Magma Totem', 119381, 'Leg Sweep', true, {
+    dstFlags: '0x2a48',
+  }),
+  aura(104, DPS, 'Dee', TOTEM_D, 'Magma Totem', 119381, 'Leg Sweep', true, {
+    dstFlags: '0x2a48',
+  }),
+
+  // A sheep somebody shot: two seconds of a thirty-second control, and the
+  // only line that says so is the BROKEN_SPELL.
+  aura(104.5, HEALER, 'Heals', WARDED, 'Warded Ogre', 28271, 'Polymorph', true),
+  auraBroken(106.5, HEALER, 'Heals', WARDED, 'Warded Ogre', 28271, 'Polymorph'),
+
+  // The sweep comes off one totem after three seconds. The other is never
+  // taken off at all, the way a despawning unit leaves an aura, and is
+  // credited with this one's three seconds rather than with the rest of the
+  // key.
+  aura(107, DPS, 'Dee', TOTEM_C, 'Magma Totem', 119381, 'Leg Sweep', false, {
+    dstFlags: '0x2a48',
+  }),
+
+  // A guardian's control, which is its owner's — the same rollup as its damage.
+  aura(108, TYRANT, 'Tyrant', WARDED, 'Warded Ogre', 30283, 'Shadowfury', true, {
+    srcFlags: '0x2112',
+  }),
+  aura(108.5, TYRANT, 'Tyrant', WARDED, 'Warded Ogre', 30283, 'Shadowfury', false, {
+    srcFlags: '0x2112',
+  }),
+
+  // Four auras that must not count, each of which would otherwise pass:
+  //   an enemy's stun on a player,
+  aura(108.6, WARDED, 'Warded Ogre', HEALER, 'Heals', 853, 'Hammer of Justice', true, {
+    srcFlags: '0xa48',
+    dstFlags: '0x512',
+  }),
+  //   a party member's control landing on a party member,
+  aura(108.7, DPS, 'Dee', HEALER, 'Heals', 853, 'Hammer of Justice', true, {
+    dstFlags: '0x512',
+  }),
+  //   a buff that happens to carry a control aura,
+  aura(108.8, DPS, 'Dee', WARDED, 'Warded Ogre', 853, 'Hammer of Justice', true, {
+    buff: true,
+  }),
+  //   and a slow, which is not control at all: the reason the table has no
+  //   MOD_DECREASE_SPEED in it.
+  aura(108.9, DPS, 'Dee', WARDED, 'Warded Ogre', 204242, 'Consecration', true),
+
+  // A stun on a mob that dies under it half a second later. The control did
+  // its job, and the duration is the half second it lasted.
+  aura(109.5, DPS, 'Dee', WAVE_A, 'Wave Minion', 179057, 'Chaos Nova', true),
+
   died(110, WAVE_A, 'Wave Minion', '0xa48'),
   died(110, WAVE_B, 'Wave Minion', '0xa48'),
   // t=110..112, the last pull: a guardian of Dee's, a shielded enemy and a
@@ -720,6 +811,7 @@ export const LINES: string[] = [
   // A press at nobody: the Ogre's last cast ended 1.1s earlier and it never
   // casts again.
   cast(119.9, TANK, 'Tank', 47528, 'Mind Freeze', { dst: WARDED, dstName: 'Warded Ogre', dstFlags: '0xa48' }),
+
 
   // 120s of wall clock, and a keystone timer of 135s because someone died.
   // The two must stay different: a rate divided by the wrong one still looks

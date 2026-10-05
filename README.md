@@ -11,7 +11,7 @@ them yourself.
 
 ```
 packages/parser/    portable combat log engine — bytes in, columnar events out
-packages/analysis/  segmentation, damage/healing breakdowns, interrupts, deaths
+packages/analysis/  segmentation, damage/healing breakdowns, interrupts, control, deaths
 apps/desktop/       Electron shell: worker-thread parsing, live tail, React UI
 packages/data/      the generated enemy-forces and spell tables, the MDT reader
 ```
@@ -97,29 +97,55 @@ difference ran one way — MDT *omits* creatures Blizzard credits, ten across
 those six dungeons — so this is not a second opinion about MDT's numbers. It is
 the same numbers from upstream, with the gaps filled.
 
-Two things follow from the source change. Blizzard's data is not GPL-2.0, so
-unlike MDT's tables it can be shipped: **a user with no addons installed now
-gets counts**, where before they got none. And the criteria tree carries
-something a kill-based table structurally cannot — see below.
+Blizzard's data is also not GPL-2.0, so unlike MDT's tables it can be shipped:
+**a user with no addons installed now gets counts**, where before they got none.
 
-**Some dungeons award forces for things that are not kills.** Eight of the 74 do:
-the Mists of Tirna Scithe maze, Ruby Life Pools, and King's Rest, where a
-scenario objective is worth 30 of its 608. Nothing in the combat log reports an
-objective being completed, so those points are unearnable by any log reader —
-which is why a real timed King's Rest counts 584 of 608 and reads 96%.
+**Kills have to supply the whole requirement.** A few dungeons hang a
+`Criteria.Type 92` child off their Enemy Forces node, and reading those as
+scenario objectives and taking them off the requirement looked right and was
+wrong. They are creature kills addressed by something other than an npc id:
+King's Rest's 30 is its Shadow of Zul, which already has a kill row of its own,
+and Ruby Life Pools' 25 and 7 are two rows a retune deleted. MDT quotes the same
+`Amount` for every dungeon as the requirement and models kills alone, which is
+the cross-check. Subtracting them put Den of Nalorakk at 112% and left Temple of
+Sethraliss at 97%; not subtracting them puts every timed key in the author's
+logs between 100.2% and 109.2%.
 
-That number is correct and is left alone. `nonKillForces` is carried per dungeon
-as a **tolerance, not an addend**: the count still reads 96% because there is no
-evidence in the log that the objective happened, but a completed key short by no
-more than the dungeon's own award is fully explained and is not flagged. What
-survives that tolerance is a genuine contradiction — a creature worth more than
-the table says, or a hotfix newer than the build — and is worth a warning.
+**A dungeon holds more count than it asks for,** so a full route always
+overshoots a little — Den of Nalorakk carries 1,240 against a requirement of
+729. Over 100% is the overpull, which is information, and it is what the route
+planners show too. A *completed* key that falls **short** is the real
+contradiction, since forces are a completion requirement alongside the bosses,
+and that gets a warning.
+
+Two things used to trip that warning, and both are fixed at the source rather
+than reported:
+
+- **Some creatures are defeated without ever being reported dead.** Forces are
+  awarded on death, and almost always a death is logged. A few units are removed
+  by script instead: the party burns them down, their health is pinned at 1, and
+  they simply stop appearing. Temple of Sethraliss has six Static Anomalies
+  worth 5 each; King's Rest the Shadow of Zul at 30; Murder Row a Row Hooligan
+  at 3. See `HEALTH_FLOOR` in `packages/analysis/src/segments.ts`. This cannot
+  resurrect a despawning wave: those are never damaged, so they are in no
+  segment at all.
+- **A retune can delete a kill row while the creature still counts.** Between
+  12.1.0.69404 and 12.1.0.69933, Ruby Life Pools lost its rows for npc 190034
+  (25) and npc 190206 (7) and gained two type-92 criteria worth exactly 25 and
+  7. The `Criteria` rows still name the creatures; only the `CriteriaTree` nodes
+  carrying the amounts are gone. The generator matches on amount and recovers
+  them from the newest build that still had them, which cost four timed keys
+  77–82% apiece until it did.
+
+The table is a **single build**, and the dungeons get retuned inside a season:
+Temple of Sethraliss asked 649 in mid-August and 687 by September with not one
+kill row changed. A log older than the current tuning is therefore measured
+against a requirement that did not exist yet, and two August Sethraliss keys
+read 98% for that reason alone. Shipping several tunings and picking by the
+run's date would fix it; it is not worth the data.
 
 The committed table is checked in CI with `node scripts/enemy-forces.mjs
---check`, which regenerates and exits non-zero if it differs. Hotfixes are
-already applied in what wago.tools exports, so the table is live data rather
-than a snapshot of a patch's shipped files: every hotfixed `CriteriaTree` row
-absent from the export is a delete.
+--check`, which regenerates and exits non-zero if it differs.
 
 One field still comes from MDT, when the user has it: `teleportSpellId`, the
 spell whose icon is the dungeon's art. Nothing in Blizzard's data links a
@@ -430,6 +456,77 @@ attributed to the segment their **target** belongs to, like damage and for the
 same reason — a Kick into a straggler dragged through a boss fight belongs to
 that straggler's pull, not to whatever the clock was in.
 
+## Crowd control, measured from the aura
+
+The CC tab reports three numbers per player — **casts**, **targets hit** and
+**seconds held** — and it reads the log from the opposite end to the interrupts
+tab. An interrupt is an instant the game states outright, so there the press is
+the hard part and the result is free. Control is the reverse: the press says
+almost nothing, while the aura is reported in full, with a beginning, an end and
+the unit it was on.
+
+The press says nothing because the button and the aura are usually different
+spells. Polymorph is cast as `118` and the sheep lands as `28271`; Fists of Fury
+is cast as `117418` and its stun lands as `120086`; Fear is cast as `5782` and
+lands as `118699`. So the aura is the unit of measurement, and the table in
+`packages/data/src/crowd-control.ts` answers one question about it: does this
+aura mean the unit is not fighting.
+
+That table is the defensives trick again — classify the *aura*, not the spell.
+Seven aura types mean loss of control, and each was confirmed twice: a witness
+spell that carries it and is unarguably that kind of control, and the
+`EffectMechanic` column agreeing on the rows that name one.
+
+| aura | kind | witness | mechanic agrees on |
+| --- | --- | --- | --- |
+| 12 | stun | Hammer of Justice | 1,351 rows |
+| 298 | stun | Asphyxiate, which carries no other | 17 rows |
+| 5 | disorient | Blind | 189 rows |
+| 7 | fear | Psychic Scream | 222 rows |
+| 27 | silence | Silence | 131 rows |
+| 26 | root | Chains of Ice | 355 rows |
+| 455 | root | Entangling Roots, which carries no other | 46 rows |
+
+Stun and root have two numbers each and neither spare one is redundant:
+Asphyxiate carries only `298` and Entangling Roots only `455`.
+
+**Slows are deliberately not in it**, and that single decision shapes the whole
+tab. A slow is not being taken out of the fight, and `MOD_DECREASE_SPEED` cannot
+tell a Ring of Frost from a paladin standing in their own Consecration. Measured
+on one real evening of keys, including it put Consecration top of the chart at
+1,430 applications, with Grip of the Dead (1,058) and Permeating Chill (891)
+behind it — three passives, none of them pressed, between them nine times all
+the hard control in the log. Left out, the same log reports eight spells and
+every one is a real press.
+
+**One cast, several targets.** An area control lands as one aura per enemy, so
+the applications of one spell by one player inside a rolling one-second window
+are one press. The window is measured rather than guessed: of the 443 gaps
+between consecutive applications across two real keys, 379 were under a tenth of
+a second and 55 were over ten, with six anywhere in between. Where it still
+loses is a zone that keeps catching units long after the cast — a Ring of Frost
+nobody walks into for four seconds reads as a second press. The targets and the
+seconds stay right; only the cast count goes high, and only for that shape.
+
+**The seconds come off the log, not a tooltip**, which is why the tab also says
+how each one *ended*. A sheep that ran its course and a sheep somebody shot two
+seconds in are the same cast and the same target, and only the ending separates
+them — `SPELL_AURA_BROKEN_SPELL` is usually the whole reason a control chart
+reads low. A mob that dies still held ends its control there, too.
+
+An aura the log never removes is the one case with no answer in it: a despawning
+unit simply stops being reported. Rather than a flat cap, it is credited with
+the longest the *same* aura was seen to last in that run, and with nothing if it
+was never once seen to end. A cap invents a great deal — four Blinding Sleets
+left open by despawning snakes, credited a minute each, added 240s to a key
+whose every completed Blinding Sleet lasted a second or less.
+
+What this cannot see is a press that caught nothing at all, since an aura is the
+only evidence there is. There is no hit rate here to match the interrupts tab's.
+
+Pets roll up like damage, and applications are attributed to the segment their
+**target** belongs to, for the same reason interrupts are.
+
 ## Segmentation, and why it is keyed on the enemy
 
 A key splits into boss fights and trash pulls. Boss windows come free from
@@ -521,6 +618,7 @@ Confirmed against a real 188 MB log, build 12.1.0 / `COMBAT_LOG_VERSION` 22:
 | `SPELL_HEAL_ABSORBED` | same tail without the critical flag, so 2 from the end |
 | `COMBATANT_INFO` spec | field 24 (was 23) |
 | `CHALLENGE_MODE_START` | `zoneName, instanceId, challengeModeId, keystoneLevel, [affixes]` — the third field is what joins to an enemy-forces table |
+| `CHALLENGE_MODE_END` | `instanceId, success, keystoneLevel, totalTimeMs` — a zeroed one (`id,0,0,0`) is written a quarter-second *before* every real key beginning, so it is the END, not the START, that separates one key from the next. A START with no END behind it is the key already in progress being announced again, which is what leaving the instance mid-run does |
 | `SWING_DAMAGE` vs `_LANDED` | the same hits from either side; totals agree within ~3%, so count one, not both |
 
 ## Verifying against your own logs

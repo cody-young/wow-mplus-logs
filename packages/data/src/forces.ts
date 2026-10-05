@@ -30,21 +30,14 @@ export interface DungeonForces {
    */
   challengeModeId: number;
   name: string;
-  /** Forces required to complete the dungeon. */
-  total: number;
   /**
-   * Forces this dungeon awards for something that is not a kill.
+   * Forces required to complete the dungeon, as the game states it.
    *
-   * King's Rest is the one that matters: a scenario objective there is worth
-   * 30 of its 608. A party that killed every creature the log records can
-   * therefore show 96% and have genuinely finished the key, because nothing in
-   * the combat log reports an objective being completed.
-   *
-   * So this is a tolerance, not an addend. It is never added to `counted` —
-   * there is no evidence the objective happened — but a shortfall no larger
-   * than this is fully explained and is not worth warning about.
+   * Kills have to supply all of it. Nothing is taken off for the scenario
+   * objectives a few dungeons carry — see the note on `Criteria.Type 92` in
+   * `scripts/enemy-forces.mjs` for why that was the wrong reading of them.
    */
-  nonKillForces: number;
+  total: number;
   /**
    * The dungeon's teleport spell, or 0 when none is known.
    *
@@ -69,9 +62,15 @@ export interface ForcesTable {
 export interface ForcesLookup {
   challengeModeId: number;
   name: string;
-  total: number;
-  /** Forces the dungeon awards for non-kills; see `DungeonForces.nonKillForces`. */
-  nonKillForces: number;
+  /**
+   * The count the dungeon demands, which kills have to supply in full.
+   *
+   * The denominator for every percentage in the app, and the same number the
+   * game, Mythic Dungeon Tools and the route planners all quote. A party that
+   * killed everything on its route reads a little over 100% against it — the
+   * overpull, which is information rather than an error.
+   */
+  required: number;
   /** The dungeon's teleport spell, for its icon. 0 when none is known. */
   teleportSpellId: number;
   /** The table's provenance, for the UI to attribute the numbers. */
@@ -113,8 +112,7 @@ export function forcesFor(table: ForcesTable, challengeModeId: number): ForcesLo
   return {
     challengeModeId: dungeon.challengeModeId,
     name: dungeon.name,
-    total: dungeon.total,
-    nonKillForces: dungeon.nonKillForces,
+    required: dungeon.total,
     teleportSpellId: dungeon.teleportSpellId,
     source: table.source,
     of: (npcId) => byId.get(npcId) ?? 0,
@@ -122,11 +120,11 @@ export function forcesFor(table: ForcesTable, challengeModeId: number): ForcesLo
 }
 
 /**
- * Forces as a fraction of the dungeon requirement.
+ * Forces as a fraction of the dungeon's requirement.
  *
- * Guarded because `total` is 0 for a dungeon with no requirement, and a NaN
- * would propagate into the UI as "NaN%" rather than as a blank.
+ * Guarded because the requirement is 0 for a dungeon with no forces at all,
+ * and a NaN would propagate into the UI as "NaN%" rather than as a blank.
  */
-export function forcesFraction(forces: number, total: number): number {
-  return total > 0 ? forces / total : 0;
+export function forcesFraction(forces: number, required: number): number {
+  return required > 0 ? forces / required : 0;
 }

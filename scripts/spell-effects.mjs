@@ -5,9 +5,10 @@
  * One table, SpellEffect.db2, answers three questions the reports ask, so one
  * script reads it once and writes all three answers:
  *
- *   packages/data/src/defensives.ts  which spells do something about damage
- *   packages/data/src/markers.ts     which spells the data gives no effect at all
- *   packages/data/src/interrupts.ts  which spells are interrupt buttons
+ *   packages/data/src/defensives.ts     which spells do something about damage
+ *   packages/data/src/markers.ts        which spells the data gives no effect at all
+ *   packages/data/src/interrupts.ts     which spells are interrupt buttons
+ *   packages/data/src/crowd-control.ts  which auras take a unit out of the fight
  *
  * There is no "this is a defensive" flag in the game's data, and no amount of
  * looking for one will turn one up. What Blizzard does classify is *effects*:
@@ -30,6 +31,9 @@
  *
  * The third is the same move again, against a different effect: the one that
  * stops a cast. See EFFECT_INTERRUPT_CAST and SCRIPTED_INTERRUPTS below.
+ *
+ * The fourth is the aura vocabulary again, for a different question: which
+ * auras mean the unit is not fighting. See CONTROLS.
  *
  *   node scripts/spell-effects.mjs [--build 12.1.0.69933] [--csv SpellEffect.csv]
  *                                  [--keep] [--check]
@@ -141,6 +145,45 @@ const SCRIPTED_INTERRUPTS = [
 ];
 
 /**
+ * The auras that take a unit out of the fight, each with its evidence.
+ *
+ * Same move as KINDS above and the same reason: "which seven auras are crowd
+ * control" is a question about the game's vocabulary, which barely moves,
+ * while "which spells are crowd control" is a list that goes stale every
+ * patch and has to be redone per spec.
+ *
+ * Two things were read off the data for each one, because the aura number
+ * alone is a guess. The witness is a spell that carries the aura and is
+ * unarguably that kind of control. The mechanic is the agreement: most rows
+ * carrying these auras also name a mechanic, and the one they name matches —
+ * aura 12 with MECHANIC_STUN on 1,351 rows, aura 7 with MECHANIC_FEAR on 222.
+ * Two independent columns saying the same thing is the whole case here.
+ *
+ * Stun and root each have two aura numbers. The second is not a duplicate of
+ * the first: Asphyxiate carries 298 and nothing else, Entangling Roots
+ * carries 455 and nothing else, so dropping either loses real control.
+ *
+ * MOD_DECREASE_SPEED (33) is deliberately absent, and this is the decision
+ * that shapes the whole table. A slow is not being taken out of the fight,
+ * and the auras cannot tell a Ring of Frost from a paladin standing in their
+ * own Consecration. Measured on one real evening of keys, including it put
+ * Consecration top of the chart at 1,430 applications, with Grip of the Dead
+ * (1,058) and Permeating Chill (891) behind it — three passives, none of them
+ * pressed, none of them control, between them nine times every hard control
+ * in the log put together. Left out, the same log reports eight distinct
+ * spells and every one of them is a real press.
+ */
+const CONTROLS = [
+  { aura: 12, kind: 'stun', flag: 1, witness: 'Hammer of Justice', mechanic: 'STUN on 1351 rows' },
+  { aura: 298, kind: 'stun', flag: 1, witness: 'Asphyxiate, which carries no other', mechanic: 'STUN on 17 rows' },
+  { aura: 5, kind: 'disorient', flag: 2, witness: 'Blind', mechanic: 'DISORIENTED on 189 rows' },
+  { aura: 7, kind: 'fear', flag: 4, witness: 'Psychic Scream', mechanic: 'FEAR on 222 rows' },
+  { aura: 27, kind: 'silence', flag: 8, witness: 'Silence', mechanic: 'SILENCE on 131 rows' },
+  { aura: 26, kind: 'root', flag: 16, witness: 'Chains of Ice', mechanic: 'ROOT on 355 rows' },
+  { aura: 455, kind: 'root', flag: 16, witness: 'Entangling Roots, which carries no other', mechanic: 'ROOT on 46 rows' },
+];
+
+/**
  * The two numbers that spell "this effect does nothing the data can describe".
  *
  * Effect 6 is APPLY_AURA and aura 4 is SPELL_AURA_DUMMY, both confirmed against
@@ -162,6 +205,7 @@ const keep = args.includes('--keep');
 const outDefensives = fileURLToPath(new URL('../packages/data/src/defensives.ts', import.meta.url));
 const outMarkers = fileURLToPath(new URL('../packages/data/src/markers.ts', import.meta.url));
 const outInterrupts = fileURLToPath(new URL('../packages/data/src/interrupts.ts', import.meta.url));
+const outControl = fileURLToPath(new URL('../packages/data/src/crowd-control.ts', import.meta.url));
 
 const build = flag('build') ?? (await liveBuild());
 const csvPath = flag('csv');
@@ -188,6 +232,14 @@ const { aura: auraAt, spell: spellAt, effect: effectAt, trigger: triggerAt } = c
 // order of magnitude faster than a real CSV reader over 629k rows.
 const wanted = new Map(KINDS.map((entry) => [String(entry.aura), entry.flag]));
 const flags = new Map();
+// Control auras, gathered the same way as the defensive ones: a spell can
+// carry several — Blinding Sleet disorients and slows — so the bits are or-ed
+// together rather than the first one winning.
+const controlWanted = new Map();
+for (const entry of CONTROLS) {
+  controlWanted.set(String(entry.aura), (controlWanted.get(String(entry.aura)) ?? 0) | entry.flag);
+}
+const controlFlags = new Map();
 // A spell is inert if it has a do-nothing effect and no other kind. Both halves
 // are collected in the one pass and subtracted afterwards, because the rows of
 // a spell are not guaranteed to be adjacent.
@@ -207,6 +259,9 @@ for (const line of csv.split('\n')) {
   const bit = wanted.get(fields[auraAt]);
   if (bit !== undefined) flags.set(id, (flags.get(id) ?? 0) | bit);
 
+  const control = controlWanted.get(fields[auraAt]);
+  if (control !== undefined) controlFlags.set(id, (controlFlags.get(id) ?? 0) | control);
+
   const effect = Number(fields[effectAt]);
   if (effect === 0) continue;
   if (effect === EFFECT_INTERRUPT_CAST) interrupts.add(id);
@@ -224,6 +279,7 @@ for (const line of csv.split('\n')) {
 for (const { id, flag: bit } of SCRIPTED) flags.set(id, (flags.get(id) ?? 0) | bit);
 
 const ids = [...flags.keys()].sort((a, b) => a - b);
+const controlIds = [...controlFlags.keys()].sort((a, b) => a - b);
 const inert = [...doesNothing].filter((id) => !doesSomething.has(id)).sort((a, b) => a - b);
 const dedicated = [...interrupts].filter((id) => !alsoDoesSomethingElse.has(id));
 const byHand = SCRIPTED_INTERRUPTS.filter(({ id }) => !dedicated.includes(id));
@@ -231,16 +287,20 @@ const stoppers = [...new Set([...dedicated, ...SCRIPTED_INTERRUPTS.map(({ id }) 
 console.log(
   `${rows - 1} effect rows → ${ids.length} defensive spells, ${inert.length} inert markers, ` +
     `${stoppers.length} interrupts (${interrupts.size} carry the effect, ${dedicated.length} do nothing else, ` +
-    `${byHand.length} added by hand)`,
+    `${byHand.length} added by hand), ${controlIds.length} control auras`,
 );
 for (const { kind, flag: bit } of dedupe(KINDS)) {
   console.log(`  ${kind.padEnd(10)} ${ids.filter((id) => (flags.get(id) & bit) !== 0).length}`);
+}
+for (const { kind, flag: bit } of dedupe(CONTROLS)) {
+  console.log(`  ${kind.padEnd(10)} ${controlIds.filter((id) => (controlFlags.get(id) & bit) !== 0).length}`);
 }
 
 const written = [
   [outDefensives, renderDefensives(ids, flags, build)],
   [outMarkers, renderMarkers(inert, build)],
   [outInterrupts, renderInterrupts(stoppers, interrupts.size, dedicated.length, build)],
+  [outControl, renderControl(controlIds, controlFlags, build)],
 ];
 if (checkOnly) {
   const stale = written.filter(([path, source]) => {
@@ -572,4 +632,131 @@ function chunk(text) {
   const lines = [];
   for (let at = 0; at < text.length; at += 96) lines.push(text.slice(at, at + 96));
   return lines.join("' +\n  '");
+}
+
+/**
+ * The control table as a module.
+ *
+ * Same encoding and same shape as the defensive table — one string per kind,
+ * so the generated file reads as sentences rather than as a column of
+ * bitmasks — and a Map rather than a Set, because which kind of control it was
+ * is the thing the panel groups by.
+ */
+function renderControl(ids, flags, version) {
+  const kinds = dedupe(CONTROLS);
+  const lists = kinds.map(({ kind, flag: bit }) => {
+    const members = ids.filter((id) => (flags.get(id) & bit) !== 0);
+    let previous = 0;
+    const deltas = members.map((id) => {
+      const delta = id - previous;
+      previous = id;
+      return delta.toString(36);
+    });
+    return { kind, bit, count: members.length, text: deltas.join('.') };
+  });
+  const witnesses = CONTROLS.map(
+    (entry) =>
+      ` *   ${String(entry.aura).padStart(3)}  ${entry.kind.padEnd(9)} ${entry.witness.padEnd(40)} ${entry.mechanic}`,
+  );
+  return `/**
+ * The auras that take a unit out of the fight.
+ *
+ * GENERATED — do not edit. Rebuild with \`node scripts/spell-effects.mjs\`.
+ * Built from SpellEffect.db2, retail build ${version}, via wago.tools.
+ *
+ * The game has no flag for "this is crowd control" any more than it has one
+ * for "this is a defensive", and the answer is the same: the aura each effect
+ * applies. Seven of them mean the unit is not fighting, and membership here is
+ * a fact about what a spell does rather than an opinion about whether it
+ * counts.
+ *
+ * Each aura was confirmed twice over, because the number on its own is a
+ * guess. A witness spell carries it and is unarguably that kind of control;
+ * and the mechanic column agrees — most rows carrying these auras also name a
+ * mechanic, and it is the matching one. Two independent columns saying the
+ * same thing is the case for all seven.
+ *
+${witnesses.join('\n')}
+ *
+ * Stun and root have two aura numbers each, and the second is not spare:
+ * Asphyxiate carries 298 alone and Entangling Roots carries 455 alone.
+ *
+ * Slows are not here, which is the decision that shapes the table. A slow is
+ * not being taken out of the fight, and MOD_DECREASE_SPEED cannot tell a Ring
+ * of Frost from a paladin standing in their own Consecration. On one real
+ * evening of keys, including it put Consecration top of the chart at 1,430
+ * applications, then Grip of the Dead (1,058) and Permeating Chill (891) —
+ * three passives, none of them pressed, between them nine times all the hard
+ * control in the log. Left out, the same log reports eight spells and every
+ * one is a real press.
+ *
+ * Asked of the wrong event this answers a question nobody should rely on: an
+ * enemy's stun on a player is in this table too, and so is a mob's root on
+ * another mob. The pairing that makes it mean "the party controlled
+ * something" — a debuff, cast by the party, onto something that is not the
+ * party — is done once, in \`crowdControlReport\` in @mplus/analysis.
+ *
+ * ${ids.length} spells. Only ids are stored: no names, no descriptions, no art.
+ */
+
+/** What a control aura does to the unit. A spell can do several. */
+export const Control = {
+${kinds.map(({ kind, flag: bit }) => `  ${kind.toUpperCase()}: ${bit},`).join('\n')}
+} as const;
+
+export type ControlKind = (typeof Control)[keyof typeof Control];
+
+${lists
+  .map(
+    ({ kind, count, text }) =>
+      `/** ${count} spells. */\nconst ${kind.toUpperCase()} =\n  '${chunk(text)}';`,
+  )
+  .join('\n\n')}
+
+const LISTS: readonly (readonly [string, number])[] = [
+${lists.map(({ kind, bit }) => `  [${kind.toUpperCase()}, ${bit}],`).join('\n')}
+];
+
+/**
+ * Built on the first lookup rather than at import: most of the app never asks,
+ * and the decode is wasted work in a worker thread that only parses.
+ */
+let table: Map<number, number> | null = null;
+
+function decode(): Map<number, number> {
+  const built = new Map<number, number>();
+  for (const [text, bit] of LISTS) {
+    let id = 0;
+    for (const delta of text.split('.')) {
+      id += parseInt(delta, 36);
+      built.set(id, (built.get(id) ?? 0) | bit);
+    }
+  }
+  return built;
+}
+
+/**
+ * What this aura does to the unit, as a mask of \`Control\` values, or 0.
+ *
+ * 0 for every id the table has never heard of, so a control added in a patch
+ * newer than this file reads as an ordinary debuff: it goes uncounted rather
+ * than counted wrong, which is the right way round for a chart whose whole
+ * claim is that everything on it was a press.
+ */
+export function controlKinds(spellId: number): number {
+  table ??= decode();
+  return table.get(spellId) ?? 0;
+}
+
+/** Whether the aura takes the unit out of the fight at all. */
+export function isCrowdControl(spellId: number): boolean {
+  return controlKinds(spellId) !== 0;
+}
+
+/** How many spells the table knows. Exported for the test, which asserts it is not empty. */
+export function controlCount(): number {
+  table ??= decode();
+  return table.size;
+}
+`;
 }

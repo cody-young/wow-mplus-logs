@@ -17,6 +17,7 @@ import { parentPort } from 'node:worker_threads';
 import {
   buildSegments,
   contextFor,
+  crowdControlReport,
   damageReport,
   deathReports,
   healingReport,
@@ -83,6 +84,7 @@ function analyze(active: LogSession, run: Run, live: boolean): RunAnalysis {
     healing: healingReport(context, segments),
     deaths: deathReports(context, segments),
     interrupts: interruptReport(context, segments),
+    control: crowdControlReport(context, segments),
     bySegment,
     // Every field is a scalar now, so a shallow copy is a full one.
     forces: { ...segments.forces },

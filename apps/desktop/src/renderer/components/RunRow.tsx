@@ -80,15 +80,15 @@ export function RunRow({
           <span>{analysis.deaths.length} deaths</span>
           <span>{analysis.segments.filter((s) => s.kind === SegmentKind.PULL).length} pulls</span>
           {analysis.forces.known ? (
-            /* A completed key counted 100%, and most shortfalls are explained by
-               the dungeon's own non-kill award. What is left over is a real
-               contradiction: starred rather than hidden, and explained in full
-               on the run's own page. */
+            /* Measured against the whole count the dungeon asks for, which a
+               full route overshoots a little. A completed key that falls short
+               instead is a real contradiction: starred rather than hidden, and
+               explained in full on the run's own page. */
             <span
               title={
                 analysis.forces.incomplete
-                  ? 'This completed key counted 100%, and more is missing here than the dungeon' +
-                    ' awards for non-kills — see the run for the details'
+                  ? 'This completed key met its count, and these kills do not add up to it — see' +
+                    ' the run for the details'
                   : undefined
               }
             >

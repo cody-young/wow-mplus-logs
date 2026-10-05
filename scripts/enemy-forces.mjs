@@ -75,6 +75,12 @@ const SCENARIO_ALIAS = new Map([
  */
 const RETIRED_VARIANT = /\(More Trash\)/;
 
+/** How many earlier builds a restoration walk may read before giving up. */
+const RESTORE_BUDGET = 6;
+
+/** Every retail build wago.tools knows, newest first. Fetched once. */
+let buildList = null;
+
 const args = process.argv.slice(2);
 const flag = (name, fallback) => {
   const at = args.indexOf(`--${name}`);
@@ -89,15 +95,9 @@ const out = fileURLToPath(new URL('../packages/data/src/enemy-forces.ts', import
 // which patch a committed table describes and a local copy came from one too.
 const localDir = flag('dir');
 const build = flag('build') ?? (localDir === undefined ? await liveBuild() : 'local');
-const csv = {};
-for (const name of TABLES) {
-  csv[name] = localDir === undefined ? await download(name, build) : readFileSync(join(localDir, `${name}.csv`), 'utf8');
-}
 
-const tables = {};
-for (const name of TABLES) tables[name] = parse(csv[name], name);
-
-const { dungeons, notes } = build_table(tables);
+const { dungeons, notes } = build_table(await tablesFor(build, localDir));
+notes.push(...(await restore(dungeons, build, localDir)));
 console.log(`${dungeons.length} dungeons, ${dungeons.reduce((n, d) => n + d.enemies.length, 0)} creatures`);
 for (const note of notes) console.log(`  ${note}`);
 
@@ -114,6 +114,16 @@ if (checkOnly) {
 }
 writeFileSync(out, source);
 console.log(`wrote ${out} (${(source.length / 1024).toFixed(1)}KB) for build ${build}`);
+
+/** The five tables for one build, parsed. */
+async function tablesFor(version, dir) {
+  const out = {};
+  for (const name of TABLES) {
+    const text = dir === undefined ? await download(name, version) : readFileSync(join(dir, `${name}.csv`), 'utf8');
+    out[name] = parse(text, name);
+  }
+  return out;
+}
 
 /**
  * One CSV field at a time, honouring quotes.
@@ -250,7 +260,8 @@ function build_table(t) {
   };
 
   // How many dungeons each non-kill criterion appears in, which is what
-  // separates a real objective from the scaffolding. See `nonKill` below.
+  // separates a per-dungeon criterion from the scaffolding every dungeon
+  // carries. See `nonKillAmounts` below.
   const assetDungeons = new Map();
   for (const [id, { nodes }] of found) {
     for (const ef of nodes) {
@@ -268,18 +279,18 @@ function build_table(t) {
   for (const [, { challenge, nodes }] of [...found].sort((a, b) => Number(a[0]) - Number(b[0]))) {
     const enemies = new Map();
     let total = 0;
-    let nonKill = 0;
+    let nonKillAmounts = [];
     for (const ef of nodes) {
       total = Math.max(total, Number(ef.Amount) || 0);
       const { kills, other } = walk(ef);
       // Faction variants of the same dungeon: the requirement is identical and
       // the trash differs, so the union is what either faction's log needs.
       for (const [npcId, amount] of kills) if (!enemies.has(npcId)) enemies.set(npcId, amount);
-      let variant = 0;
+      const variant = [];
       for (const { asset, amount } of other) {
-        if (assetDungeons.get(asset)?.size === 1) variant += amount;
+        if (assetDungeons.get(asset)?.size === 1 && amount > 0) variant.push(amount);
       }
-      nonKill = Math.max(nonKill, variant);
+      if (variant.length > nonKillAmounts.length) nonKillAmounts = variant;
     }
     if (total <= 0 || enemies.size === 0) {
       empty.push(`${challenge.Name_lang} (${challenge.ID})`);
@@ -289,7 +300,7 @@ function build_table(t) {
       challengeModeId: Number(challenge.ID),
       name: challenge.Name_lang,
       total,
-      nonKill,
+      nonKillAmounts,
       enemies: [...enemies].sort((a, b) => a[0] - b[0]),
     });
   }
@@ -302,21 +313,113 @@ function build_table(t) {
   if (unmatched.size > 0) {
     notes.push(`UNMATCHED scenario names — add to SCENARIO_ALIAS: ${[...unmatched].join(', ')}`);
   }
-  const withNonKill = dungeons.filter((d) => d.nonKill > 0);
-  notes.push(
-    `${withNonKill.length} dungeons award forces for something other than a kill: ` +
-      withNonKill.map((d) => `${d.name} +${d.nonKill}`).join(', '),
-  );
+  const withNonKill = dungeons.filter((d) => d.nonKillAmounts.length > 0);
+  if (withNonKill.length > 0) {
+    notes.push(
+      `${withNonKill.length} dungeons carry a per-dungeon non-kill criterion: ` +
+        withNonKill.map((d) => `${d.name} ${d.nonKillAmounts.join('+')}`).join(', '),
+    );
+  }
   return { dungeons, notes };
 }
 
-async function liveBuild() {
+/**
+ * Put back the kill rows a retune re-expressed as a non-kill criterion.
+ *
+ * `Criteria.Type 92` is not "the dungeon awards this for an objective". It is
+ * a creature kill addressed through something other than an npc id, and a
+ * retune can move a creature from one to the other. Ruby Life Pools is the
+ * proof: between 12.1.0.69404 and 12.1.0.69933 its kill rows for npc 190034
+ * (25) and npc 190206 (7) were deleted and two type-92 criteria appeared
+ * worth exactly 25 and 7. Their `Criteria` rows still name the creatures —
+ * only the `CriteriaTree` nodes carrying the amounts are gone — so the amounts
+ * have to come from a build that still had them.
+ *
+ * Left alone, that cost the dungeon twice: 32 came off the requirement and 163
+ * of reachable count went missing, and four timed keys read 77-82% instead of
+ * 101-106%.
+ *
+ * The match is on amount, which is what makes this safe: a type-92 criterion
+ * whose amount is not also a dropped kill row's amount restores nothing. A
+ * dungeon whose type-92 criteria are all duplicates of rows it still has —
+ * King's Rest, whose 30 is its Shadow of Zul — is left exactly as it is.
+ */
+async function restore(dungeons, version, dir) {
+  const notes = [];
+  const wanted = dungeons.filter((d) => d.nonKillAmounts.length > 0);
+  if (wanted.length === 0) return notes;
+  if (dir !== undefined) {
+    notes.push(`RESTORE skipped: --dir reads one build, so dropped rows cannot be recovered`);
+    return notes;
+  }
+
+  // Outstanding amounts per dungeon, consumed as each one is matched.
+  const outstanding = new Map(wanted.map((d) => [d.challengeModeId, [...d.nonKillAmounts]]));
+  const byId = new Map(dungeons.map((d) => [d.challengeModeId, d]));
+  const restored = [];
+
+  let all;
+  try {
+    all = await builds();
+  } catch (error) {
+    notes.push(`RESTORE skipped: could not list builds (${error.message})`);
+    return notes;
+  }
+  // Only builds older than the target, newest first: the newest build that
+  // still had a row carries the value closest to the current tuning.
+  const at = all.indexOf(version);
+  const earlier = at < 0 ? all.filter((v) => v !== version) : all.slice(at + 1);
+
+  for (const older of earlier.slice(0, RESTORE_BUDGET)) {
+    if ([...outstanding.values()].every((list) => list.length === 0)) break;
+    let past;
+    try {
+      past = build_table(await tablesFor(older, undefined)).dungeons;
+    } catch (error) {
+      notes.push(`RESTORE: build ${older} unreadable (${error.message})`);
+      continue;
+    }
+    for (const was of past) {
+      const list = outstanding.get(was.challengeModeId);
+      if (list === undefined || list.length === 0) continue;
+      const now = byId.get(was.challengeModeId);
+      const have = new Set(now.enemies.map(([npcId]) => npcId));
+      for (const [npcId, amount] of was.enemies) {
+        if (have.has(npcId)) continue;
+        const slot = list.indexOf(amount);
+        if (slot < 0) continue;
+        list.splice(slot, 1);
+        now.enemies.push([npcId, amount]);
+        have.add(npcId);
+        restored.push(`${now.name} npc ${npcId} = ${amount} (from ${older})`);
+      }
+      now.enemies.sort((a, b) => a[0] - b[0]);
+    }
+  }
+
+  if (restored.length > 0) notes.push(`RESTORED ${restored.length} dropped kill rows: ${restored.join(', ')}`);
+  const left = wanted
+    .filter((d) => (outstanding.get(d.challengeModeId) ?? []).length > 0)
+    .map((d) => `${d.name} ${outstanding.get(d.challengeModeId).join('+')}`);
+  if (left.length > 0) {
+    notes.push(`non-kill criteria with no dropped row to match, left out of the table: ${left.join(', ')}`);
+  }
+  return notes;
+}
+
+async function builds() {
+  if (buildList !== null) return buildList;
   const response = await fetch('https://wago.tools/api/builds');
   if (!response.ok) throw new Error(`wago.tools/api/builds: ${response.status}`);
-  const builds = await response.json();
-  const version = builds.wow?.[0]?.version;
-  if (typeof version !== 'string') throw new Error('no live retail build in the builds list');
-  return version;
+  const all = await response.json();
+  const versions = (all.wow ?? []).map((row) => row.version).filter((v) => typeof v === 'string');
+  if (versions.length === 0) throw new Error('no retail builds in the builds list');
+  buildList = versions;
+  return buildList;
+}
+
+async function liveBuild() {
+  return (await builds())[0];
 }
 
 /** A table, cached by build, in the OS temp dir rather than the repo. */
@@ -353,7 +456,7 @@ function render(dungeons, notes, version) {
     const enemies = d.enemies.map(([npcId, count]) => `${npcId}:${count}`).join(',');
     return (
       `  // ${d.name}\n` +
-      `  [${d.challengeModeId}, ${d.total}, ${d.nonKill}, ${JSON.stringify(d.name)},\n` +
+      `  [${d.challengeModeId}, ${d.total}, ${JSON.stringify(d.name)},\n` +
       `    '${wrap(enemies)}'],`
     );
   });
@@ -381,12 +484,13 @@ function render(dungeons, notes, version) {
  * attribute: no creature names, no art. The log already names every creature
  * it reports.
  *
- * \`nonKillForces\` counts only criteria unique to a single dungeon. Three
- * (assets 76097, 77282, 77283) appear in all 65 modern dungeons' trees with
- * amounts like 9999 and 99999, which makes them progress scaffolding rather
- * than anything a party earns, and two more are shared across the six split
- * instances; all five are excluded. What survives the rule is recognisable:
- * the Mists of Tirna Scithe maze, King's Rest's objective, Ruby Life Pools.
+ * Kills have to supply the whole of \`total\`. Nothing is taken off for the
+ * \`Criteria.Type 92\` children a few dungeons carry, because those are not
+ * objectives: each one is a creature kill addressed by something other than an
+ * npc id. King's Rest's 30 is its Shadow of Zul, which already has a kill row;
+ * Ruby Life Pools' 25 and 7 are two rows a retune deleted, restored here from
+ * the last build that carried them. Mythic Dungeon Tools quotes the same
+ * \`total\` for every dungeon and models kills alone, which is the cross-check.
  *
  * Notes from the build:
 ${notes.map((note) => ` *   ${note}`).join('\n')}
@@ -396,8 +500,8 @@ import type { DungeonForces } from './forces.js';
 /** The retail build these numbers were read from, for the UI to attribute them. */
 export const DB2_BUILD = '${version}';
 
-/** \`[challengeModeId, total, nonKillForces, name, 'npcId:count,...']\` */
-type Row = readonly [number, number, number, string, string];
+/** \`[challengeModeId, total, name, 'npcId:count,...']\` */
+type Row = readonly [number, number, string, string];
 
 const DUNGEONS: readonly Row[] = [
 ${rows.join('\n')}
@@ -416,11 +520,10 @@ let table: DungeonForces[] | null = null;
 
 /** Every dungeon the criteria data describes, newest ids last. */
 export function db2Dungeons(): DungeonForces[] {
-  table ??= DUNGEONS.map(([challengeModeId, total, nonKillForces, name, packed]) => ({
+  table ??= DUNGEONS.map(([challengeModeId, total, name, packed]) => ({
     challengeModeId,
     name,
     total,
-    nonKillForces,
     teleportSpellId: 0,
     enemies: packed.split(',').map((pair) => {
       const colon = pair.indexOf(':');

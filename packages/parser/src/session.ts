@@ -169,9 +169,23 @@ export class LogSession {
   }
 
   private startRun(info: ChallengeStartInfo): void {
-    // A second START without an END means the party reset the key. Abandon the
-    // partial run rather than letting two keys share a store.
-    if (this.current !== null) this.discardCurrent();
+    // The game re-announces an in-progress key when the party re-enters the
+    // instance — step out to change talents and a second CHALLENGE_MODE_START
+    // arrives mid-run, naming the same instance, dungeon and keystone level.
+    // Reading that as a fresh key throws away everything killed before it: a
+    // Ruby Life Pools +11 re-announced four minutes in came out 377 of 551.
+    //
+    // A reset is a different shape. The game marks every real beginning with a
+    // zeroed CHALLENGE_MODE_END — instance id, then 0,0,0 — a quarter-second
+    // before the START, including the beginning that follows an abandoned key.
+    // So an END is what separates one key from the next, and a START with no
+    // END behind it is the same key being announced twice. The log says so
+    // outright: the END of that Ruby Life Pools run reports a 19:49 timer
+    // against 19:53 of wall clock from the FIRST of its two starts.
+    if (this.current !== null) {
+      if (this.isReannouncement(info)) return;
+      this.discardCurrent();
+    }
 
     const store = new EventStore();
     store.baseMs = info.ts;
@@ -199,6 +213,25 @@ export class LogSession {
     this.parser.target = store;
     this.runs.push(run);
     this.hooks.onRunStart?.(run);
+  }
+
+  /**
+   * Whether this START is the open run being announced again rather than a new
+   * key — see `startRun`.
+   *
+   * Every field is compared, not just the instance id: an identical
+   * announcement is the same key, and anything that differs is a key this
+   * cannot vouch for, which keeps the fallback the old conservative one.
+   */
+  private isReannouncement(info: ChallengeStartInfo): boolean {
+    const open = this.current?.meta;
+    return (
+      open !== undefined &&
+      open.instanceId === info.instanceId &&
+      open.challengeModeId === info.challengeModeId &&
+      open.keystoneLevel === info.keystoneLevel &&
+      open.zoneName === info.zoneName
+    );
   }
 
   private endRun(info: ChallengeEndInfo): void {

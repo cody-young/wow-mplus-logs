@@ -147,6 +147,11 @@ button.primary:hover:not(:disabled) { background: #325894; }
   pointer-events: none;
   z-index: 0;
 }
+/*
+  Two-up inside a pull: what it was worth on the left, how much was pulled on
+  the right. The block is its own query container so each part drops out at the
+  width where it would be clipped rather than read.
+*/
 .block {
   position: absolute;
   /* top and height come from the row the block was packed into. */
@@ -154,19 +159,40 @@ button.primary:hover:not(:disabled) { background: #325894; }
   border: 1px solid transparent;
   background: var(--pull);
   opacity: 0.68;
-  padding: 0;
   overflow: hidden;
   white-space: nowrap;
   font-size: 11px;
   color: #06060a;
   font-weight: 600;
   text-align: left;
-  padding-left: 4px;
   min-width: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 0 4px;
+  container-type: inline-size;
 }
-.block:hover { opacity: 1; border-color: var(--text); background: var(--pull); }
+.block-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.block-tally { display: flex; gap: 4px; font-weight: 500; font-variant-numeric: tabular-nums; }
+/*
+  Narrower than the pair needs, dropped right to left: the mob total goes
+  first, then the count, and the share last — the share is the only part that
+  says whether the pull was worth taking, and it is the cheapest to draw.
+  A block with nothing to tally (a boss) keeps its name down to the last stop.
+*/
+@container (max-width: 150px) { .tallied .block-name { display: none; } }
+@container (max-width: 100px) { .block-forces { display: none; } }
+@container (max-width: 32px) { .block-name, .block-share { display: none; } }
+/*
+  `button.block`, not `.block`: a block is a button, and `button:hover:not(…)`
+  outranks a lone class — so hovering a pull used to paint it the generic
+  button grey while a boss, matched by two classes, kept its gold. Hover is
+  the same colour at full strength, for both.
+*/
+button.block:hover { opacity: 1; border-color: var(--text); background: var(--pull); }
 .block.boss { background: var(--boss); }
-.block.boss:hover { background: var(--boss); }
+button.block.boss:hover { background: var(--boss); }
 .block.selected { opacity: 1; border-color: var(--text); }
 .axis { display: flex; justify-content: space-between; margin-top: 4px; font-size: 11px; color: var(--dim); font-variant-numeric: tabular-nums; }
 
@@ -209,9 +235,8 @@ tr.actor:hover td { background: var(--panel-raised); }
   border-radius: 3px;
   overflow: hidden;
   vertical-align: middle;
-  /* Dimmed, because at full strength five class colours in a sidebar row read
-     as the loudest thing on screen. Under an icon it is only an edge. */
-  opacity: 0.85;
+  /* Undimmed. Under a 16px icon the colour is only a few pixels of edge, and
+     dimming those cost more identity than the quiet was worth. */
 }
 .spec-ico img { display: block; border-radius: 3px; }
 
@@ -252,7 +277,7 @@ tr.actor:hover td { background: var(--panel-raised); }
 .barcell { position: relative; overflow: hidden; }
 /* A gauge behind the name rather than a fixed-width stub: the column is now
    whatever the numeric columns leave over, so the bar has to scale with it. */
-.bar { position: absolute; left: 0; top: 0; height: 100%; border-radius: 2px; opacity: 0.26; }
+.bar { position: absolute; left: 0; top: 0; height: 100%; border-radius: 2px; opacity: 0.4; }
 .pname { overflow: hidden; text-overflow: ellipsis; }
 .barcell span { position: relative; z-index: 1; }
 tr.spell td { height: 24px; color: var(--muted); font-size: 13px; background: #13131b; }
@@ -260,8 +285,8 @@ tr.spell td { height: 24px; color: var(--muted); font-size: 13px; background: #1
    biggest ability: an expanded row answers "what did this player's damage
    consist of", which is a comparison among their abilities, not against the
    party. Dimmer so the party-wide bars still read first. */
-tr.spell .bar { opacity: 0.17; }
-tr.spell:hover .bar { opacity: 0.32; }
+tr.spell .bar { opacity: 0.26; }
+tr.spell:hover .bar { opacity: 0.42; }
 tr.spell:hover td { background: #191923; }
 tr.spell td.left { padding-left: 28px; }
 tr.spell .name { color: var(--text); }

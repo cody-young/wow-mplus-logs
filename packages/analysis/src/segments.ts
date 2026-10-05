@@ -42,10 +42,13 @@ export interface EnemyGroup {
   /** Distinct spawns of this creature engaged in the segment. */
   spawns: number;
   /**
-   * How many of those spawns died.
+   * How many of those spawns were defeated.
    *
    * Tracked apart from `spawns` because enemy forces are awarded on death, not
    * on engagement: a pack tagged and walked past moves the bar by nothing.
+   *
+   * "Defeated" rather than "died" because a few creatures are removed by
+   * script and never reported dead — see `HEALTH_FLOOR`.
    */
   killed: number;
   /**
@@ -109,8 +112,13 @@ export interface RunForces {
   dungeon: string;
   /** Where the values came from, for the UI to attribute them. */
   source: string;
-  /** Forces the dungeon requires. */
-  total: number;
+  /**
+   * The count the dungeon demands, which kills have to supply in full.
+   *
+   * The denominator for every percentage, and the figure a page puts beside
+   * `counted`. The same number the game and the route planners quote.
+   */
+  required: number;
   /**
    * The dungeon's teleport spell, whose icon is the dungeon's art. 0 when the
    * table has no teleport for it, which the UI renders as no icon.
@@ -118,36 +126,30 @@ export interface RunForces {
   teleportSpellId: number;
   /** Forces earned, summed over every segment. */
   counted: number;
-  /** `counted / total`, clamped at 0 when there is no requirement to divide by. */
+  /**
+   * `counted / required`, clamped at 0 when there is no requirement at all.
+   *
+   * Routinely a little over 1: a dungeon holds more count than it asks for —
+   * Den of Nalorakk has 1,240 against a requirement of 729 — so any route
+   * overshoots. Across every key in the author's logs the timed ones land
+   * between 100.2% and 109.2%. That is the overpull, the same thing a route
+   * planner shows, and it is information rather than an error.
+   */
   fraction: number;
   /**
-   * Forces this dungeon awards for something other than killing anything.
-   *
-   * Eight dungeons have one: the Mists of Tirna Scithe maze, King's Rest's
-   * scenario objective, Ruby Life Pools. Nothing in the combat log reports an
-   * objective being completed, so these are never added to `counted` — but
-   * they are why `counted` can fall short of `total` on a key that finished,
-   * and the UI needs the number to say so.
-   */
-  nonKill: number;
-  /**
-   * True when the game completed this key and these values fall short by more
-   * than the dungeon's non-kill award can explain.
+   * True when the game completed this key and the kills do not reach
+   * `required`.
    *
    * Enemy forces are a completion requirement alongside the bosses, so a key
-   * the game completed reached 100% by definition. That makes any shortfall a
-   * question about this table rather than about the party — but most of the
-   * time there is a perfectly good answer, which is `nonKill`.
+   * the game completed reached 100% by definition. A party that still falls
+   * short is therefore a genuine contradiction and worth saying out loud: a
+   * creature whose value the criteria data does not carry, or a dungeon
+   * retuned since the generated table's build.
    *
-   * A real +12 King's Rest timed at 584 of 608. Every creature that died was
-   * credited at Blizzard's own value, so the 24 missing are not a kill this
-   * app failed to see; King's Rest awards 30 for a scenario objective, and 584
-   * plus those 30 clears 608. Nothing in the log says the objective happened,
-   * so `counted` stays at 584 and the run is simply not flagged.
-   *
-   * What is left after that tolerance is a genuine contradiction — a creature
-   * whose value the criteria data does not carry, or a requirement changed by
-   * a hotfix newer than the generated table — and worth saying out loud.
+   * Both of those were real, and both are now fixed at the source rather than
+   * reported here: King's Rest read 584 of 608 until its Shadow of Zul was
+   * credited, and Ruby Life Pools read 403 of 551 until the two rows the 12.1
+   * criteria data dropped were restored.
    */
   incomplete: boolean;
 }
@@ -205,6 +207,28 @@ const DEFAULT_BOSS_GRACE_MS = 30_000;
 const DEFAULT_BOSS_HEALTH_RATIO = 0.5;
 
 /** Units that can be an enemy. Excludes the environment and world objects. */
+/**
+ * Health at or below which a party-engaged enemy counts as defeated even
+ * though the log never reports it dead.
+ *
+ * Forces are awarded on death, and almost always a death is logged. A few
+ * creatures are removed by script instead: the party burns them down, their
+ * health is pinned at the floor, and they simply stop appearing — no
+ * UNIT_DIED, no UNIT_DESTROYED. Temple of Sethraliss has six Static Anomalies
+ * worth 5 each, all driven from 40k to exactly 1 and never mentioned again;
+ * King's Rest has the Shadow of Zul at 30; Murder Row a Row Hooligan at 3.
+ * Mythic Dungeon Tools lists all three as ordinary count, and without them a
+ * timed +16 Sethraliss read 662 of the 687 the game had already accepted.
+ *
+ * 1 rather than 0 because that is where the game pins them, and the two are
+ * the same statement about a unit that never recovers.
+ *
+ * This cannot resurrect the despawning waves the `died` comment describes:
+ * those are never damaged by the party, so they are in no segment and their
+ * health is never the subject of an advanced block this reads.
+ */
+const HEALTH_FLOOR = 1;
+
 function canBeHostile(kind: ActorKind): boolean {
   return kind === ActorKind.CREATURE || kind === ActorKind.VEHICLE || kind === ActorKind.PET;
 }
@@ -227,6 +251,13 @@ export function buildSegments(context: AnalysisContext, options: SegmentOptions 
   const firstEngaged = new Int32Array(actorCount).fill(-1);
   /** Largest health seen while this enemy was the advanced block's subject. */
   const peakHealth = new Int32Array(actorCount);
+  /**
+   * Last health seen while this enemy was the advanced block's subject, or -1.
+   *
+   * Collected for the units the game counts as defeated without ever logging a
+   * death. See `HEALTH_FLOOR`.
+   */
+  const lastHealth = new Int32Array(actorCount).fill(-1);
   /** 1 once this actor has been seen as the target of a SPELL_SUMMON. */
   const summoned = new Uint8Array(actorCount);
   /**
@@ -242,6 +273,9 @@ export function buildSegments(context: AnalysisContext, options: SegmentOptions 
    * game credits none of them. Counting them took the run from 742/738
    * (100.5%, which is what a timed key looks like) to 784 (106.2%, which is
    * not a number the game can produce).
+   *
+   * Also set, after the scan, for enemies the party drove to the health floor
+   * that the log never reports dead at all — see `HEALTH_FLOOR`.
    */
   const died = new Uint8Array(actorCount);
 
@@ -318,6 +352,10 @@ export function buildSegments(context: AnalysisContext, options: SegmentOptions 
       const subjectIsEnemy = flags & EvFlag.INFO_IS_SOURCE ? src === enemy : dst === enemy;
       const hpMax = store.hpMax[row]!;
       if (subjectIsEnemy && hpMax > peakHealth[enemy]!) peakHealth[enemy] = hpMax;
+      if (subjectIsEnemy) {
+        const hp = store.hpCurrent[row]!;
+        if (hp >= 0) lastHealth[enemy] = hp;
+      }
     }
 
     if (enemySegment[enemy]! < 0) {
@@ -437,6 +475,14 @@ export function buildSegments(context: AnalysisContext, options: SegmentOptions 
     }
   }
 
+  // Enemies the party ground down to nothing that the log never reports dead.
+  // Only ones a segment claims, which is to say ones the party damaged.
+  for (let enemy = 0; enemy < actorCount; enemy++) {
+    if (died[enemy] === 1 || enemySegment[enemy]! < 0) continue;
+    const hp = lastHealth[enemy]!;
+    if (hp >= 0 && hp <= HEALTH_FLOOR) died[enemy] = 1;
+  }
+
   for (const segment of segments) {
     if (!Number.isFinite(segment.startTs)) segment.startTs = 0;
     if (!Number.isFinite(segment.endTs)) segment.endTs = segment.startTs;
@@ -470,16 +516,15 @@ export function buildSegments(context: AnalysisContext, options: SegmentOptions 
       known: forces !== null,
       dungeon: forces?.name ?? '',
       source: forces?.source ?? '',
-      total: forces?.total ?? 0,
+      required: forces?.required ?? 0,
       teleportSpellId: forces?.teleportSpellId ?? 0,
       counted,
-      fraction: forcesFraction(counted, forces?.total ?? 0),
-      nonKill: forces?.nonKillForces ?? 0,
+      fraction: forcesFraction(counted, forces?.required ?? 0),
       incomplete:
         forces !== null &&
-        forces.total > 0 &&
+        forces.required > 0 &&
         run.meta.success === true &&
-        counted + forces.nonKillForces < forces.total,
+        counted < forces.required,
     },
     enemySegment,
     party,

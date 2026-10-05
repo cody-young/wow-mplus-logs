@@ -70,16 +70,11 @@ console.log(`${pulls.length} pulls, ${bosses.length} boss fights\n`);
 const { forces } = segments;
 if (forces.known) {
   console.log(
-    `COUNT  ${forces.counted}/${forces.total} (${(forces.fraction * 100).toFixed(1)}%) — ` +
+    `COUNT  ${forces.counted}/${forces.required} (${(forces.fraction * 100).toFixed(1)}%) — ` +
       `${forces.dungeon}, ${forces.source}` +
-      (forces.nonKill > 0
-        ? `\n       ${forces.nonKill} of those are awarded for an objective, not a kill`
-        : '') +
-      // The key completed, so it counted 100%, and the dungeon's non-kill
-      // award is not big enough to cover the gap on its own.
+      // The key completed, so its count was met, and the kills do not reach it.
       (forces.incomplete
-        ? `\n       ✗ completed key ${forces.counted} short of ${forces.total}` +
-          ` with only ${forces.nonKill} awarded for non-kills`
+        ? `\n       ✗ completed key ${forces.counted} short of the ${forces.required} it asks for`
         : ''),
   );
 } else {
@@ -99,7 +94,7 @@ for (const segment of segments.segments) {
       `${segment.label.padEnd(34).slice(0, 34)} ` +
       `${String(segment.enemies.length).padStart(3)} enemies  ` +
       (forces.known
-        ? `${String(segment.forces).padStart(3)} count (${((segment.forces / Math.max(forces.total, 1)) * 100).toFixed(1).padStart(4)}%)  `
+        ? `${String(segment.forces).padStart(3)} count (${((segment.forces / Math.max(forces.required, 1)) * 100).toFixed(1).padStart(4)}%)  `
         : '') +
       `${short(report.total).padStart(7)} dmg` +
       (segment.kind === SegmentKind.PULL && overlapsBoss ? '   ⟂ overlaps a boss fight' : ''),

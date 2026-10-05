@@ -101,8 +101,11 @@ const firstSegmentLabel = analysis.segments[0].label;
 
 check('damage table names the top player', views.damage.includes(topPlayer));
 check('damage table is collapsed by default (no spell rows)', !views.damage.includes(topSpell));
-check('timeline renders every segment', countOf(views.timeline, 'class="block') === analysis.segments.length,
-  `${countOf(views.timeline, 'class="block')} blocks vs ${analysis.segments.length} segments`);
+// `class="block` alone would also catch the spans inside a block — the tally,
+// its share — so the class has to end here: `block"` or `block boss`.
+const blocks = (views.timeline.match(/class="block[ "]/g) ?? []).length;
+check('timeline renders every segment', blocks === analysis.segments.length,
+  `${blocks} blocks vs ${analysis.segments.length} segments`);
 check('timeline labels a segment', views.timeline.includes(escapeHtml(firstSegmentLabel)) || firstSegmentLabel.length > 30);
 
 // Segments overlap in time — a pack dragged into a boss, a straggler finished
@@ -235,15 +238,12 @@ check('run forces are the sum over segments',
   `${analysis.forces.counted} vs ${analysis.segments.reduce((n, s) => n + s.forces, 0)}`);
 if (analysis.forces.known) {
   check('the timeline header shows count out of the requirement',
-    views.timeline.includes(`${analysis.forces.counted.toLocaleString('en-US')}/${analysis.forces.total.toLocaleString('en-US')} count`),
+    views.timeline.includes(`${analysis.forces.counted.toLocaleString('en-US')}/${analysis.forces.required.toLocaleString('en-US')} count`),
     views.timeline.slice(0, 400));
   check('counted forces do not exceed what the dungeon requires by much',
-    analysis.forces.counted <= analysis.forces.total * 1.5,
-    `${analysis.forces.counted} of ${analysis.forces.total}`);
-  console.log(`  (count: ${analysis.forces.counted}/${analysis.forces.total} — ${analysis.forces.dungeon}, ${analysis.forces.source})`);
-  if (analysis.forces.nonKill > 0) {
-    console.log(`  (${analysis.forces.nonKill} of those are awarded for an objective, not a kill)`);
-  }
+    analysis.forces.counted <= analysis.forces.required * 1.5,
+    `${analysis.forces.counted} of ${analysis.forces.required}`);
+  console.log(`  (count: ${analysis.forces.counted}/${analysis.forces.required} — ${analysis.forces.dungeon}, ${analysis.forces.source})`);
 }
 
 if (analysis.deaths.length > 0) {
@@ -552,6 +552,46 @@ if (pressed.length > 0) {
   console.log('  (nobody pressed an interrupt; interrupt view assertions skipped)');
 }
 
+// --- Crowd control -----------------------------------------------------------
+check('empty control view says so', views.emptyControl.includes('No crowd control'));
+const controlled = analysis.control.applications;
+if (controlled.length > 0) {
+  check('control view names a player who pressed some',
+    views.control.includes(controlled[0].name.split('-')[0]));
+  check('control view is collapsed by default (no application log)',
+    !views.control.includes('interrupt-log'));
+  check('the application log holds every application, once',
+    countOf(views.controlLog, 'class="spell"') === controlled.length,
+    `${countOf(views.controlLog, 'class="spell"')} rows for ${controlled.length} applications`);
+  // The three numbers the tab exists for, and the invariant between two of
+  // them: one press of an area control catches several enemies, so there can
+  // never be fewer targets than casts.
+  check('every press caught at least one target',
+    analysis.control.casts <= controlled.length,
+    `${analysis.control.casts} casts, ${controlled.length} targets`);
+  check('every application names its target',
+    controlled.every((entry) => entry.targetName === '' ||
+      views.controlLog.includes(escapeHtml(entry.targetName))));
+  check('every application says how long it was held',
+    countOf(views.controlLog, 's</td>') >= controlled.length,
+    `${countOf(views.controlLog, 's</td>')} durations for ${controlled.length} applications`);
+  // The same deliberate exception as the whiff chips: each ending needs a
+  // sentence, so the chips carry a native title.
+  check('every ending chip explains itself',
+    !views.control.includes('class="chip"') ||
+      /class="chip" title="[^"]+"/.test(views.control));
+  check('control view renders with no icons available',
+    !views.control.includes('src=""') && !views.controlLog.includes('src="undefined"'));
+  const broken = controlled.filter((entry) => entry.end === 'broken').length;
+  const ms = controlled.reduce((total, entry) => total + entry.durationMs, 0);
+  console.log(
+    `  (control: ${analysis.control.casts} casts, ${controlled.length} targets, ` +
+      `${(ms / 1000).toFixed(0)}s held, ${broken} broken early)`,
+  );
+} else {
+  console.log('  (nobody pressed any control; control view assertions skipped)');
+}
+
 // --- Icons -------------------------------------------------------------------
 // Every icon in the app resolves through the preload bridge, which does not
 // exist in a server render. So this is the offline case for all of them: the
@@ -626,10 +666,11 @@ check('a live key says so instead of reporting a result',
 check('the key selector drops the count for a dungeon the table misses',
   !views.runRowNoMdt.includes('count') && views.runRowNoMdt.includes('class="dungeon-initials"'),
   views.runRowNoMdt);
-// The King's Rest case: 96.1% on a timed key, fully explained by the dungeon's
-// own objective award, so it must read as an ordinary count with no star.
-check('a count the dungeon\'s objective award explains is stated flatly',
-  text(views.runRowObjective).includes('96.1% count') &&
+// The King's Rest case: 584 from the kills the log reports dead plus the 30 for
+// the Shadow of Zul, which is removed by script, against the 608 the dungeon
+// asks for. The ordinary just-over-100% a timed key gives, with no star.
+check('a count that reaches the requirement is stated flatly',
+  text(views.runRowObjective).includes('101.0% count') &&
     !text(views.runRowObjective).includes('*'),
   text(views.runRowObjective));
 check('a count nothing can account for is marked, not stated flatly',

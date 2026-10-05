@@ -12,15 +12,20 @@ import {
   damageReport,
   deathReports,
   healingReport,
+  controlKindNames,
+  crowdControlReport,
   interruptReport,
+  summarizeCrowdControl,
   summarizeInterrupts,
   type AnalysisContext,
+  type ControlApplication,
+  type ControlReport,
   type InterruptAttempt,
   type InterruptReport,
   type SegmentIndex,
   type SegmentOptions,
 } from '../src/index.js';
-import { ACTORS, DPS, FORCES, HEALER, LOG_TEXT, PET, TANK } from './fixture.js';
+import { ACTORS, DPS, FORCES, HEALER, LOG_TEXT, PET, TANK, creature, hit } from './fixture.js';
 
 function load(options: SegmentOptions = {}): {
   session: LogSession;
@@ -810,7 +815,7 @@ test('without a forces table the roster still counts spawns and kills', () => {
   assert.equal(gnolls.roster[0]!.forcesEach, null);
   assert.equal(gnolls.forces, 0);
   assert.equal(segments.forces.known, false);
-  assert.equal(segments.forces.total, 0);
+  assert.equal(segments.forces.required, 0);
   assert.equal(segments.forces.fraction, 0);
 });
 
@@ -857,7 +862,8 @@ test('run forces sum the segments and divide by the requirement', () => {
   // Gnolls 8 + Ogre 10 + straggler 0 + boss 2 + shaman 12.
   assert.equal(summed, 32);
   assert.equal(segments.forces.counted, 32);
-  assert.equal(segments.forces.total, 100);
+  // Kills owe the whole requirement; nothing is taken off for an objective.
+  assert.equal(segments.forces.required, 100);
   assert.equal(segments.forces.fraction, 0.32);
   assert.equal(segments.forces.dungeon, 'Test Hold');
   assert.equal(segments.forces.known, true);
@@ -886,19 +892,49 @@ test('a log from a dungeon the table does not cover reads as unknown', () => {
   assert.equal(forcesFor(FORCES, 9999), null);
 });
 
+test('an enemy driven to the health floor counts without a death event', () => {
+  // The straggler is tagged twice and never reported dead, so it is worth
+  // nothing — until one more hit leaves it at 1 health and it is never heard
+  // from again. That is how Temple of Sethraliss' Static Anomalies read, and
+  // the game credits them: six at 5 apiece, 30 of the 687 it asks for.
+  const lines = LOG_TEXT.split('\n');
+  const end = lines.findIndex((line) => line.includes('CHALLENGE_MODE_END'));
+  assert.ok(end > 0, 'the fixture key ends');
+  lines.splice(end, 0, hit(80, DPS, 'Dee', creature(1003, 4), 'Straggler', 500, { hp: 1, hpMax: 1000000 }));
+
+  const session = new LogSession({ assumedYear: 2026 });
+  session.pushText(lines.join('\n'));
+  session.end();
+  const run = session.runs[0]!;
+  const lookup = forcesFor(FORCES, 500);
+  assert.ok(lookup);
+  const segments = buildSegments(contextFor(session, run), { forces: lookup });
+
+  // By npc id, not by label: one more hit puts it inside the boss window, so
+  // the reassignment pass moves it onto that segment.
+  const straggler = segments.segments
+    .flatMap((segment) => segment.roster)
+    .find((group) => group.npcId === 1003);
+  assert.ok(straggler, 'the straggler is still in a roster');
+  assert.equal(straggler.killed, 1, 'pinned at the floor and never heard from again is defeated');
+  assert.equal(straggler.forces, 7);
+  assert.equal(segments.forces.counted, 39, 'the 32 the kills reported plus its 7');
+});
+
+test('a wave that despawns untouched is still not credited', () => {
+  // The other half of the floor rule: these are never damaged, so they are in
+  // no segment, and their health is never the subject of a block it reads. A
+  // real +12 Voidscar Arena had fourteen of them and counting them took the
+  // run from 100.5% to 106.2%.
+  const { segments } = loadWithForces();
+  assert.equal(segments.forces.counted, 32);
+});
+
 /** The fixture table with a different requirement, which is the only field these need. */
 function withTotal(total: number) {
   return {
     ...FORCES,
     dungeons: [{ ...FORCES.dungeons[0]!, total }],
-  };
-}
-
-/** The fixture table with a non-kill award, as eight real dungeons have. */
-function withNonKill(nonKillForces: number) {
-  return {
-    ...FORCES,
-    dungeons: [{ ...FORCES.dungeons[0]!, nonKillForces }],
   };
 }
 
@@ -909,26 +945,31 @@ test('a completed key whose values fall short of the requirement is flagged', ()
   const { run, segments } = loadWithForces();
   assert.equal(run.meta.success, true);
   assert.equal(segments.forces.counted, 32);
-  assert.equal(segments.forces.nonKill, 0);
   assert.equal(segments.forces.incomplete, true);
 });
 
-test("a shortfall the dungeon's non-kill award covers is not flagged", () => {
-  // King's Rest in miniature: the kills come to 32 of 100 and the dungeon
-  // awards 68 for a scenario objective the combat log never mentions, so the
-  // key really did reach 100% and there is nothing to warn about. `counted`
-  // stays at the kills — there is no evidence the objective happened — so the
-  // page still reads 32%.
-  const { segments } = loadWithForces(withNonKill(68));
-  assert.equal(segments.forces.counted, 32, 'the award is a tolerance, not an addend');
-  assert.equal(segments.forces.fraction, 0.32);
-  assert.equal(segments.forces.nonKill, 68);
+test('a completed key whose kills exactly meet the requirement is not flagged', () => {
+  const { segments } = loadWithForces(withTotal(32));
+  assert.equal(segments.forces.counted, 32);
+  assert.equal(segments.forces.required, 32);
+  assert.equal(segments.forces.fraction, 1);
   assert.equal(segments.forces.incomplete, false);
 });
 
-test('a non-kill award too small to close the gap still leaves the key flagged', () => {
-  const { segments } = loadWithForces(withNonKill(67));
+test('one short of the requirement still leaves a completed key flagged', () => {
+  const { segments } = loadWithForces(withTotal(33));
+  assert.equal(segments.forces.required, 33);
+  assert.equal(segments.forces.fraction, 32 / 33);
   assert.equal(segments.forces.incomplete, true);
+});
+
+test('killing more than the requirement reads over 100% rather than capping', () => {
+  // The overpull is information: a dungeon holds more count than it asks for,
+  // so every route overshoots, and that is what a route planner shows too.
+  const { segments } = loadWithForces(withTotal(30));
+  assert.equal(segments.forces.required, 30);
+  assert.ok(segments.forces.fraction > 1);
+  assert.equal(segments.forces.incomplete, false);
 });
 
 test('a completed key that reaches the requirement is not flagged', () => {
@@ -960,4 +1001,128 @@ test('an enemy that died without being engaged counts for nothing', () => {
       'an unengaged enemy is in no roster',
     );
   }
+});
+
+// --- Crowd control ---------------------------------------------------------
+
+function control() {
+  const { context, segments } = load();
+  const report = crowdControlReport(context, segments);
+  return { report, summary: summarizeCrowdControl(report.applications), segments };
+}
+
+function appliedTo(report: ControlReport, target: string, spellId: number): ControlApplication[] {
+  return report.applications.filter(
+    (entry) => entry.targetName === target && entry.spellId === spellId,
+  );
+}
+
+test('one area control is one press and several targets', () => {
+  // The number the whole report turns on. A Leg Sweep that caught two totems
+  // is one button press, and counting applications — which is what the log
+  // gives you — would report it as two.
+  const { report, summary } = control();
+  const sweeps = report.applications.filter((entry) => entry.spellId === 119381);
+  assert.equal(sweeps.length, 2, 'two totems caught');
+  assert.equal(sweeps[0]!.castId, sweeps[1]!.castId, 'both came from one press');
+  const dee = summary.actors.find((actor) => actor.name.startsWith('Dee'))!;
+  const sweep = dee.abilities.find((ability) => ability.spellId === 119381)!;
+  assert.equal(sweep.casts, 1);
+  assert.equal(sweep.targets, 2);
+});
+
+test('seconds are the aura, not the tooltip', () => {
+  // A thirty-second sheep that ran its course, read off the gap between the
+  // application and the removal. Nothing in the log states the duration.
+  const { report } = control();
+  const poly = appliedTo(report, 'Straggler', 28271);
+  assert.equal(poly.length, 1);
+  assert.equal(poly[0]!.durationMs, 30_000);
+  assert.equal(poly[0]!.end, 'expired');
+});
+
+test('a control damage broke early is counted as the seconds it lasted', () => {
+  // The reason a control chart reads low, and the only line that says so is
+  // the SPELL_AURA_BROKEN_SPELL. Two seconds of a thirty-second sheep.
+  const { report, summary } = control();
+  const broken = appliedTo(report, 'Warded Ogre', 28271);
+  assert.equal(broken.length, 1);
+  assert.equal(broken[0]!.end, 'broken');
+  assert.equal(broken[0]!.durationMs, 2000);
+  assert.equal(summary.broken, 1, 'one of the key\'s controls was broken');
+});
+
+test('a mob that dies still held ends the control there', () => {
+  // Without this the stun would be left open and credited with the longest
+  // Chaos Nova in the key, which in a key with only one would be nothing at
+  // all — and in a real one, somebody else's three seconds.
+  const { report } = control();
+  const nova = appliedTo(report, 'Wave Minion', 179057);
+  assert.equal(nova.length, 1);
+  assert.equal(nova[0]!.end, 'died');
+  assert.equal(nova[0]!.durationMs, 500);
+});
+
+test('an aura the log never removes is bounded by one it did', () => {
+  // The despawn case. The second Leg Sweep is never taken off, and what it is
+  // credited with is the three seconds the first one was measured at — not the
+  // rest of the key, and not a flat cap that would invent a minute.
+  const { report } = control();
+  const open = appliedTo(report, 'Magma Totem', 119381).filter((entry) => entry.end === 'open');
+  assert.equal(open.length, 1, 'one sweep was never removed');
+  assert.equal(open[0]!.durationMs, 3000, "bounded by the sweep that did come off");
+});
+
+test('a guardian\'s control is its owner\'s', () => {
+  // The same rollup as a pet's damage: the warlock pressed it.
+  const { report } = control();
+  const fury = report.applications.filter((entry) => entry.spellId === 30283);
+  assert.equal(fury.length, 1);
+  assert.equal(fury[0]!.petName, 'Tyrant', 'the pet that cast it is named');
+  assert.ok(fury[0]!.name.startsWith('Dee'), `credited to the owner, got ${fury[0]!.name}`);
+});
+
+test('only the party controlling an enemy counts', () => {
+  // Four auras in the fixture would each pass a looser test: an enemy's stun
+  // on a player, a player's stun on a player, a buff that carries a control
+  // aura, and a slow. All four are in the log at 108.6-108.9 and none of them
+  // is the party controlling something.
+  const { report, summary } = control();
+  assert.equal(
+    report.applications.filter((entry) => entry.spellId === 853).length,
+    0,
+    'no Hammer of Justice: every one in the fixture is a buff, friendly, or an enemy\'s',
+  );
+  assert.equal(
+    report.applications.filter((entry) => entry.spellId === 204242).length,
+    0,
+    'Consecration is a slow, which is not control',
+  );
+  // What is left is exactly the six real applications: two Leg Sweeps, two
+  // sheep, a Shadowfury and a Chaos Nova.
+  assert.equal(summary.targets, 6);
+  assert.equal(summary.casts, 5, 'five presses, one of which caught two totems');
+});
+
+test('a pull filters control the way it filters everything else', () => {
+  // Every application carries its target's segment, so a pull is a filter on
+  // the one list rather than a second report. The sheep on the straggler
+  // belongs to the straggler's pull, not to the boss it was dragged into.
+  const { report, segments } = control();
+  const poly = appliedTo(report, 'Straggler', 28271)[0]!;
+  const straggler = segments.segments.find((segment) => segment.label === 'Straggler')!;
+  assert.equal(poly.segmentId, straggler.id);
+  const inPull = summarizeCrowdControl(
+    report.applications.filter((entry) => entry.segmentId === straggler.id),
+  );
+  assert.equal(inPull.casts, 1);
+  assert.equal(inPull.ms, 30_000);
+});
+
+test('what a control does to the unit comes off the table, not the name', () => {
+  const { report } = control();
+  const poly = appliedTo(report, 'Straggler', 28271)[0]!;
+  assert.deepEqual(controlKindNames(poly.kinds), ['disorient'], 'a sheep is a disorient');
+  const nova = appliedTo(report, 'Wave Minion', 179057)[0]!;
+  assert.deepEqual(controlKindNames(nova.kinds), ['stun']);
 });

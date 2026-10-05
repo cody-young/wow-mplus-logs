@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { SegmentKind } from '@mplus/analysis';
 
 import { BreakdownTable } from './components/BreakdownTable.js';
+import { ControlPanel } from './components/ControlPanel.js';
 import { DeathsPanel } from './components/DeathsPanel.js';
 import { EnemyRoster } from './components/EnemyRoster.js';
 import { InterruptsPanel } from './components/InterruptsPanel.js';
@@ -14,7 +15,7 @@ import { clock, integer, percent, short } from './format.js';
 import { shortName, specOf } from './specs.js';
 import type { LogSummary, ParseProgress, RunAnalysis } from '../shared.js';
 
-type Tab = 'damage' | 'taken' | 'healing' | 'interrupts' | 'deaths';
+type Tab = 'damage' | 'taken' | 'healing' | 'interrupts' | 'control' | 'deaths';
 
 export function App(): React.JSX.Element {
   const [summary, setSummary] = useState<LogSummary | null>(null);
@@ -144,6 +145,23 @@ export function App(): React.JSX.Element {
     };
   }, [run, selectedSegment]);
 
+  /**
+   * And the same for control, which is one list for the same reason.
+   */
+  const control = useMemo(() => {
+    if (run === null) return { applications: [], casts: 0 };
+    if (selectedSegment === null) return run.control;
+    const applications = run.control.applications.filter(
+      (application) => application.segmentId === selectedSegment,
+    );
+    return {
+      applications,
+      // Recounted rather than carried over: the run's figure counts presses
+      // that landed in other pulls.
+      casts: new Set(applications.map((application) => application.castId)).size,
+    };
+  }, [run, selectedSegment]);
+
   return (
     <div className="app">
       <aside className="sidebar">
@@ -232,16 +250,13 @@ export function App(): React.JSX.Element {
                   className="value"
                   title={
                     run.forces.known
-                      ? `${integer(run.forces.counted)} of ${integer(run.forces.total)} enemy forces` +
-                        ` — values from ${run.forces.source}` +
-                        (run.forces.nonKill > 0
-                          ? `. ${integer(run.forces.nonKill)} of the ${integer(run.forces.total)} are` +
-                            ' awarded for an objective rather than a kill, which no combat log' +
-                            ' records, so this can read short on a key that finished'
-                          : '') +
+                      ? `${integer(run.forces.counted)} of the ${integer(run.forces.required)} enemy` +
+                        ` forces this dungeon asks for — values from ${run.forces.source}.` +
+                        ' A dungeon holds more count than it requires, so a full route reads a' +
+                        ' little over 100%' +
                         (run.forces.incomplete
-                          ? '. The game completed this key, so it counted at least 100% — more is' +
-                            ' missing here than this dungeon awards for non-kills'
+                          ? '. The game completed this key, so the count was met — these kills do' +
+                            ' not add up to it'
                           : '')
                       : 'Enemy forces are not in the combat log, and the criteria table has no' +
                         ' entry for this dungeon.'
@@ -252,10 +267,10 @@ export function App(): React.JSX.Element {
                       {integer(run.forces.counted)}
                       <span style={{ color: 'var(--dim)' }}>
                         {' '}
-                        / {integer(run.forces.total)} · {percent(run.forces.fraction)}
-                        {/* A completed key reached 100%, so a lower figure is the
-                            table's error and not the party's. Marked here and
-                            explained in the banner below. */}
+                        / {integer(run.forces.required)} · {percent(run.forces.fraction)}
+                        {/* A completed key met its requirement, so a figure under
+                            100% is the table's error and not the party's. Marked
+                            here and explained in the banner below. */}
                         {run.forces.incomplete ? '*' : ''}
                       </span>
                     </>
@@ -296,6 +311,7 @@ export function App(): React.JSX.Element {
                     'interrupts',
                     `Interrupts${interrupts.stops.length > 0 ? ` (${interrupts.stops.length})` : ''}`,
                   ],
+                  ['control', `CC${control.casts > 0 ? ` (${control.casts})` : ''}`],
                   ['deaths', `Deaths${deaths.length > 0 ? ` (${deaths.length})` : ''}`],
                 ] as Array<[Tab, string]>
               ).map(([key, label]) => (
@@ -324,14 +340,10 @@ export function App(): React.JSX.Element {
                   forces are a completion requirement, and the game completed this key. Every
                   creature that died was credited at{' '}
                   {run.forces.source === '' ? 'the forces table' : run.forces.source}&apos;s own
-                  value, reaching {integer(run.forces.counted)} of the {integer(run.forces.total)}{' '}
-                  the dungeon needs
-                  {run.forces.nonKill > 0
-                    ? `, and the ${integer(run.forces.nonKill)} this dungeon awards for an objective` +
-                      ' instead of a kill is not enough to cover the rest'
-                    : ', and this dungeon awards nothing for anything but kills'}
-                  . So either a creature here is worth more than the table says, or the dungeon was
-                  hotfixed since this build read it. Treat every count on this page as a floor.
+                  value, reaching {integer(run.forces.counted)} of the{' '}
+                  {integer(run.forces.required)} this dungeon asks for. So either a creature here is
+                  worth more than the table says, or the dungeon was retuned since this build read
+                  it. Treat every count on this page as a floor.
                 </div>
               ) : null}
 
@@ -352,6 +364,8 @@ export function App(): React.JSX.Element {
                   key={`${run.runId}:${selectedSegment ?? 'all'}`}
                   interrupts={interrupts}
                 />
+              ) : tab === 'control' ? (
+                <ControlPanel key={`${run.runId}:${selectedSegment ?? 'all'}`} control={control} />
               ) : reports !== null ? (
                 <BreakdownTable
                   report={tab === 'damage' ? reports.damage : tab === 'taken' ? reports.taken : reports.healing}

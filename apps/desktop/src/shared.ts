@@ -9,6 +9,8 @@
 import type {
   ActorBreakdown,
   BreakdownReport,
+  ControlApplication,
+  ControlReport,
   DeathReport,
   EnemyGroup,
   InterruptAttempt,
@@ -23,6 +25,8 @@ import type { RunMeta } from '@mplus/parser';
 export type {
   ActorBreakdown,
   BreakdownReport,
+  ControlApplication,
+  ControlReport,
   DeathReport,
   EnemyGroup,
   InterruptAttempt,
@@ -59,6 +63,14 @@ export interface RunAnalysis {
    * to compute and ship.
    */
   interrupts: InterruptReport;
+  /**
+   * Every control the party put on an enemy, as one flat list.
+   *
+   * Not split per segment, for the same reason as the interrupts: each
+   * application carries the segment its target belongs to, so a pull is a
+   * filter in the view rather than another report to compute and ship.
+   */
+  control: ControlReport;
   bySegment: Record<number, SegmentReports>;
   /**
    * Enemy forces for the run. `known: false` when no table covered the

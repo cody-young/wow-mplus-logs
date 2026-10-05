@@ -32,6 +32,18 @@ function pack(list: Segment[], slack: number): Segment[][] {
 }
 
 /**
+ * What a pull is worth, rather than what was in it.
+ *
+ * The block is a few dozen pixels of a route, and across a run the mob names
+ * are near-identical strings that say nothing about whether a pull was worth
+ * taking — the size does. The name is still a hover away in the title.
+ */
+function mobs(segment: Segment): string {
+  const n = segment.enemies.length;
+  return `${integer(n)} ${n === 1 ? 'mob' : 'mobs'}`;
+}
+
+/**
  * Bosses and pulls on separate lanes, each lane stacked into as many rows as
  * concurrency requires.
  *
@@ -54,6 +66,11 @@ export function SegmentTimeline({ segments, durationMs, forces, selectedId, onSe
     const left = (segment.startTs / span) * 100;
     const width = Math.max(((segment.endTs - segment.startTs) / span) * 100, 0.35);
     const boss = segment.kind === SegmentKind.BOSS;
+    // What the pull was worth, when a forces table was found: its share of the
+    // count the dungeon's kills have to supply, and the count itself.
+    const tallied = !boss && forces.known;
+    const share = tallied && forces.required > 0 ? percent(segment.forces / forces.required) : '';
+    const count = tallied ? `(${integer(segment.forces)} count)` : '';
     // Dropped pulls keep their ids in `overlaps`; only resolvable ones count.
     const concurrent = segment.overlaps.map((id) => byId.get(id)).filter((other) => other !== undefined);
     const crossKind = concurrent.filter((other) => other.kind !== segment.kind).length;
@@ -66,7 +83,7 @@ export function SegmentTimeline({ segments, durationMs, forces, selectedId, onSe
       <button
         key={segment.id}
         type="button"
-        className={`block${boss ? ' boss' : ''}${selectedId === segment.id ? ' selected' : ''}`}
+        className={`block${boss ? ' boss' : ''}${tallied ? ' tallied' : ''}${selectedId === segment.id ? ' selected' : ''}`}
         style={{ left: `${left}%`, width: `${width}%`, top: 2 + row * ROW_PITCH, height: BLOCK_H }}
         onClick={() => onSelect(selectedId === segment.id ? null : segment.id)}
         title={
@@ -76,12 +93,26 @@ export function SegmentTimeline({ segments, durationMs, forces, selectedId, onSe
           // a bug, where no count at all reads as the absence it is.
           (forces.known
             ? ` · ${integer(segment.forces)} count` +
-              (forces.total > 0 ? ` (${percent(segment.forces / forces.total)})` : '')
+              (forces.required > 0 ? ` (${percent(segment.forces / forces.required)})` : '')
             : '') +
           (notes.length > 0 ? `\noverlaps ${notes.join(' and ')}` : '')
         }
       >
-        {width > 7 ? segment.label : ''}
+        {/*
+          Every part is always written; which of them fit is a question of
+          pixels, and the block answers it in CSS as its own query container.
+          A share of the run's duration can't: the same 2% is a legible block
+          on a long key and a sliver on a short one. What the pull was worth
+          outlives how much of it there was, so the tally leads and the mob
+          total is the first part to go.
+        */}
+        {tallied ? (
+          <span className="block-tally">
+            {share !== '' ? <span className="block-share">{share}</span> : null}
+            <span className="block-forces">{count}</span>
+          </span>
+        ) : null}
+        <span className="block-name">{boss ? segment.label : mobs(segment)}</span>
       </button>
     );
   };
@@ -103,8 +134,8 @@ export function SegmentTimeline({ segments, durationMs, forces, selectedId, onSe
         <span style={{ fontSize: 12, color: 'var(--dim)' }}>
           {pullCount} pulls · {bossCount} bosses
           {forces.known
-            ? ` · ${integer(forces.counted)}/${integer(forces.total)} count` +
-              (forces.total > 0 ? ` (${percent(forces.fraction)})` : '')
+            ? ` · ${integer(forces.counted)}/${integer(forces.required)} count` +
+              (forces.required > 0 ? ` (${percent(forces.fraction)})` : '')
             : ''}
           {selectedId !== null ? ' · click again to clear' : ' · click to filter'}
         </span>

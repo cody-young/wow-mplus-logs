@@ -11,6 +11,7 @@ import { renderToString } from 'react-dom/server';
 
 import { BreakdownTable } from '../src/renderer/components/BreakdownTable.js';
 import { DeathTimeline } from '../src/renderer/components/DeathTimeline.js';
+import { ControlPanel } from '../src/renderer/components/ControlPanel.js';
 import { DeathsPanel } from '../src/renderer/components/DeathsPanel.js';
 import { DungeonIcon } from '../src/renderer/components/DungeonIcon.js';
 import { EnemyRoster, RosterTable } from '../src/renderer/components/EnemyRoster.js';
@@ -27,11 +28,10 @@ const NO_FORCES: RunForces = {
   known: false,
   dungeon: '',
   source: '',
-  total: 0,
+  required: 0,
   teleportSpellId: 0,
   counted: 0,
   fraction: 0,
-  nonKill: 0,
   incomplete: false,
 };
 
@@ -93,6 +93,9 @@ export function render(analysis: RunAnalysis): Record<string, string> {
     interruptLog: renderToString(
       <InterruptsPanel interrupts={analysis.interrupts} defaultExpanded />,
     ),
+    control: renderToString(<ControlPanel control={analysis.control} />),
+    // The application log, open for the same reason the press log above is.
+    controlLog: renderToString(<ControlPanel control={analysis.control} defaultExpanded />),
     roster: widest === null ? '' : renderToString(<EnemyRoster segment={widest} forces={analysis.forces} />),
     rosterTable: widest === null ? '' : renderToString(<RosterTable segment={widest} forces={analysis.forces} />),
     // The same pull with no forces table at all — the case for anyone without
@@ -132,6 +135,9 @@ export function render(analysis: RunAnalysis): Record<string, string> {
     // A key where nothing was ever interruptible, which is a real outcome and
     // not an error: no presses at all.
     emptyInterrupts: renderToString(<InterruptsPanel interrupts={{ attempts: [], stops: [] }} />),
+    // A key where nobody pressed any control, which is an ordinary key and not
+    // an error.
+    emptyControl: renderToString(<ControlPanel control={{ applications: [], casts: 0 }} />),
     // Presses that stopped nothing whatsoever — the case where the panel's
     // headline number is zero and the breakdown is the whole content.
     allWhiffedInterrupts: renderToString(
@@ -239,9 +245,10 @@ export function render(analysis: RunAnalysis): Record<string, string> {
       />,
     ),
 
-    // The real King's Rest +12: timed, 584 of 608 counted from kills, and the
-    // 30 the dungeon awards for a scenario objective covers the rest. Short of
-    // 100% and completely fine, which is the case the star must NOT appear on.
+    // The real King's Rest +12: timed, 584 counted from the kills the log
+    // reports dead, plus the 30 for the Shadow of Zul, which is driven to 1
+    // health and removed by script. 614 of 608 is the full clear it was — just
+    // over 100%, like any timed key, and the case the star must NOT appear on.
     runRowObjective: renderToString(
       <RunRow
         analysis={{
@@ -250,10 +257,9 @@ export function render(analysis: RunAnalysis): Record<string, string> {
           forces: {
             ...analysis.forces,
             known: true,
-            total: 608,
-            counted: 584,
-            fraction: 584 / 608,
-            nonKill: 30,
+            required: 608,
+            counted: 614,
+            fraction: 614 / 608,
             incomplete: false,
           },
         }}
@@ -262,9 +268,9 @@ export function render(analysis: RunAnalysis): Record<string, string> {
       />,
     ),
 
-    // The same key short by more than any objective could explain, which is
-    // the one shortfall worth warning about. Nobody sees this unless a dungeon
-    // is hotfixed out from under the build, which is why it is rendered here.
+    // The same key short of the count it asks for, which is the one shortfall
+    // worth warning about. Nobody sees this unless a dungeon is retuned out
+    // from under the build, which is why it is rendered here.
     runRowShort: renderToString(
       <RunRow
         analysis={{
@@ -273,10 +279,9 @@ export function render(analysis: RunAnalysis): Record<string, string> {
           forces: {
             ...analysis.forces,
             known: true,
-            total: 608,
+            required: 608,
             counted: 500,
             fraction: 500 / 608,
-            nonKill: 30,
             incomplete: true,
           },
         }}

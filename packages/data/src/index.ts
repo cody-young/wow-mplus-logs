@@ -29,5 +29,12 @@ export { DB2_BUILD, db2DungeonCount, db2Dungeons } from './enemy-forces.js';
 export { parseMdtTeleport, type MdtTeleport } from './mdt.js';
 export { Defense, defenseKinds, defensiveCount, isDefensive, type DefenseKind } from './defensives.js';
 export { buttonCount, isButton } from './buttons.js';
+export {
+  Control,
+  controlCount,
+  controlKinds,
+  isCrowdControl,
+  type ControlKind,
+} from './crowd-control.js';
 export { inertCount, isInertMarker } from './markers.js';
 export { interruptCount, isInterrupt } from './interrupts.js';

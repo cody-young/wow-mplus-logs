@@ -44,7 +44,7 @@ export function EnemyRoster({ segment, forces }: Props): React.JSX.Element {
 
 /** `48 count (5.9%)`, the pairing every route tool shows. */
 function countOf(segment: Segment, forces: RunForces): string {
-  const share = forces.total > 0 ? ` (${percent(segment.forces / forces.total)})` : '';
+  const share = forces.required > 0 ? ` (${percent(segment.forces / forces.required)})` : '';
   return `${integer(segment.forces)} count${share}`;
 }
 
@@ -70,7 +70,7 @@ export function RosterTable({ segment, forces }: Props): React.JSX.Element {
             <th className="left">Enemy</th>
             <th title="Spawns that died, out of the spawns the party damaged">Killed</th>
             {forces.known ? <th title="Enemy forces earned: the per-kill value times kills">Count</th> : null}
-            {forces.known ? <th title="Share of the forces this dungeon requires">%</th> : null}
+            {forces.known ? <th title="Share of the forces this dungeon's kills have to supply">%</th> : null}
             {anyHealth ? <th>Max HP</th> : null}
             {anyHealth ? <th>Health pool</th> : null}
             <th className="left">Kind</th>
@@ -93,9 +93,9 @@ export function RosterTable({ segment, forces }: Props): React.JSX.Element {
               ) : null}
               {forces.known ? (
                 <td style={{ color: 'var(--muted)' }}>
-                  {group.forcesEach === null || forces.total === 0
+                  {group.forcesEach === null || forces.required === 0
                     ? '—'
-                    : percent(group.forces / forces.total)}
+                    : percent(group.forces / forces.required)}
                 </td>
               ) : null}
               {anyHealth ? <td>{group.maxHp > 0 ? short(group.maxHp) : '—'}</td> : null}
@@ -117,7 +117,7 @@ export function RosterTable({ segment, forces }: Props): React.JSX.Element {
               <td className="left">Segment total</td>
               <td>{integer(roster.reduce((n, group) => n + group.killed, 0))}</td>
               <td>{integer(segment.forces)}</td>
-              <td>{forces.total > 0 ? percent(segment.forces / forces.total) : '—'}</td>
+              <td>{forces.required > 0 ? percent(segment.forces / forces.required) : '—'}</td>
               {/* The remaining columns have no meaningful total: health does not
                   add up across creatures in a way worth printing, and an npc id
                   cannot be summed at all. */}
@@ -152,14 +152,9 @@ function RosterNote({ segment, forces }: Props): React.JSX.Element {
       {forces.known ? (
         <>
           Enemy forces are not in the combat log; the per-kill values come from{' '}
-          {forces.source === '' ? "the game's own scenario criteria" : forces.source}, and the key
-          needs {integer(forces.total)}. A creature shown as 0 awards nothing — bosses, totems and
-          summoned adds have no criterion at all.
-          {forces.nonKill > 0
-            ? ` This dungeon also awards ${integer(forces.nonKill)} for an objective rather than` +
-              ' a kill, which no combat log records, so the count here can read short of 100% on' +
-              ' a key that finished.'
-            : ''}
+          {forces.source === '' ? "the game's own scenario criteria" : forces.source}, and kills
+          have to supply all {integer(forces.required)} of them. A creature shown as 0 awards
+          nothing — bosses, totems and summoned adds have no criterion at all.
         </>
       ) : (
         <>

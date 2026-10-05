@@ -485,19 +485,75 @@ test('byte-level chunking is indistinguishable from a single push', () => {
 });
 
 test('a reset key abandons the partial run instead of merging two', () => {
+  // The zeroed END is what makes this a reset rather than the re-announcement
+  // below. The game writes one before every real beginning, this one included.
   const session = new LogSession({ assumedYear: 2026 });
   session.pushText(
     [
       '9/30/2026 18:00:00.000-4  CHALLENGE_MODE_START,"Ara-Kara, City of Echoes",2660,503,12,[10]',
       `9/30/2026 18:00:01.000-4  SPELL_DAMAGE,${PLAYER},"A",0x511,0x0,${ENEMY},"B",0xa48,0x0,1,"S",0x1,500,500,-1,1,0,0,0,nil,nil,nil`,
+      '9/30/2026 18:09:59.000-4  CHALLENGE_MODE_END,2660,0,0,0,0.000000,0.000000',
       '9/30/2026 18:10:00.000-4  CHALLENGE_MODE_START,"Ara-Kara, City of Echoes",2660,503,12,[10]',
       `9/30/2026 18:10:01.000-4  SPELL_DAMAGE,${PLAYER},"A",0x511,0x0,${ENEMY},"B",0xa48,0x0,1,"S",0x1,700,700,-1,1,0,0,0,nil,nil,nil`,
       '9/30/2026 18:40:00.000-4  CHALLENGE_MODE_END,2660,1,12,1800000,180',
       '',
     ].join('\n'),
   );
+  assert.equal(session.runs.length, 2, 'the abandoned attempt is kept, as a failure');
+  const abandoned = session.runs[0]!;
+  assert.equal(abandoned.meta.success, false);
+  assert.equal(abandoned.store.count, 1);
+  assert.equal(abandoned.store.amount[0], 500);
+  const run = session.runs[1]!;
+  assert.equal(run.meta.success, true);
+  assert.equal(run.store.count, 1, 'and nothing of it leaks into the key that followed');
+  assert.equal(run.store.amount[0], 700);
+});
+
+test('a key re-announced mid-run keeps everything killed before it', () => {
+  // Stepping out of the instance to change talents makes the game write a
+  // second CHALLENGE_MODE_START for the key already in progress. There is no
+  // END behind it, so it is the same key — and the kills from its first four
+  // minutes have to survive, or the count comes up short by all of them.
+  const session = new LogSession({ assumedYear: 2026 });
+  session.pushText(
+    [
+      '9/30/2026 18:00:00.000-4  CHALLENGE_MODE_START,"Ruby Life Pools",2521,399,11,[158,9,10]',
+      `9/30/2026 18:00:01.000-4  SPELL_DAMAGE,${PLAYER},"A",0x511,0x0,${ENEMY},"B",0xa48,0x0,1,"S",0x1,500,500,-1,1,0,0,0,nil,nil,nil`,
+      '9/30/2026 18:04:00.000-4  CHALLENGE_MODE_START,"Ruby Life Pools",2521,399,11,[158,9,10]',
+      `9/30/2026 18:04:01.000-4  SPELL_DAMAGE,${PLAYER},"A",0x511,0x0,${ENEMY},"B",0xa48,0x0,1,"S",0x1,700,700,-1,1,0,0,0,nil,nil,nil`,
+      '9/30/2026 18:19:49.000-4  CHALLENGE_MODE_END,2521,1,11,1189000,180',
+      '',
+    ].join('\n'),
+  );
   const run = onlyRun(session);
-  assert.equal(run.store.count, 1, 'only the second attempt survives');
+  assert.equal(run.store.count, 2, 'both halves of the key are in one store');
+  assert.equal(run.store.amount[0], 500);
+  assert.equal(run.store.amount[1], 700);
+  // Timed from the first start, which is where the game's own clock is timed
+  // from: a 19:49 keystone timer against 19:49 of wall clock.
+  assert.equal(run.meta.startMs, run.store.baseMs);
+  assert.equal(run.meta.elapsedMs, 1189000);
+  assert.equal(run.store.ts[0], 1000, 'and the event column still starts at the first one');
+});
+
+test('a key announced again at a different level is a new key', () => {
+  // Same instance, no END, but the keystone changed — which a re-entry cannot
+  // do. Nothing vouches for this being one key, so it is read as two.
+  const session = new LogSession({ assumedYear: 2026 });
+  session.pushText(
+    [
+      '9/30/2026 18:00:00.000-4  CHALLENGE_MODE_START,"Murder Row",2813,587,16,[10,9,147]',
+      `9/30/2026 18:00:01.000-4  SPELL_DAMAGE,${PLAYER},"A",0x511,0x0,${ENEMY},"B",0xa48,0x0,1,"S",0x1,500,500,-1,1,0,0,0,nil,nil,nil`,
+      '9/30/2026 18:10:00.000-4  CHALLENGE_MODE_START,"Murder Row",2813,587,15,[10,9,147]',
+      `9/30/2026 18:10:01.000-4  SPELL_DAMAGE,${PLAYER},"A",0x511,0x0,${ENEMY},"B",0xa48,0x0,1,"S",0x1,700,700,-1,1,0,0,0,nil,nil,nil`,
+      '9/30/2026 18:40:00.000-4  CHALLENGE_MODE_END,2813,1,15,1800000,180',
+      '',
+    ].join('\n'),
+  );
+  const run = onlyRun(session);
+  assert.equal(run.meta.keystoneLevel, 15);
+  assert.equal(run.store.count, 1);
   assert.equal(run.store.amount[0], 700);
 });
 
