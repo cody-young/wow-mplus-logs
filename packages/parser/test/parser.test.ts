@@ -99,9 +99,9 @@ test('events outside a run are not recorded', () => {
 test('damage events resolve amount, overkill and the crit flag', () => {
   const run = onlyRun(parseAll(LOG_TEXT));
   const damage = rows(run, Ev.SPELL_DAMAGE);
-  // Three player hits, one pet hit, and the _SUPPORT variant folded onto the
+  // Four player hits, one pet hit, and the _SUPPORT variants folded onto the
   // same code so callers need only one branch.
-  assert.equal(damage.length, 7);
+  assert.equal(damage.length, 10);
 
   const first = damage[0]!;
   assert.equal(run.store.amount[first], 54321);
@@ -242,7 +242,11 @@ test('advanced block width is measured, so a 17-field block still parses', () =>
 test('SPELL_ABSORBED reads the hit absorbed, not the shield pool', () => {
   const run = onlyRun(parseAll(LOG_TEXT));
   const absorbed = rows(run, Ev.SPELL_ABSORBED);
-  assert.equal(absorbed.length, 5, 'two shapes, a healer-cast one and two with no attacker');
+  assert.equal(
+    absorbed.length,
+    6,
+    'two shapes, a healer-cast one, two with no attacker and one _SUPPORT copy',
+  );
 
   // 18 fields: no attacker spell, so the prefix slot holds no spell id.
   assert.equal(run.store.amount[absorbed[0]!], 59945, 'absorbed by this hit');
@@ -254,6 +258,17 @@ test('SPELL_ABSORBED reads the hit absorbed, not the shield pool', () => {
   assert.equal(run.store.amount[absorbed[1]!], 21011);
   assert.equal(run.store.spellId[absorbed[1]!], 1216570, 'the incoming spell');
   assert.equal(run.store.extraSpellId[absorbed[1]!], 206967, 'the absorbing shield');
+
+  // The _SUPPORT copy, whose supporter GUID is appended rather than taking a
+  // field's place: an absorb has no ST/AOE category to give up, so every read
+  // anchored to the end of the line shifts by one. Read as a plain absorb this
+  // row says 4,041 — the shield's pool — instead of the 1,325 of it that this
+  // hit consumed.
+  const support = absorbed.find((row) => (run.store.flags[row]! & EvFlag.SUPPORT) !== 0)!;
+  assert.ok(support !== undefined, 'the copy folds onto the same code');
+  assert.equal(run.store.amount[support], 1325);
+  assert.equal(run.store.extraSpellId[support], 413984, 'the buff, where the shield usually is');
+  assert.equal(run.store.spellId[support], 1216570, 'the incoming spell, as on a plain absorb');
 });
 
 test('an absorb that named no attacker is given one by the blow it belongs to', () => {
@@ -308,15 +323,75 @@ test('SPELL_HEAL_ABSORBED has no critical flag, so its tail differs', () => {
 test('_SUPPORT damage records the supporter without double-counting', () => {
   const session = parseAll(LOG_TEXT);
   const run = onlyRun(session);
+  const { store } = run;
   // The event folds onto the base code with the SUPPORT flag, so a damage
   // table sees one event kind and decides attribution itself.
-  const supportRows = [...run.store.support.keys()];
-  assert.equal(supportRows.length, 1);
-  const row = supportRows[0]!;
-  assert.equal(run.store.code[row], Ev.SPELL_DAMAGE);
-  assert.ok(run.store.flags[row]! & EvFlag.SUPPORT);
-  assert.equal(run.store.amount[row], 4482);
-  assert.equal(run.store.support.get(row), session.parser.actors.get(PLAYER)!.index);
+  const row = [...store.support.keys()].find((at) => store.spellId[at] === 395152)!;
+  assert.equal(store.code[row], Ev.SPELL_DAMAGE);
+  assert.ok(store.flags[row]! & EvFlag.SUPPORT);
+  assert.equal(store.amount[row], 4482);
+  assert.equal(store.support.get(row), session.parser.actors.get(PLAYER)!.index);
+  // No plain row in the log carries Ebon Might, so there is nothing for it to
+  // pair with: the amount is a slice of the healer's own hit, not an ability of
+  // the evoker's that the log misfiled.
+  assert.ok(!(store.flags[row]! & EvFlag.SUPPORT_TWIN), 'nothing to twin with');
+
+  // Which leaves the ability it was part of knowable only from the line it
+  // sits behind, since the copy names the buff instead. Without it, crediting
+  // the evoker could only move a lump sum: the healer's Shadow Word: Pain
+  // would still read the 4,482 the evoker had just been paid for.
+  assert.equal(store.extraSpellId[row], 589, 'the hit on the line before');
+});
+
+test('a swing _SUPPORT copy carries a spell triple that a plain swing does not', () => {
+  const session = parseAll(LOG_TEXT);
+  const run = onlyRun(session);
+  const { store } = run;
+
+  const swings = rows(run, Ev.SWING_DAMAGE_LANDED);
+  const plain = swings.find((row) => (store.flags[row]! & EvFlag.SUPPORT) === 0)!;
+  const copy = swings.find((row) => (store.flags[row]! & EvFlag.SUPPORT) !== 0)!;
+  assert.ok(plain !== undefined && copy !== undefined);
+
+  // The copy's three extra fields shift everything behind them. Read as a
+  // prefix-less swing, the advanced block is not recognised at all and the
+  // amount comes out of the spell id: all 99,028 such rows in one real raid
+  // log reported Ebon Might's id as damage, 39.1 billion of it.
+  assert.equal(store.spellId[plain], 0, 'a swing names no spell');
+  assert.equal(store.amount[plain], 9000);
+  assert.equal(store.spellId[copy], 395152, 'the buff, not the swing it rode in on');
+  assert.equal(store.amount[copy], 700);
+  assert.ok(store.flags[copy]! & EvFlag.ADVANCED, 'the block is found past the triple');
+  assert.equal(store.hpCurrent[copy], 120000);
+  // Melee is spell 0, so there is nothing to record: the row the slice came
+  // off is the swing, and that is what a damage table will take it off.
+  assert.equal(store.extraSpellId[copy], 0);
+  assert.equal(store.support.get(copy), session.parser.actors.get(PLAYER)!.index);
+});
+
+test('a _SUPPORT row repeating the line before it hands that line to the supporter', () => {
+  const session = parseAll(LOG_TEXT);
+  const run = onlyRun(session);
+  const { store } = run;
+  const evoker = session.parser.actors.get(PLAYER)!.index;
+
+  const pair = rows(run, Ev.SPELL_DAMAGE).filter((row) => store.spellId[row] === 434481);
+  assert.equal(pair.length, 2, 'Bombardments is logged twice, as the game writes it');
+  const [plain, copy] = pair as [number, number];
+  assert.equal(copy, plain + 1, 'the copy is the next event, which is how it is found');
+
+  // The plain row keeps its source — the party member whose hit set the bomb
+  // off — and gains the supporter the copy named, so a damage table can file
+  // 12.8M of a real key under the evoker instead of across the party.
+  assert.ok(!(store.flags[plain]! & EvFlag.SUPPORT), 'still an ordinary damage event');
+  assert.ok(store.flags[plain]! & EvFlag.SUPPORT_TWIN);
+  assert.equal(store.support.get(plain), evoker);
+  assert.equal(store.amount[plain], 3000);
+
+  // And the copy says it is one, so a total can skip it without having to
+  // decide whether it was credit.
+  assert.ok(store.flags[copy]! & EvFlag.SUPPORT);
+  assert.ok(store.flags[copy]! & EvFlag.SUPPORT_TWIN);
 });
 
 test('auras without a stack amount do not invent one', () => {

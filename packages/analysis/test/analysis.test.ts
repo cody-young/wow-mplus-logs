@@ -158,10 +158,17 @@ test('pet damage rolls up to its owner', () => {
   // whole, and 700 into a block of ice that carries Dee's name but is not
   // Dee's. Each of the three was once dropped for a different reason.
   const lastPull = 1500 + 800 + 700 + (300 + 100 + 200 + 150) + 50;
-  // The boss fight also carries Agony's 1200, whose aura the uptime test reads.
+  // The boss fight also carries Agony's 1200, whose aura the uptime test reads,
+  // and a 2500 swing that counts once although the log writes it twice.
+  //
+  // The 4000 Bombardment Dee set off is not here: it is the evoker's bomb and
+  // the support test below follows it there. Nor are the 1500 of Dee's Nuke
+  // and the 400 of the swing that Ebon Might added, which the same test
+  // follows to the evoker.
+  const boss = (7000 - 1500) + (2500 - 400) + 1200;
   assert.equal(
     dps.total,
-    1000 + 1000 + 1000 + 3000 + 3000 + 500 + 5000 + 7000 + 4000 + 600 + 500 + 900 + 1200 + totemPack + lastPull,
+    1000 + 1000 + 1000 + 3000 + 3000 + 500 + 5000 + 600 + 500 + 900 + boss + totemPack + lastPull,
   );
   assert.ok(!report.actors.some((actor) => actor.actorIndex === indexOf(run, PET)), 'the pet is not its own row');
 });
@@ -265,26 +272,91 @@ test('a unit that merely names a player is still an enemy', () => {
   assert.ok(pull, 'the ice is in a pull rather than being counted as one of us');
 });
 
-test('_SUPPORT rows are credit, never extra damage', () => {
+test('an Ebon Might slice is never extra damage, whoever is credited with it', () => {
+  const { run, context, segments } = load();
+  // The log's own arithmetic: the slice stays inside the hit it was part of,
+  // and the evoker is named beside it without being paid.
+  const kept = damageReport(context, segments, { creditSupport: false });
+  const keptDps = kept.actors.find((actor) => actor.actorIndex === indexOf(run, DPS))!;
+  const keptHealer = kept.actors.find((actor) => actor.actorIndex === indexOf(run, HEALER))!;
+  // 1500 of Dee's Nuke and 400 of their swing, plus 4000 of a tank swing the
+  // game wrote only from the victim's side.
+  assert.equal(keptDps.supportReceived, 1900, 'credit is recorded');
+  assert.equal(keptHealer.supportGiven, 1900 + 4000);
+  const keptNuke = keptDps.spells.find((spell) => spell.name === 'Nuke')!;
+  assert.ok(
+    !keptHealer.spells.some((spell) => spell.name === 'Ebon Might'),
+    'and buys the evoker no ability of their own',
+  );
+
+  // The default, and how Warcraft Logs reports an aug: the slice moves to the
+  // evoker, which is the only way one reads as anything but a bystander.
+  const moved = damageReport(context, segments);
+  const dps = moved.actors.find((actor) => actor.actorIndex === indexOf(run, DPS))!;
+  const healer = moved.actors.find((actor) => actor.actorIndex === indexOf(run, HEALER))!;
+  assert.equal(dps.total, keptDps.total - 1900);
+  assert.equal(healer.total, keptHealer.total + 1900 + 3000);
+  assert.equal(moved.total, kept.total, 'the run total is unchanged either way');
+
+  // Moved as an ability on both sides, not as a lump sum. The evoker's table
+  // reads Ebon Might, and Dee's Nuke no longer reads the part of it that the
+  // evoker has just been paid for.
+  const given = healer.spells.find((spell) => spell.name === 'Ebon Might')!;
+  assert.ok(given, 'the evoker carries the buff as an ability');
+  assert.equal(given.hits, 3, 'one for every hit it rode in on');
+  const nuke = dps.spells.find((spell) => spell.name === 'Nuke')!;
+  assert.equal(nuke.total, keptNuke.total - 1500, 'taken off the ability it rode in on');
+  assert.equal(nuke.hits, keptNuke.hits, 'which lost none of its hits by it');
+
+  // Melee is the awkward one. The log reports the slice on SWING_DAMAGE_LANDED
+  // and the damage on SWING_DAMAGE, and totals read only the second — so the
+  // slice has to be picked up off a code the totals ignore and taken off the
+  // one they do not, with the swing itself still counted exactly once.
+  const keptMelee = keptDps.spells.find((spell) => spell.name === 'Melee')!;
+  assert.equal(keptMelee.total, 2500, 'one swing, not the two lines it took to log it');
+  const melee = dps.spells.find((spell) => spell.name === 'Melee')!;
+  assert.equal(melee.total, 2500 - 400);
+
+  // The transfer is capped by what the dealer's ability actually holds. The
+  // tank's swings total 12000 and only 3000 of that reached the report, the
+  // game having written the other one from the victim's side alone — so of the
+  // 4000 the buff is owed, 3000 can be paid and the rest cannot. Paying it all
+  // would invent damage: on one raid log that was 6M across 2,132 pets, each
+  // left with a negative Melee row.
+  const keptTank = kept.actors.find((actor) => actor.actorIndex === indexOf(run, TANK))!;
+  assert.equal(keptTank.supportReceived, 4000, 'the credit is recorded in full');
+  assert.equal(keptTank.total, 3000, 'of which 3000 was ever counted');
+  assert.equal(keptTank.spells.find((spell) => spell.name === 'Melee')!.total, 3000);
+  assert.equal(
+    moved.actors.find((actor) => actor.actorIndex === indexOf(run, TANK)),
+    undefined,
+    'so the 3000 is all that leaves, and leaves nothing behind',
+  );
+  assert.equal(given.total, 1900 + 3000, 'and the evoker is paid no more than that');
+});
+
+test('a twinned _SUPPORT pair belongs to the supporter, not the dealer', () => {
   const { run, context, segments } = load();
   const report = damageReport(context, segments);
   const dps = report.actors.find((actor) => actor.actorIndex === indexOf(run, DPS))!;
-  const healer = report.actors.find((actor) => actor.actorIndex === indexOf(run, HEALER));
+  const healer = report.actors.find((actor) => actor.actorIndex === indexOf(run, HEALER))!;
 
-  // The fixture's _SUPPORT line duplicates the 4000 hit before it. Counting
-  // both would add 4000 to the total.
-  assert.equal(dps.supportReceived, 4000, 'credit is recorded');
-  assert.ok(healer, 'the supporter appears, on credit alone');
-  assert.equal(healer.supportGiven, 4000);
-  assert.equal(healer.total, 0, 'but with no damage of their own');
+  // The fixture's Bombardments pair is one 4000 hit written twice: an ordinary
+  // SPELL_DAMAGE credited to the player who set the bomb off, and a _SUPPORT
+  // copy naming the evoker whose talent it is. The damage is the evoker's.
+  const bombs = healer.spells.find((spell) => spell.name === 'Bombardments')!;
+  assert.ok(bombs, 'the supporter carries the ability');
+  assert.equal(bombs.total, 4000);
+  assert.equal(bombs.hits, 1, 'one hit, not the two lines it took to log it');
+  assert.ok(
+    !dps.spells.some((spell) => spell.name === 'Bombardments'),
+    'and the player who triggered it carries none of it',
+  );
 
-  // With creditSupport the amount moves rather than appearing twice.
-  const moved = damageReport(context, segments, { creditSupport: true });
-  const movedDps = moved.actors.find((actor) => actor.actorIndex === indexOf(run, DPS))!;
-  const movedHealer = moved.actors.find((actor) => actor.actorIndex === indexOf(run, HEALER))!;
-  assert.equal(movedDps.total, dps.total - 4000);
-  assert.equal(movedHealer.total, 4000);
-  assert.equal(moved.total, report.total, 'the run total is unchanged either way');
+  // Not credit either: the bomb was never Dee's to be helped with, so it must
+  // not read as damage the healer lent them.
+  assert.equal(dps.supportReceived, 1900, 'the Ebon Might slices and nothing more');
+  assert.equal(healer.supportGiven, 1900 + 4000, 'and the tank swing the buff also rode in on');
 });
 
 test('healing reports effective amounts, not gross', () => {

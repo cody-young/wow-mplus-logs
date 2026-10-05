@@ -79,6 +79,50 @@ export function hit(
   return `${at(seconds)}  ${event},${src},"${srcName}",${srcFlags},0x0,${dst},"${dstName}",${dstFlags},0x0,${spellId},"${spellName}",0x8,${block},${amount},${amount},-1,8,0,0,0,${crit},nil,nil,${tailField}`;
 }
 
+/**
+ * A melee swing, written from both sides the way the game writes it.
+ *
+ * Totals read SWING_DAMAGE, the attacker's copy, because counting both sides
+ * counts every swing twice. Support arrives only on the landed side — there is
+ * no SWING_DAMAGE_SUPPORT in the format at all — so both lines have to be here
+ * for the slice to be found on a code the totals otherwise ignore, and taken
+ * off the copy they do read.
+ */
+export function swing(
+  seconds: number,
+  src: string,
+  srcName: string,
+  dst: string,
+  dstName: string,
+  amount: number,
+  opts: {
+    hp?: number;
+    hpMax?: number;
+    support?: { amount: number; from: string };
+    /**
+     * Write only the victim's copy, as the game does for most pet swings: one
+     * raid log has 23,515 SWING_DAMAGE_LANDED against 4,818 SWING_DAMAGE for
+     * its Lesser Ghouls. The swing then counts for nothing at all, and a slice
+     * of it cannot be moved out of a column that never held it.
+     */
+    onlyLanded?: boolean;
+  } = {},
+): string[] {
+  const block = adv(dst, opts.hp ?? 1000, opts.hpMax ?? 1000);
+  const base = `${src},"${srcName}",0x511,0x0,${dst},"${dstName}",0xa48,0x0`;
+  const suffix = `${amount},${amount},-1,1,0,0,0,nil,nil,nil`;
+  const lines = opts.onlyLanded === true ? [] : [`${at(seconds)}  SWING_DAMAGE,${base},${block},${suffix}`];
+  lines.push(`${at(seconds)}  SWING_DAMAGE_LANDED,${base},${block},${suffix}`);
+  if (opts.support !== undefined) {
+    const slice = opts.support.amount;
+    lines.push(
+      `${at(seconds)}  SWING_DAMAGE_LANDED_SUPPORT,${base},395152,"Ebon Might",0xc,${block},` +
+        `${slice},${slice},-1,1,0,0,0,nil,nil,nil,${opts.support.from}`,
+    );
+  }
+  return lines;
+}
+
 /** A player summoning a guardian, which is NPC-flagged until it acts. */
 export function summonedByPlayer(seconds: number, src: string, srcName: string, dst: string, dstName: string): string {
   return `${at(seconds)}  SPELL_SUMMON,${src},"${srcName}",0x511,0x0,${dst},"${dstName}",0xa28,0x0,265187,"Summon Tyrant",0x20`;
@@ -348,13 +392,61 @@ export const LINES: string[] = [
   // way a proc or a cleave arrives.
   cast(71.9, DPS, 'Dee', 100, 'Nuke'),
   hit(72, DPS, 'Dee', BOSS, 'Big Bad', 7000, { hp: 480000, hpMax: 500000, crit: true }),
+  // Ebon Might: the slice of that very Nuke the buff added. It has no plain
+  // row of its own — the log writes it on the line after the hit it was part
+  // of, under the evoker's spell id, and 1500 of Dee's 7000 is already inside
+  // it. So it is never a total of its own, and crediting the evoker has to
+  // take it off Dee's Nuke rather than out of thin air.
+  hit(72, DPS, 'Dee', BOSS, 'Big Bad', 1500, {
+    hp: 480000,
+    hpMax: 500000,
+    spellId: 395152,
+    spellName: 'Ebon Might',
+    support: HEALER,
+  }),
   cast(73.9, DPS, 'Dee', 100, 'Nuke'),
   // Teaches the parser that the Imp belongs to Dee, so its damage rolls up.
   hitPet(72.5, BOSS, 'Big Bad', PET, 'Imp', DPS, 100),
   hit(73, PET, 'Imp', BOSS, 'Big Bad', 900, { hp: 470000, hpMax: 500000 }),
-  // A _SUPPORT duplicate of the line above it: same amount, same dealer.
-  hit(74, DPS, 'Dee', BOSS, 'Big Bad', 4000, { hp: 460000, hpMax: 500000 }),
-  hit(74, DPS, 'Dee', BOSS, 'Big Bad', 4000, { hp: 460000, hpMax: 500000, support: HEALER }),
+  // The other shape a _SUPPORT row arrives in, and the one that has to be told
+  // apart from the Ebon Might slice above.
+  //
+  // Bombardments is a Scalecommander evoker's own bomb, logged as an ordinary
+  // hit credited to whichever party member set it off, with its duplicate on
+  // the next line naming the evoker. Same spell, same amount, so the pair is
+  // one hit that belongs to the supporter — not two, and not Dee's.
+  hit(74, DPS, 'Dee', BOSS, 'Big Bad', 4000, {
+    hp: 460000,
+    hpMax: 500000,
+    spellId: 434481,
+    spellName: 'Bombardments',
+  }),
+  hit(74, DPS, 'Dee', BOSS, 'Big Bad', 4000, {
+    hp: 460000,
+    hpMax: 500000,
+    spellId: 434481,
+    spellName: 'Bombardments',
+    support: HEALER,
+  }),
+  // A melee swing, and the slice of it Ebon Might added. Melee is the one
+  // ability whose support the log reports on the side that totals ignore, and
+  // whose id is 0 on both.
+  ...swing(74.8, DPS, 'Dee', BOSS, 'Big Bad', 2500, {
+    hp: 460000,
+    hpMax: 500000,
+    support: { amount: 400, from: HEALER },
+  }),
+  // The tank swings twice, and the game wrote the second one only from the
+  // victim's side. Their Melee column therefore holds 3000 while the buff is
+  // owed 4000 of it, which is the shape that has to be capped: the evoker can
+  // only be paid what a column actually held.
+  ...swing(74.9, TANK, 'Tank', BOSS, 'Big Bad', 3000, { hp: 460000, hpMax: 500000 }),
+  ...swing(74.95, TANK, 'Tank', BOSS, 'Big Bad', 9000, {
+    hp: 460000,
+    hpMax: 500000,
+    onlyLanded: true,
+    support: { amount: 4000, from: HEALER },
+  }),
   hit(75, DPS, 'Dee', BOSS_ADD, 'Minion', 600, { hp: 5000, hpMax: 5000 }),
   hit(76, DPS, 'Dee', DRAGGED, 'Straggler', 500),
   // Two Nukes the boss turned away, one dodged and one eaten by a shield. Only

@@ -134,7 +134,10 @@ for (const actor of whole.actors.slice(0, 8)) {
       `${short(actor.perSecond).padStart(7)} dps  ${short(actor.total).padStart(7)}  ` +
       `${(actor.share * 100).toFixed(1).padStart(5)}%  ${top}`,
   );
-  if (actor.supportGiven > 0) console.log(`      enabled ${short(actor.supportGiven)} for others via support`);
+  // Both figures are already inside the totals above: support is moved to the
+  // evoker by default, so this says where it came from rather than what to add.
+  if (actor.supportGiven > 0) console.log(`      ${short(actor.supportGiven)} of that is support they enabled on other players' hits`);
+  if (actor.supportReceived > 0) console.log(`      ${short(actor.supportReceived)} of their hits was credited out to a supporter`);
 }
 
 const heal = healingReport(context, segments);

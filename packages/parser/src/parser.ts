@@ -152,6 +152,48 @@ const ATTACKER_NAMING: ReadonlySet<number> = new Set<number>([
 /** How long an unattributed absorb waits for the event that names its source. */
 const ORPHAN_ABSORB_WINDOW_MS = 100;
 
+/** How far apart a plain event and its `_SUPPORT` copy may be timestamped. */
+const SUPPORT_TWIN_WINDOW_MS = 2;
+
+/**
+ * How many rows back the ability a `_SUPPORT` slice rode in on may sit.
+ *
+ * One hit can be followed by several support rows — Ebon Might and Shifting
+ * Sands on the same swing — and the longest run measured on a real raid log
+ * was five, so eight leaves room for a sixth buff without reaching into the
+ * previous hit.
+ */
+const SUPPORT_CARRIER_REACH = 8;
+
+/**
+ * Whether `twin` is the plain row that `row`'s `_SUPPORT` copy duplicates.
+ *
+ * Same actors, same spell, written together. What the amount has to match
+ * depends on whether the hit landed — see `claimSupportTwin`.
+ */
+function isSupportTwin(
+  store: EventStore,
+  row: number,
+  twin: number,
+  code: Ev,
+  amount: number,
+): boolean {
+  // Not already a support row, and not already claimed by an earlier twin.
+  if ((store.flags[twin]! & (EvFlag.SUPPORT | EvFlag.SUPPORT_TWIN)) !== 0) return false;
+  if (store.srcActor[twin] !== store.srcActor[row]) return false;
+  if (store.dstActor[twin] !== store.dstActor[row]) return false;
+  if (store.spellId[twin] !== store.spellId[row]) return false;
+  // Written together: every pair measured was 0 or 1 ms apart. The guard is
+  // what stops a lone _SUPPORT row from adopting an identical hit that happened
+  // to be the previous event minutes earlier.
+  if (store.ts[row]! - store.ts[twin]! > SUPPORT_TWIN_WINDOW_MS) return false;
+  // A hit that landed: the same event, reporting the same amount.
+  if (amount !== 0) return store.code[twin] === code && store.amount[twin] === amount;
+  // A hit a shield ate whole, where the absorb is the only row that carries
+  // what it would have done and the copy has no amount to compare against.
+  return store.code[twin] === Ev.SPELL_ABSORBED;
+}
+
 export class CombatLogParser {
   readonly interner: StringInterner;
   readonly actors: ActorTable;
@@ -381,6 +423,14 @@ export class CombatLogParser {
     // ahead of an otherwise ordinary damage suffix.
     if (code === Ev.ENVIRONMENTAL_DAMAGE) suffixStart += 1;
 
+    // A _SUPPORT row carries the supporter's GUID in the place of the ST/AOE
+    // category, and where the event has no such field it is appended instead:
+    // a heal's suffix grows from 5 fields to 6 and SPELL_ABSORBED's from 3 to
+    // 4, while a spell hit's stays at 11. Only reads anchored to the tail are
+    // affected, and they have to step over it — without that, an absorb reads
+    // the shield's whole remaining pool as the amount this hit consumed.
+    const supportTail = identity.support ? 1 : 0;
+
     let flags = identity.support ? EvFlag.SUPPORT : 0;
     if (advanced) flags |= EvFlag.ADVANCED;
 
@@ -555,22 +605,24 @@ export class CombatLogParser {
         //   ..., shieldSpellId, shieldSpellName, shieldSchool,
         //        absorbedAmount, totalShieldAmount, critical
         // The last numeric field is the shield's whole pool, not what this hit
-        // consumed, so the amount is three from the end rather than two.
-        if (count >= 3) store.amount[row] = fieldFloat(line, offsets, count - 3);
-        if (count >= 6) {
-          const shield = fieldInt(line, offsets, count - 6);
+        // consumed, so the amount is three from the end rather than two — four
+        // on a _SUPPORT row, which appends the supporter's GUID behind it.
+        const tail = count - supportTail;
+        if (tail >= 3) store.amount[row] = fieldFloat(line, offsets, tail - 3);
+        if (tail >= 6) {
+          const shield = fieldInt(line, offsets, tail - 6);
           store.extraSpellId[row] = shield;
           // "Absorbed 424K" is not an answer; "Power Word: Shield, from your
           // healer" is. Naming it costs one intern per distinct shield.
           if (shield !== 0 && !this.spellNames.has(shield)) {
-            this.spellNames.set(shield, this.interner.intern(fieldStr(line, offsets, count - 5)));
+            this.spellNames.set(shield, this.interner.intern(fieldStr(line, offsets, tail - 5)));
           }
         }
         // The caster triple sits ahead of the shield's, in both the melee and
         // the spell shape — only the attacker's own prefix differs between
         // them, and that is ahead of everything read here.
-        if (count >= 10) {
-          const casterGuid = fieldStr(line, offsets, count - 10);
+        if (tail >= 10) {
+          const casterGuid = fieldStr(line, offsets, tail - 10);
           if (casterGuid.length > 0 && casterGuid.charCodeAt(0) !== 48) {
             const caster = this.actors.get(casterGuid);
             if (caster !== undefined) store.extraActor.set(row, caster.index);
@@ -581,8 +633,9 @@ export class CombatLogParser {
       case Ev.SPELL_HEAL_ABSORBED: {
         // Same tail minus the critical flag:
         //   ..., healSpellId, healSpellName, healSchool, absorbed, total
-        if (count >= 2) store.amount[row] = fieldFloat(line, offsets, count - 2);
-        if (count >= 5) store.extraSpellId[row] = fieldInt(line, offsets, count - 5);
+        const tail = count - supportTail;
+        if (tail >= 2) store.amount[row] = fieldFloat(line, offsets, tail - 2);
+        if (tail >= 5) store.extraSpellId[row] = fieldInt(line, offsets, tail - 5);
         break;
       }
       case Ev.SPELL_AURA_APPLIED:
@@ -616,7 +669,17 @@ export class CombatLogParser {
       const supporterGuid = fieldStr(line, offsets, count - 1);
       if (supporterGuid.length > 0 && supporterGuid.charCodeAt(0) !== 48) {
         const supporter = this.actors.get(supporterGuid);
-        if (supporter !== undefined) store.support.set(row, supporter.index);
+        if (supporter !== undefined) {
+          store.support.set(row, supporter.index);
+          if (this.claimSupportTwin(store, row, code, supporter.index)) {
+            flags |= EvFlag.SUPPORT_TWIN;
+          } else if (store.extraSpellId[row] === 0) {
+            // Not twinned, so a slice of somebody else's hit. Only where the
+            // column is free: an absorb's _SUPPORT row has already filled it
+            // with the shield, and that is a figure worth more than this one.
+            this.recordSupportCarrier(store, row);
+          }
+        }
       }
     }
 
@@ -637,6 +700,88 @@ export class CombatLogParser {
     }
 
     store.flags[row] = flags;
+  }
+
+  /**
+   * Links a `_SUPPORT` row to the plain row it duplicates, if it has one.
+   *
+   * Which `_SUPPORT` rows have a twin is the whole question, because the suffix
+   * covers two opposite things. An Augmentation Evoker's Ebon Might arrives
+   * only as `_SUPPORT`, under the evoker's own spell id, for the part of an
+   * ally's hit the buff added: there is no plain row carrying that id and the
+   * amount is already inside the ally's own damage. A Scalecommander's
+   * Bombardments arrives as both — the evoker's bomb, logged as an ordinary
+   * SPELL_DAMAGE credited to whichever party member triggered it, with the
+   * `_SUPPORT` copy beside it naming the evoker. Only the second kind is
+   * misattributed, and the duplicate is the only thing in the log that says
+   * which kind a row is.
+   *
+   * The twin is the row just before, rather than anything found by searching:
+   * on two real logs every one of 4,376 Bombardments pairs, 679 Breath of Eons
+   * pairs, 13,647 Fate Mirror pairs and 1,202 Inferno's Blessing pairs sat on
+   * consecutive lines, and 426,499 Ebon Might rows had no plain row to sit
+   * beside. The one hit that reaches further is the one a shield ate whole,
+   * which the log writes as three lines rather than two — see `reach`.
+   *
+   * See EvFlag.SUPPORT_TWIN for what the flag then means to a damage table.
+   */
+  private claimSupportTwin(store: EventStore, row: number, code: Ev, supporter: number): boolean {
+    // SPELL_ABSORBED's own _SUPPORT row is the exception that proves the rule:
+    // it repeats the attack's spell, source and destination but carries the
+    // supporter's share of the same shield rather than the whole of it — 1,325
+    // of 13,008 on a real pair, and all 2,822 in that log shaped the same way.
+    // Pairing it would hand an ally's absorbed damage to the evoker on nothing
+    // more than two amounts coinciding.
+    if (code === Ev.SPELL_ABSORBED) return false;
+
+    const amount = store.amount[row]!;
+    // How far back to look. A hit that landed is the row before. A hit a
+    // shield swallowed whole has no damage row to copy: the log writes
+    // SPELL_ABSORBED, then the *_MISSED naming the absorb, then a zero-amount
+    // _SUPPORT row — so its twin is the absorb, two rows back. Leaving those
+    // out left 0.43M of a real key's 29.5M of Bombardments, and a phantom row
+    // of it in four players' tables.
+    const reach = amount === 0 ? 2 : 1;
+    for (let twin = row - 1; twin >= 0 && twin > row - 1 - reach; twin--) {
+      if (!isSupportTwin(store, row, twin, code, amount)) continue;
+      store.support.set(twin, supporter);
+      store.flags[twin] = store.flags[twin]! | EvFlag.SUPPORT_TWIN;
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Records the ability an Augmentation Evoker's slice rode in on.
+   *
+   * Ebon Might, Shifting Sands and Prescience have no row of their own. The
+   * amount is part of an ally's hit, and the `_SUPPORT` row reports only how
+   * much of that hit the evoker is owed — under the evoker's spell id, which
+   * says nothing about what the ally pressed. The log puts the ability on the
+   * line before: of 580,708 support damage and heal rows in a real raid log,
+   * 580,639 sat directly behind a plain row with the same source and target,
+   * and the 69 that did not sat behind a *_MISSED of the same pair, a tick a
+   * shield had eaten. Rows already marked SUPPORT are stepped over, because
+   * two buffs on one hit write two copies of it.
+   *
+   * Kept in `extraSpellId`, a column these rows leave empty, rather than in a
+   * second sparse map the size of `support`. Without it, crediting the evoker
+   * could only move a lump sum: their own table would show a total with no
+   * abilities under it, and the ally's Kill Command would still read the
+   * figure the evoker had just been paid for.
+   */
+  private recordSupportCarrier(store: EventStore, row: number): void {
+    const floor = Math.max(0, row - SUPPORT_CARRIER_REACH);
+    for (let origin = row - 1; origin >= floor; origin--) {
+      if ((store.flags[origin]! & EvFlag.SUPPORT) !== 0) continue;
+      // The first plain row back is the only candidate: if it is not the same
+      // blow, nothing further back is either.
+      if (store.srcActor[origin] !== store.srcActor[row]) return;
+      if (store.dstActor[origin] !== store.dstActor[row]) return;
+      if (store.ts[row]! - store.ts[origin]! > SUPPORT_TWIN_WINDOW_MS) return;
+      store.extraSpellId[row] = store.spellId[origin]!;
+      return;
+    }
   }
 
   /**

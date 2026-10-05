@@ -339,13 +339,46 @@ the largest in the window.
 ## Attribution rules worth knowing
 
 - **Pets roll up to their owner.** A Wild Imp's damage lands on the warlock.
-- **`_SUPPORT` is credit, not damage.** Augmentation Evoker rows duplicate the
-  plain events hit for hit — 38.0M on both sides in a real log — so summing both
-  inflates every total. They are tracked as credit, and `creditSupport` moves the
-  amount from dealer to supporter, leaving the run total unchanged.
+- **`_SUPPORT` is a slice of someone else's hit, and it goes to the evoker.**
+  Augmentation Evoker rows report how much of an ally's hit the buff added,
+  under the evoker's own spell id, and that amount is already inside the ally's
+  plain events — summing both invents damage. By default the slice is moved:
+  the evoker's table gains a row for Ebon Might, Prescience or Shifting Sands,
+  the ally's loses that much of the ability it rode in on, and the run total is
+  unchanged. On a real raid of 464.6M that was 14.2M, three quarters of the
+  evoker's own column, and it is how Warcraft Logs reports an aug.
+  `creditSupport: false` leaves every point with the ally instead.
+  - Which ability it rode in on is only knowable from the line above: the copy
+    names the buff, not what the ally pressed. Of 580,708 support rows in one
+    raid log, 580,639 sat directly behind a plain row with the same source and
+    target, and the parser records that row's spell id.
+  - The transfer is capped by what the ability actually holds. Most pet swings
+    are written only from the victim's side — 23,515 `SWING_DAMAGE_LANDED`
+    against 4,818 `SWING_DAMAGE` for one raid's Lesser Ghouls — and totals read
+    the attacker's, so a pet can owe melee it was never credited with.
+    Uncapped that invented 6M across 2,132 pets, each with a negative Melee row.
+  - Melee support arrives on `SWING_DAMAGE_LANDED` only; there is no
+    `SWING_DAMAGE_SUPPORT`. Its copy also carries a spell triple that a plain
+    swing has nothing in the place of, which is the one event in the format
+    where `_SUPPORT` changes the field layout rather than just the last field.
+  - An absorbed slice is the exception that stays credit on both sides.
+    `SPELL_ABSORBED_SUPPORT` puts the buff in the shield's slot rather than the
+    attack's, so the row says neither which ability earned it nor which shield
+    to take it off — 4.8M of that log's 755.4M of support.
+- **Unless the `_SUPPORT` row repeats the line before it** — then it is the
+  supporter's own ability and the game credited the wrong player. A
+  Scalecommander Devastation Evoker's Bombardments is logged as an ordinary
+  `SPELL_DAMAGE` against whichever party member's hit set the bomb off, with a
+  `_SUPPORT` copy beside it naming the evoker; on a real +17 that left 12.8M of
+  a 17.0M ability in four other players' tables. The parser pairs the two
+  lines, and the damage is filed under the evoker. Breath of Eons,
+  Fate Mirror and Inferno's Blessing are the same shape — 236M of a real raid
+  log between them — while 345,259 Ebon Might rows paired with nothing, which is
+  what tells the two cases apart.
 - **`SWING_DAMAGE_LANDED` is not extra melee.** It is the same hits from the
-  victim's side. Totals use `SWING_DAMAGE`; the LANDED rows serve only death
-  analysis, where their advanced block carries the victim's health.
+  victim's side. Totals use `SWING_DAMAGE`; the LANDED rows serve death
+  analysis, where their advanced block carries the victim's health, and carry
+  the one thing the attacker's side never reports — melee `_SUPPORT`.
 - **Effective is `amount - waste`** for both damage and healing. Confirmed on a
   real log: 10,838 heals had amount exactly equal to overhealing, and none had
   amount 0 with overhealing above it.

@@ -87,7 +87,37 @@ export const LINES: string[] = [
   // SPELL_HEAL_ABSORBED: same tail, minus the critical flag. 20 fields.
   `9/30/2026 18:50:30.000-4  SPELL_HEAL_ABSORBED,${PLAYER},"${PLAYER_NAME}",0x511,0x0,${PLAYER},"${PLAYER_NAME}",0x511,0x0,116888,"Shroud of Purgatory",0x20,${PLAYER},"${PLAYER_NAME}",0x511,0x0,45470,"Death Strike",0x1,1225,1081978`,
   // _SUPPORT: the supporter's GUID takes the place of the ST/AOE category.
-  `9/30/2026 18:50:31.000-4  SPELL_DAMAGE_SUPPORT,${HEALER},"Healy-Ázshara",0x512,0x0,${ENEMY},"Fungal Fiend",0xa48,0x0,434481,"Bombardments",0xc,${ADV_ENEMY},4482,2141,-1,12,0,0,0,1,nil,nil,${PLAYER}`,
+  //
+  // Two opposite things wear the suffix, and the line beside it is the only
+  // thing that tells them apart. Ebon Might is the slice of the healer's own
+  // hit that the evoker's buff added: the evoker's spell id, and no plain row
+  // anywhere in the log carrying it. There is nothing to pair it with, and its
+  // amount is already inside the healer's own damage — the hit on the line
+  // above, which is the only thing the log says about which ability it was
+  // part of, since the copy names the buff instead.
+  `9/30/2026 18:50:30.999-4  SPELL_DAMAGE,${HEALER},"Healy-Ázshara",0x512,0x0,${ENEMY},"Fungal Fiend",0xa48,0x0,589,"Shadow Word: Pain",0x20,${ADV_ENEMY},12000,12000,-1,32,0,0,0,nil,nil,nil,ST`,
+  `9/30/2026 18:50:31.000-4  SPELL_DAMAGE_SUPPORT,${HEALER},"Healy-Ázshara",0x512,0x0,${ENEMY},"Fungal Fiend",0xa48,0x0,395152,"Ebon Might",0xc,${ADV_ENEMY},4482,2141,-1,12,0,0,0,1,nil,nil,${PLAYER}`,
+  // Bombardments is the other shape: a Scalecommander evoker's own bomb, which
+  // the game logs as an ordinary hit credited to whichever party member set it
+  // off, with the copy on the very next line naming the evoker. Same spell,
+  // same actors, same amount — one hit written twice, and it is the evoker's.
+  `9/30/2026 18:50:31.100-4  SPELL_DAMAGE,${HEALER},"Healy-Ázshara",0x512,0x0,${ENEMY},"Fungal Fiend",0xa48,0x0,434481,"Bombardments",0xc,${ADV_ENEMY},3000,3000,-1,12,0,0,0,nil,nil,nil,ST`,
+  `9/30/2026 18:50:31.101-4  SPELL_DAMAGE_SUPPORT,${HEALER},"Healy-Ázshara",0x512,0x0,${ENEMY},"Fungal Fiend",0xa48,0x0,434481,"Bombardments",0xc,${ADV_ENEMY},3000,3000,-1,12,0,0,0,nil,nil,nil,${PLAYER}`,
+  // A melee swing and the slice of it the buff added. This is the one place in
+  // the format where _SUPPORT changes the layout rather than just the last
+  // field: the copy carries a spell triple that a plain swing has nothing in
+  // the place of, so the plain line is 37 fields and the copy 41. Blizzard
+  // writes melee support only on the landed side — there is no
+  // SWING_DAMAGE_SUPPORT at all.
+  `9/30/2026 18:50:31.200-4  SWING_DAMAGE_LANDED,${HEALER},"Healy-Ázshara",0x512,0x0,${ENEMY},"Fungal Fiend",0xa48,0x0,${ADV_ENEMY},9000,9000,-1,1,0,0,0,nil,nil,nil`,
+  `9/30/2026 18:50:31.201-4  SWING_DAMAGE_LANDED_SUPPORT,${HEALER},"Healy-Ázshara",0x512,0x0,${ENEMY},"Fungal Fiend",0xa48,0x0,395152,"Ebon Might",0xc,${ADV_ENEMY},700,700,-1,1,0,0,0,nil,nil,nil,${PLAYER}`,
+  // An absorb's copy, which appends the supporter instead of replacing
+  // anything: an absorb has no ST/AOE category to give up. Every read anchored
+  // to the end of the line therefore shifts by one, and read as a plain absorb
+  // this says the hit took 4,041 off the shield rather than 1,325. Blizzard
+  // also puts the buff in the shield's slot here rather than the attack's,
+  // which is why an absorbed slice is the one kind that cannot be credited.
+  `9/30/2026 18:50:31.300-4  SPELL_ABSORBED_SUPPORT,${ENEMY},"Fungal Fiend",0xa48,0x0,${PLAYER},"${PLAYER_NAME}",0x511,0x0,1216570,"Fel Missiles",0x4,${HEALER},"Healy-Ázshara",0x512,0x0,413984,"Shifting Sands",0x40,1325,4041,nil,${PLAYER}`,
   // Aura with no stack amount, and SPELL_EXTRA_ATTACKS.
   `9/30/2026 18:50:32.000-4  SPELL_AURA_APPLIED,${PLAYER},"${PLAYER_NAME}",0x511,0x0,${PLAYER},"${PLAYER_NAME}",0x511,0x0,43308,"Find Fish",0x1,BUFF`,
   `9/30/2026 18:50:33.000-4  SPELL_EXTRA_ATTACKS,${PLAYER},"${PLAYER_NAME}",0x511,0x0,${PLAYER},"${PLAYER_NAME}",0x511,0x0,465660,"Skyfury",0x1,1`,

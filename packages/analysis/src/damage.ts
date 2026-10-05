@@ -9,6 +9,7 @@ import {
   HEAL_CODES,
   MISS_CODES,
   SELF_DAMAGE_CODES,
+  creditedActor,
   effective,
   wasted,
 } from './events.js';
@@ -21,13 +22,30 @@ import { SegmentKind, type SegmentIndex } from './segments.js';
  *
  * Pets roll up to their owner, so a Wild Imp's damage lands on the warlock.
  *
- * _SUPPORT events are excluded from totals. They are not extra damage: on a
- * real log the _SUPPORT copies of Bombardments matched the plain events hit for
- * hit — same timestamps, same amounts, 38.0M on both sides — so they are the
- * same damage reported a second time to say who enabled it. Summing both would
- * inflate every total. Instead the amount is tracked as credit, and
- * `creditSupport` moves it from the player who dealt it to the player who
- * enabled it, leaving the run total unchanged.
+ * _SUPPORT events are excluded from totals. They are not extra damage: the
+ * copy repeats damage the log already reported, and summing both would inflate
+ * every total. What the copy adds is a name — who enabled the hit — and there
+ * are two quite different reasons it might be there.
+ *
+ * Augmentation's Ebon Might, Prescience and Shifting Sands are a slice of the
+ * ally's own hit, which that ally's plain rows already contain. By default the
+ * slice is moved to the evoker, ability by ability: the evoker's table gains a
+ * row for the buff, the ally's loses that much of the ability the slice rode
+ * in on, and the run total is unchanged. That is how Warcraft Logs reports an
+ * aug, and the only way one reads as a player rather than a bystander — on a
+ * real raid of 464.6M it was 14.2M, three quarters of the evoker's own column.
+ * `creditSupport: false` gives the log's own arithmetic instead, where the
+ * buffed player keeps every point and the evoker is only named beside it.
+ *
+ * A Scalecommander Devastation Evoker's Bombardments is not that. It is the
+ * evoker's own bomb, and the log credits whichever party member's hit set it
+ * off: an ordinary SPELL_DAMAGE under spell 434481 against a mage, a rogue,
+ * even a death knight's ghoul, with the _SUPPORT copy on the next line naming
+ * the evoker. On a real +17 that put 12.8M of a 17.0M ability into four other
+ * players' tables, for a talent nobody but the evoker brought. The parser
+ * pairs those two lines and flags both (EvFlag.SUPPORT_TWIN); `creditedActor`
+ * then files the damage under the evoker, and the copy is skipped outright
+ * rather than counted as aid — the damage is theirs, not lent.
  */
 
 export type Direction = 'done' | 'taken';
@@ -89,9 +107,16 @@ export interface ActorBreakdown {
   total: number;
   raw: number;
   wasted: number;
-  /** Damage this actor enabled for others; already inside their totals. */
+  /**
+   * Damage this actor enabled for others, whether or not it was moved to them.
+   *
+   * Credit as the log reports it, so it is unaffected by `creditSupport` and
+   * can exceed what the move was able to pay — a slice of a swing the game
+   * wrote only from the victim's side is owed by a column that holds nothing.
+   * See `settleSupport`.
+   */
   supportGiven: number;
-  /** How much of this actor's total a supporter is credited for. */
+  /** How much of this actor's damage a supporter is credited for. */
   supportReceived: number;
   perSecond: number;
   /** Fraction of the report total, 0..1. */
@@ -113,7 +138,12 @@ export interface BreakdownOptions {
   /** Restrict to one segment. Omit for the whole run. */
   segmentId?: number;
   direction?: Direction;
-  /** Move _SUPPORT credit from the dealer to the supporter. */
+  /**
+   * Move _SUPPORT amounts from the player who dealt them to the Augmentation
+   * Evoker who enabled them. On by default, which is how Warcraft Logs reports
+   * an aug and the only way one reads as anything but zero. Set false for the
+   * log's own arithmetic, where the buffed player keeps every point.
+   */
   creditSupport?: boolean;
 }
 
@@ -166,6 +196,95 @@ interface ActorAcc {
   auras: Map<number, AuraAcc>;
 }
 
+/**
+ * One ability's worth of support, from one dealer to one supporter.
+ *
+ * Aggregated rather than applied row by row so that the cap in
+ * `settleSupport` is applied to the ability as a whole: taking the slices off
+ * one at a time would stop partway through and leave the rest where it was,
+ * which reads as the evoker having been paid for some hits of Kill Command and
+ * not others.
+ */
+interface SupportMove {
+  dealer: number;
+  /** The ally's ability the slice was part of, 0 for melee. */
+  carrier: number;
+  to: number;
+  /** The supporter's own spell: Ebon Might, Shifting Sands, Prescience. */
+  spellId: number;
+  net: number;
+  raw: number;
+  hits: number;
+  crits: number;
+  critTotal: number;
+  ticks: number;
+  max: number;
+}
+
+/**
+ * Pays the supporter what the dealer's ability can cover, and no more.
+ *
+ * The slice moves off the ability it rode in on: the ally's hit is unchanged —
+ * it landed, and for what the log says — but the part of it the evoker bought
+ * now sits in the evoker's column, and leaving it in both would add an aug's
+ * whole output to the run twice over.
+ *
+ * Capped at what that ability holds, which is not a formality. A pet's swing
+ * is written to the log only from the victim's side on most hits — 23,515
+ * SWING_DAMAGE_LANDED against 4,818 SWING_DAMAGE for one raid's Lesser Ghouls
+ * — and totals read the attacker's side, so a ghoul can owe melee it was never
+ * credited with. Uncapped, the evoker would be paid out of a column that does
+ * not contain it: 6M invented across 2,132 of that log's pets, a negative
+ * Melee row on each. Capped, the evoker is short only what the report never
+ * counted in the first place, and the run total is conserved exactly.
+ */
+function settleSupport(
+  moves: ReadonlyMap<string, SupportMove>,
+  accs: ReadonlyMap<number, ActorAcc>,
+  accFor: (index: number) => ActorAcc,
+  spellFor: (acc: ActorAcc, spellId: number) => SpellAcc,
+): void {
+  /** dealer|ability -> what is left of it to pay out of. */
+  const room = new Map<string, number>();
+  for (const move of moves.values()) {
+    const key = `${move.dealer}|${move.carrier}`;
+    if (room.has(key)) continue;
+    const held = accs.get(move.dealer)?.spells.get(move.carrier)?.total ?? 0;
+    room.set(key, Math.max(held, 0));
+  }
+
+  for (const move of moves.values()) {
+    if (move.net <= 0) continue;
+    const key = `${move.dealer}|${move.carrier}`;
+    const left = room.get(key) ?? 0;
+    if (left <= 0) continue;
+    const net = Math.min(move.net, left);
+    const share = net / move.net;
+    const raw = move.raw * share;
+    room.set(key, left - net);
+
+    const from = accs.get(move.dealer);
+    const carrier = from?.spells.get(move.carrier);
+    if (from === undefined || carrier === undefined) continue;
+    from.total -= net;
+    from.raw -= raw;
+    carrier.total -= net;
+    carrier.raw -= raw;
+
+    const gain = accFor(move.to);
+    gain.total += net;
+    gain.raw += raw;
+    const given = spellFor(gain, move.spellId);
+    given.total += net;
+    given.raw += raw;
+    given.hits += move.hits;
+    given.crits += move.crits;
+    given.critTotal += move.critTotal * share;
+    given.ticks += move.ticks;
+    if (move.max > given.max) given.max = move.max;
+  }
+}
+
 export function damageReport(
   context: AnalysisContext,
   segments: SegmentIndex,
@@ -191,7 +310,7 @@ function build(
   const { run } = context;
   const { store, actors } = run;
   const direction = options.direction ?? 'done';
-  const creditSupport = options.creditSupport ?? false;
+  const creditSupport = options.creditSupport ?? true;
   const segmentId = options.segmentId;
   const segment = segmentId === undefined ? undefined : segments.get(segmentId);
 
@@ -199,6 +318,17 @@ function build(
   const accs = new Map<number, ActorAcc>();
   /** Party member -> spell id -> damage it did to the party. See the loop. */
   const friendlyFire = new Map<number, Map<number, number>>();
+  /**
+   * Support amounts waiting to be moved, keyed dealer|ability|supporter|spell.
+   *
+   * Settled after the scan rather than at the row, for two reasons. The
+   * ability the slice rode in on has to exist before anything can be taken
+   * off it — and a support row names the supporter's spell, not the ally's, so
+   * the ability is `extraSpellId`, where the parser puts what the log left to
+   * the line above. And the transfer has to be capped by what that ability
+   * actually holds, which only the finished scan knows. See `settleSupport`.
+   */
+  const supportMoves = new Map<string, SupportMove>();
   let unattributed = 0;
 
   const accFor = (index: number): ActorAcc => {
@@ -219,6 +349,26 @@ function build(
       accs.set(index, acc);
     }
     return acc;
+  };
+
+  const spellFor = (acc: ActorAcc, spellId: number): SpellAcc => {
+    let spell = acc.spells.get(spellId);
+    if (spell === undefined) {
+      spell = {
+        spellId,
+        total: 0,
+        raw: 0,
+        wasted: 0,
+        hits: 0,
+        crits: 0,
+        critTotal: 0,
+        ticks: 0,
+        max: 0,
+        sources: new Map(),
+      };
+      acc.spells.set(spellId, spell);
+    }
+    return spell;
   };
 
   /**
@@ -257,6 +407,7 @@ function build(
 
   for (let row = from; row < to; row++) {
     const code = store.code[row]!;
+    const flags = store.flags[row]!;
     const isSelfDamage = mode === 'damage' && SELF_DAMAGE_CODES.has(code);
     // Absorbed hits are output, not damage received, so they join `done` only.
     const isAbsorbed = mode === 'damage' && direction === 'done' && ABSORBED_CODES.has(code);
@@ -271,6 +422,19 @@ function build(
     const isMiss = mode === 'damage' && MISS_CODES.has(code);
     const auraUp = AURA_UP_CODES.has(code);
     const isAura = auraUp || AURA_DOWN_CODES.has(code);
+    /**
+     * Melee support, which arrives on the side of the swing totals ignore.
+     *
+     * Totals read SWING_DAMAGE, the attacker's copy, because counting both
+     * sides of a swing counts all melee twice. But Blizzard writes the
+     * supported slice of a melee hit only as SWING_DAMAGE_LANDED_SUPPORT —
+     * there is no SWING_DAMAGE_SUPPORT at all — so excluding the landed code
+     * outright drops it: 25.8M across 99,028 rows of one raid log, the whole
+     * of what Ebon Might, Shifting Sands and Prescience added to melee. There
+     * is nothing to double-count, since the only such rows are support rows.
+     */
+    const isSupportMelee =
+      mode === 'damage' && code === Ev.SWING_DAMAGE_LANDED && (flags & EvFlag.SUPPORT) !== 0;
     if (code === Ev.SPELL_CAST_SUCCESS) {
       if (direction === 'done') tallyCast(row);
       continue;
@@ -282,15 +446,17 @@ function build(
       !isShielded &&
       !isFriendlyFire &&
       !isMiss &&
-      !isAura
+      !isAura &&
+      !isSupportMelee
     ) {
       continue;
     }
 
-    const flags = store.flags[row]!;
     const src = store.srcActor[row]!;
     const dst = store.dstActor[row]!;
-    const srcOwner = actors.attribute(src);
+    // Not actors.attribute(src): a twinned row is the supporter's own ability,
+    // credited by the log to whoever triggered it. See `creditedActor`.
+    const srcOwner = creditedActor(run, row);
     const dstOwner = actors.attribute(dst);
     const srcFriendly = segments.party.has(srcOwner);
     const dstFriendly = segments.party.has(dstOwner);
@@ -409,17 +575,59 @@ function build(
     const net = effective(amount, waste);
 
     if (flags & EvFlag.SUPPORT) {
-      // A duplicate of a plain event. Record the credit; never add to a total.
+      // The copy of a twinned pair, whose plain half has already been filed
+      // under the supporter. Not credit: an evoker's Bombardment is their own
+      // damage, not aid lent to the player whose hit set it off, and counting
+      // it here would show up as "aided" on a player who gained nothing.
+      if (flags & EvFlag.SUPPORT_TWIN) continue;
+      // A slice of the subject's own hit, reported again under the evoker's
+      // spell. Added to nobody's total as it stands — the ally's row already
+      // contains it, and counting it here as well would invent damage.
       const supporter = store.support.get(row);
-      if (supporter !== undefined) accFor(actors.attribute(supporter)).supportGiven += net;
+      const to = supporter === undefined ? -1 : actors.attribute(supporter);
+      if (to >= 0) accFor(to).supportGiven += net;
       if (subjectFriendly) accFor(subject).supportReceived += net;
-      if (creditSupport && supporter !== undefined) {
-        const to = actors.attribute(supporter);
-        if (to !== subject) {
-          accFor(subject).total -= net;
-          accFor(to).total += net;
-        }
+      // Beyond this point the slice is moved to the evoker. `taken` is left
+      // out because there is nothing there to move: an aug buffs the party,
+      // so a supported row is always a party member hitting an enemy.
+      //
+      // An absorb's slice is the one shape of `done` that cannot move either.
+      // Blizzard writes the support spell into the shield's slot there rather
+      // than the attack's, so the row says neither which ability earned it nor
+      // which shield to take it off — 4.8M of a raid log's 755.4M of support,
+      // which stays credit on both sides.
+      if (!creditSupport || direction !== 'done' || isAbsorbed || isShielded) continue;
+      if (to < 0 || to === subject || !subjectFriendly) continue;
+
+      const carrier = store.extraSpellId[row]!;
+      const spellId = store.spellId[row]!;
+      const key = `${subject}|${carrier}|${to}|${spellId}`;
+      let move = supportMoves.get(key);
+      if (move === undefined) {
+        move = {
+          dealer: subject,
+          carrier,
+          to,
+          spellId,
+          net: 0,
+          raw: 0,
+          hits: 0,
+          crits: 0,
+          critTotal: 0,
+          ticks: 0,
+          max: 0,
+        };
+        supportMoves.set(key, move);
       }
+      move.net += net;
+      move.raw += amount;
+      move.hits++;
+      if (flags & EvFlag.CRITICAL) {
+        move.crits++;
+        move.critTotal += net;
+      }
+      if (flags & EvFlag.PERIODIC) move.ticks++;
+      if (net > move.max) move.max = net;
       continue;
     }
 
@@ -435,22 +643,7 @@ function build(
 
     // The shield, not the blow it stopped: "Blood Shield", not "Melee".
     const spellId = isShielded ? store.extraSpellId[row]! : store.spellId[row]!;
-    let spell = acc.spells.get(spellId);
-    if (spell === undefined) {
-      spell = {
-        spellId,
-        total: 0,
-        raw: 0,
-        wasted: 0,
-        hits: 0,
-        crits: 0,
-        critTotal: 0,
-        ticks: 0,
-        max: 0,
-        sources: new Map(),
-      };
-      acc.spells.set(spellId, spell);
-    }
+    const spell = spellFor(acc, spellId);
     spell.total += net;
     spell.raw += amount;
     spell.wasted += wasted(waste);
@@ -481,6 +674,8 @@ function build(
       acc.total -= dealt;
     }
   }
+
+  settleSupport(supportMoves, accs, accFor, spellFor);
 
   // Auras still up when the window closed. Without this a debuff applied once
   // and never removed — what anything lasting to the end of a pull looks like —

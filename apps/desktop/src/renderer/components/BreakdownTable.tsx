@@ -270,10 +270,17 @@ export function BreakdownTable({ report, mode, defaultExpanded = false }: Props)
                   <td>{short(actor.total)}</td>
                   <td>{percent(actor.share)}</td>
                   <td style={{ color: 'var(--muted)' }}>{short(actor.wasted)}</td>
+                  {/*
+                    Which side of the support transfer this player is on. Both
+                    amounts are already inside the Total beside them — an
+                    Augmentation Evoker's Ebon Might is counted as the evoker's
+                    damage and taken off the ally's ability — so this column
+                    says where it came from, not what to add to anything.
+                  */}
                   {mode === 'done' ? (
                     <td style={{ color: 'var(--muted)' }}>
-                      {actor.supportGiven > 0 ? `+${short(actor.supportGiven)} given` : ''}
-                      {actor.supportReceived > 0 ? `${short(actor.supportReceived)} aided` : ''}
+                      {actor.supportGiven > 0 ? `+${short(actor.supportGiven)} enabled` : ''}
+                      {actor.supportReceived > 0 ? `−${short(actor.supportReceived)} credited out` : ''}
                     </td>
                   ) : null}
                 </tr>

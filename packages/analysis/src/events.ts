@@ -1,4 +1,4 @@
-import { Ev } from '@mplus/parser';
+import { Ev, EvFlag, type Run } from '@mplus/parser';
 
 /**
  * Which event codes count as damage, and the one trap in doing so.
@@ -106,4 +106,29 @@ export function effective(amount: number, waste: number): number {
 
 export function wasted(waste: number): number {
   return waste > 0 ? waste : 0;
+}
+
+/**
+ * Whose amount an event's is: the source, or the owner when a pet dealt it.
+ *
+ * One ability breaks that rule. A row twinned with a `_SUPPORT` copy belongs
+ * to the supporter named on it, not to the actor the log put in the source
+ * field. A Scalecommander Devastation Evoker's Bombardments is logged against
+ * whichever party member's hit set the bomb off — on a real +17 that put 12.8M
+ * of a 17.0M ability into four other players' tables, and the rows naming a
+ * mage's Mirror Image or a death knight's ghoul as the dealer rolled it up to
+ * them from there. Breath of Eons, Fate Mirror and Inferno's Blessing are the
+ * same shape.
+ *
+ * Augmentation's Ebon Might is deliberately untouched by this: those rows are
+ * never twinned, because they are a slice of the ally's own hit rather than
+ * the evoker's own ability. See EvFlag.SUPPORT_TWIN.
+ */
+export function creditedActor(run: Run, row: number): number {
+  const { store, actors } = run;
+  if ((store.flags[row]! & EvFlag.SUPPORT_TWIN) !== 0) {
+    const supporter = store.support.get(row);
+    if (supporter !== undefined) return actors.attribute(supporter);
+  }
+  return actors.attribute(store.srcActor[row]!);
 }

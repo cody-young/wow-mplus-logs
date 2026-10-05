@@ -197,7 +197,15 @@ export function identifyEvent(name: string): EventIdentity {
 
 /** Prefix parameter width, derived from the event name's prefix. */
 export function prefixFieldCount(name: string): number {
-  if (name.startsWith('SWING_')) return 0;
+  if (name.startsWith('SWING_')) {
+    // A swing names no spell, with one exception: its `_SUPPORT` copy carries
+    // the supporter's own spell triple where the plain row has nothing at all.
+    // Reading that copy as prefix-less shifts every field after it by three —
+    // the advanced block is not recognised, so the amount is read out of the
+    // spell id, and all 99,028 SWING_DAMAGE_LANDED_SUPPORT rows of one real
+    // raid log reported Ebon Might's id as an amount: 39.1 billion damage.
+    return name.endsWith(SUPPORT_SUFFIX) ? 3 : 0;
+  }
   // ENVIRONMENTAL_DAMAGE writes environmentalType AFTER the advanced block,
   // not before it, so it has no prefix at all. Treating it as a one-field
   // prefix shifts the advanced block by one and corrupts the whole event.
@@ -290,6 +298,30 @@ export const enum EvFlag {
    * them" beside the boss's stacking debuff answers neither question.
    */
   BUFF = 1 << 8,
+  /**
+   * This row and the one beside it are a single hit written twice: a plain
+   * event and the `_SUPPORT` copy on the line after it.
+   *
+   * Two unrelated things arrive as `_SUPPORT`, and the duplicate is what tells
+   * them apart. Augmentation's Ebon Might appears only in `_SUPPORT` form,
+   * under the evoker's own spell id, for the slice of an ally's hit the buff
+   * added — there is no plain row carrying that id, and the amount is already
+   * inside the ally's own damage, so it must never be added to a total. A
+   * Scalecommander's Bombardments is the reverse: the evoker's bomb, logged as
+   * an ordinary SPELL_DAMAGE credited to whichever party member set it off,
+   * with a `_SUPPORT` copy beside it naming the evoker. That damage is the
+   * evoker's, and nobody else in the group brought the talent.
+   *
+   * Set on both rows of a pair. On the plain one, `support` then names the
+   * actor the amount belongs to.
+   *
+   * Measured on two real logs: all 4,376 plain Bombardments rows had their
+   * copy on the very next line, and on the +17 among them 12.8M of the
+   * ability's 17.0M was logged against the four players who were not the
+   * evoker. Breath of Eons, Fate Mirror and Inferno's Blessing pair the same
+   * way, while 426,499 Ebon Might rows paired with nothing at all.
+   */
+  SUPPORT_TWIN = 1 << 9,
 }
 
 /**
