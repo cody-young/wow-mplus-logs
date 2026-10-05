@@ -139,25 +139,12 @@ function killedOf(group: EnemyGroup): string {
 }
 
 function eachOf(group: EnemyGroup): string {
-  if (group.forcesEach === null) return 'Not in the enemy-forces table';
+  if (group.forcesEach === null) return 'No enemy-forces table for this dungeon';
+  if (group.forcesEach === 0) return 'Awards no enemy forces';
   return `${integer(group.forcesEach)} per kill × ${integer(group.killed)} killed`;
 }
 
-/** The caveat when a killed creature had no entry: the count is a floor. */
-function lowerBound(missing: EnemyGroup[]): string {
-  const plural = missing.length > 1;
-  const names = missing.map((group) => group.name).join(', ');
-  return (
-    `${integer(missing.length)} creature${plural ? 's' : ''} here ${plural ? 'are' : 'is'}` +
-    ` not in that table (${names}), so this segment's count is a lower bound.`
-  );
-}
-
 function RosterNote({ segment, forces }: Props): React.JSX.Element {
-  const missing = forces.known
-    ? segment.roster.filter((group) => group.forcesEach === null && group.killed > 0)
-    : [];
-
   return (
     <p className="roster-note">
       Killed counts distinct spawns the party damaged, so a mob that was never hit does not appear.
@@ -165,15 +152,20 @@ function RosterNote({ segment, forces }: Props): React.JSX.Element {
       {forces.known ? (
         <>
           Enemy forces are not in the combat log; the per-kill values come from{' '}
-          {forces.source === '' ? 'Mythic Dungeon Tools' : forces.source} on this machine, and the
-          key needs {integer(forces.total)}.
-          {missing.length > 0 ? ` ${lowerBound(missing)}` : ''}
+          {forces.source === '' ? "the game's own scenario criteria" : forces.source}, and the key
+          needs {integer(forces.total)}. A creature shown as 0 awards nothing — bosses, totems and
+          summoned adds have no criterion at all.
+          {forces.nonKill > 0
+            ? ` This dungeon also awards ${integer(forces.nonKill)} for an objective rather than` +
+              ' a kill, which no combat log records, so the count here can read short of 100% on' +
+              ' a key that finished.'
+            : ''}
         </>
       ) : (
         <>
-          Enemy forces are not in the combat log and no table was found for this dungeon, so there
-          is no count column. Install Mythic Dungeon Tools into the same WoW folder this log came
-          from and reopen the log.
+          Enemy forces are not in the combat log, and the criteria table has no entry for this
+          dungeon — either it predates enemy forces entirely, or it is newer than this build — so
+          there is no count column.
         </>
       )}
     </p>

@@ -41,12 +41,11 @@ if (!run) {
 // Enemy forces, if MDT is installed beside this log. Loaded through the
 // desktop app's own reader so this script validates the real path; a missing
 // bundle (packages built but the app not) is a report without count, not a
-// crash, because that is also what a user without MDT gets.
+// crash.
 let forcesTable = { source: '', dungeons: [] };
-let mdtDir = null;
 try {
-  const { loadForces } = await import('../apps/desktop/out/main/mdt.js');
-  ({ table: forcesTable, directory: mdtDir } = await loadForces(target));
+  const { loadForces } = await import('../apps/desktop/out/main/forces.js');
+  ({ table: forcesTable } = await loadForces(target));
 } catch {
   // no desktop bundle; fall through with an empty table
 }
@@ -71,13 +70,19 @@ if (forces.known) {
   console.log(
     `COUNT  ${forces.counted}/${forces.total} (${(forces.fraction * 100).toFixed(1)}%) — ` +
       `${forces.dungeon}, ${forces.source}` +
-      (forces.unknown.length > 0 ? `\n       not in the table: npc ${forces.unknown.join(', ')}` : ''),
+      (forces.nonKill > 0
+        ? `\n       ${forces.nonKill} of those are awarded for an objective, not a kill`
+        : '') +
+      // The key completed, so it counted 100%, and the dungeon's non-kill
+      // award is not big enough to cover the gap on its own.
+      (forces.incomplete
+        ? `\n       ✗ completed key ${forces.counted} short of ${forces.total}` +
+          ` with only ${forces.nonKill} awarded for non-kills`
+        : ''),
   );
 } else {
   console.log(
-    mdtDir === null
-      ? 'COUNT  no Mythic Dungeon Tools found beside this log — no enemy-forces values'
-      : `COUNT  ${mdtDir} has no table for challenge-mode map ${run.meta.challengeModeId}`,
+    `COUNT  the criteria table has no dungeon for challenge-mode map ${run.meta.challengeModeId}`,
   );
 }
 console.log();

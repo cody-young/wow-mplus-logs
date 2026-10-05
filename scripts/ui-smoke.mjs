@@ -35,15 +35,17 @@ await esbuild.build({
   logLevel: 'error',
 });
 
-// Loaded through the real main-process module so the smoke test exercises MDT
-// discovery too: on a machine with MDT beside the log the count columns render,
-// and on one without them the no-forces path does.
-const { loadForces } = await import(new URL('../apps/desktop/out/main/mdt.js', import.meta.url));
-const { table: forces, directory: mdtDir } = await loadForces(logPath);
+// Loaded through the real main-process module so the smoke test exercises the
+// icon lookup too: on a machine with MDT beside the log the dungeon art
+// resolves, and on one without it the initials path does. The counts
+// themselves are compiled in and render either way.
+const { loadForces } = await import(new URL('../apps/desktop/out/main/forces.js', import.meta.url));
+const { table: forces, iconsFrom } = await loadForces(logPath);
 console.log(
-  mdtDir === null
-    ? '\n  (no Mythic Dungeon Tools found beside this log — rendering without enemy forces)'
-    : `\n  (enemy forces from ${mdtDir}: ${forces.dungeons.length} dungeons)`,
+  `\n  (${forces.dungeons.length} dungeons from ${forces.source}` +
+    (iconsFrom === null
+      ? '; no Mythic Dungeon Tools beside this log, so no dungeon icons)'
+      : `; icons from ${iconsFrom})`),
 );
 
 const analysis = await new Promise((resolve, reject) => {
@@ -216,7 +218,8 @@ check('the count columns appear only with a forces table',
     : !views.rosterTable.includes('>Count</th>'),
   `forces.known=${analysis.forces.known}`);
 check('a run with no forces table renders no count columns',
-  !views.rosterNoForces.includes('>Count</th>') && views.rosterNoForces.includes('no table was found'));
+  !views.rosterNoForces.includes('>Count</th>') &&
+    views.rosterNoForces.includes('has no entry for this'));
 check('run forces are the sum over segments',
   analysis.forces.counted === analysis.segments.reduce((n, s) => n + s.forces, 0),
   `${analysis.forces.counted} vs ${analysis.segments.reduce((n, s) => n + s.forces, 0)}`);
@@ -228,8 +231,8 @@ if (analysis.forces.known) {
     analysis.forces.counted <= analysis.forces.total * 1.5,
     `${analysis.forces.counted} of ${analysis.forces.total}`);
   console.log(`  (count: ${analysis.forces.counted}/${analysis.forces.total} — ${analysis.forces.dungeon}, ${analysis.forces.source})`);
-  if (analysis.forces.unknown.length > 0) {
-    console.log(`  (not in the forces table: npc ${analysis.forces.unknown.join(', ')})`);
+  if (analysis.forces.nonKill > 0) {
+    console.log(`  (${analysis.forces.nonKill} of those are awarded for an objective, not a kill)`);
   }
 }
 
@@ -528,9 +531,18 @@ check('the party is ordered tank, healer, then dps',
 check('a finished key reports whether it timed', /class="(timed|depleted)"/.test(views.runRow));
 check('a live key says so instead of reporting a result',
   views.runRowLive.includes('in progress') && !/class="(timed|depleted)"/.test(views.runRowLive));
-check('the key selector drops the count for anyone without MDT',
+check('the key selector drops the count for a dungeon the table misses',
   !views.runRowNoMdt.includes('count') && views.runRowNoMdt.includes('class="dungeon-initials"'),
   views.runRowNoMdt);
+// The King's Rest case: 96.1% on a timed key, fully explained by the dungeon's
+// own objective award, so it must read as an ordinary count with no star.
+check('a count the dungeon\'s objective award explains is stated flatly',
+  text(views.runRowObjective).includes('96.1% count') &&
+    !text(views.runRowObjective).includes('*'),
+  text(views.runRowObjective));
+check('a count nothing can account for is marked, not stated flatly',
+  text(views.runRowShort).includes('82.2%* count'),
+  text(views.runRowShort));
 console.log(`  (key selector party: ${party.map((m) => m.name.split('-')[0]).join(', ')})`);
 
 /** Markup as the screen reads it: tags and React's text-node separators gone. */

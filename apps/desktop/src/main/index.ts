@@ -6,7 +6,7 @@ import { BrowserWindow, app, dialog, ipcMain, shell } from 'electron';
 import type { UpdateState, WorkerEvent, WorkerRequest } from '../shared.js';
 import { resolveIcons, resolveNamed } from './icons.js';
 import { findLatestLog } from './logs.js';
-import { loadForces } from './mdt.js';
+import { loadForces } from './forces.js';
 import {
   check as checkForUpdate,
   download as downloadUpdate,

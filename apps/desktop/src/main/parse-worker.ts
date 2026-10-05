@@ -82,7 +82,8 @@ function analyze(active: LogSession, run: Run, live: boolean): RunAnalysis {
     healing: healingReport(context, segments),
     deaths: deathReports(context, segments),
     bySegment,
-    forces: { ...segments.forces, unknown: [...segments.forces.unknown] },
+    // Every field is a scalar now, so a shallow copy is a full one.
+    forces: { ...segments.forces },
     live,
   };
 }

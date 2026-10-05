@@ -47,7 +47,7 @@ export default defineConfig({
           // `ui-smoke.mjs` load enemy forces through the same reader the app
           // uses, which is the point — a validation script that reimplemented
           // MDT discovery would validate the reimplementation.
-          mdt: resolve(import.meta.dirname, 'src/main/mdt.ts'),
+          forces: resolve(import.meta.dirname, 'src/main/forces.ts'),
         },
       },
     },

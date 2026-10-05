@@ -79,7 +79,23 @@ export function RunRow({
           <span>{clock(meta.totalTimeMs ?? 0)}</span>
           <span>{analysis.deaths.length} deaths</span>
           <span>{analysis.segments.filter((s) => s.kind === SegmentKind.PULL).length} pulls</span>
-          {analysis.forces.known ? <span>{percent(analysis.forces.fraction)} count</span> : null}
+          {analysis.forces.known ? (
+            /* A completed key counted 100%, and most shortfalls are explained by
+               the dungeon's own non-kill award. What is left over is a real
+               contradiction: starred rather than hidden, and explained in full
+               on the run's own page. */
+            <span
+              title={
+                analysis.forces.incomplete
+                  ? 'This completed key counted 100%, and more is missing here than the dungeon' +
+                    ' awards for non-kills — see the run for the details'
+                  : undefined
+              }
+            >
+              {percent(analysis.forces.fraction)}
+              {analysis.forces.incomplete ? '*' : ''} count
+            </span>
+          ) : null}
         </span>
         {party.length > 0 ? (
           <span className="run-party">

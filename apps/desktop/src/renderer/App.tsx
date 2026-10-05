@@ -217,12 +217,17 @@ export function App(): React.JSX.Element {
                     run.forces.known
                       ? `${integer(run.forces.counted)} of ${integer(run.forces.total)} enemy forces` +
                         ` — values from ${run.forces.source}` +
-                        (run.forces.unknown.length > 0
-                          ? `. ${run.forces.unknown.length} creature(s) killed are not in that` +
-                            ` table (npc ${run.forces.unknown.join(', ')}), so this is a lower bound`
+                        (run.forces.nonKill > 0
+                          ? `. ${integer(run.forces.nonKill)} of the ${integer(run.forces.total)} are` +
+                            ' awarded for an objective rather than a kill, which no combat log' +
+                            ' records, so this can read short on a key that finished'
+                          : '') +
+                        (run.forces.incomplete
+                          ? '. The game completed this key, so it counted at least 100% — more is' +
+                            ' missing here than this dungeon awards for non-kills'
                           : '')
-                      : 'Enemy forces are not in the combat log. Install Mythic Dungeon Tools' +
-                        ' into the same WoW folder this log came from and reopen the log.'
+                      : 'Enemy forces are not in the combat log, and the criteria table has no' +
+                        ' entry for this dungeon.'
                   }
                 >
                   {run.forces.known ? (
@@ -231,6 +236,10 @@ export function App(): React.JSX.Element {
                       <span style={{ color: 'var(--dim)' }}>
                         {' '}
                         / {integer(run.forces.total)} · {percent(run.forces.fraction)}
+                        {/* A completed key reached 100%, so a lower figure is the
+                            table's error and not the party's. Marked here and
+                            explained in the banner below. */}
+                        {run.forces.incomplete ? '*' : ''}
                       </span>
                     </>
                   ) : (
@@ -285,6 +294,23 @@ export function App(): React.JSX.Element {
                 <div className="warn">
                   Advanced combat logging is off in this log. Health traces, positions and death
                   post-mortems need it. Enable it in the game&apos;s Network settings before the next key.
+                </div>
+              ) : null}
+
+              {run.forces.incomplete ? (
+                <div className="warn">
+                  Count reads {percent(run.forces.fraction)}, which cannot be what happened: enemy
+                  forces are a completion requirement, and the game completed this key. Every
+                  creature that died was credited at{' '}
+                  {run.forces.source === '' ? 'the forces table' : run.forces.source}&apos;s own
+                  value, reaching {integer(run.forces.counted)} of the {integer(run.forces.total)}{' '}
+                  the dungeon needs
+                  {run.forces.nonKill > 0
+                    ? `, and the ${integer(run.forces.nonKill)} this dungeon awards for an objective` +
+                      ' instead of a kill is not enough to cover the rest'
+                    : ', and this dungeon awards nothing for anything but kills'}
+                  . So either a creature here is worth more than the table says, or the dungeon was
+                  hotfixed since this build read it. Treat every count on this page as a floor.
                 </div>
               ) : null}
 

@@ -5,10 +5,16 @@
  * takes a string, so the caller decides whether that came from `readFile`, a
  * dropped file or a cached blob.
  *
- * The MDT tables are not vendored: MDT is GPL-2.0, so they are read from the
- * user's own install at runtime. See the licensing note in the README. The two
- * generated spell tables are the one exception, and they hold spell ids and
- * nothing else — no names, no descriptions, no art.
+ * The enemy-forces table is generated from Blizzard's own scenario criteria
+ * (`scripts/enemy-forces.mjs`), which is why it can be shipped in a build at
+ * all: the community source for these numbers, Mythic Dungeon Tools, is
+ * GPL-2.0. MDT is still read from the user's own install for one cosmetic
+ * field — the teleport spell whose icon is the dungeon's art — because nothing
+ * in Blizzard's data links a dungeon to a spell. See the licensing note in the
+ * README.
+ *
+ * Every generated table here holds ids and amounts and nothing else: no names
+ * beyond the dungeons' own, no descriptions, no art.
  */
 export {
   EMPTY_TABLE,
@@ -19,6 +25,7 @@ export {
   type ForcesLookup,
   type ForcesTable,
 } from './forces.js';
-export { parseMdtDungeon } from './mdt.js';
+export { DB2_BUILD, db2DungeonCount, db2Dungeons } from './enemy-forces.js';
+export { parseMdtTeleport, type MdtTeleport } from './mdt.js';
 export { Defense, defenseKinds, defensiveCount, isDefensive, type DefenseKind } from './defensives.js';
 export { inertCount, isInertMarker } from './markers.js';

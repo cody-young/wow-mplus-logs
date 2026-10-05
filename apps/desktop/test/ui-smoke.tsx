@@ -21,7 +21,7 @@ import { UpdateFooter } from '../src/renderer/components/UpdateFooter.js';
 import { SPECS } from '../src/renderer/specs.js';
 import type { RunAnalysis, RunForces, UpdateState, UpdateStatus } from '../src/shared.js';
 
-/** A run whose dungeon no forces table covered, which drops the count columns. */
+/** A run whose dungeon the criteria table does not cover, which drops the count columns. */
 const NO_FORCES: RunForces = {
   known: false,
   dungeon: '',
@@ -30,7 +30,8 @@ const NO_FORCES: RunForces = {
   teleportSpellId: 0,
   counted: 0,
   fraction: 0,
-  unknown: [],
+  nonKill: 0,
+  incomplete: false,
 };
 
 /**
@@ -205,6 +206,52 @@ export function render(analysis: RunAnalysis): Record<string, string> {
     runRowNoMdt: renderToString(
       <RunRow
         analysis={{ ...analysis, forces: NO_FORCES }}
+        selected={false}
+        onSelect={() => undefined}
+      />,
+    ),
+
+    // The real King's Rest +12: timed, 584 of 608 counted from kills, and the
+    // 30 the dungeon awards for a scenario objective covers the rest. Short of
+    // 100% and completely fine, which is the case the star must NOT appear on.
+    runRowObjective: renderToString(
+      <RunRow
+        analysis={{
+          ...analysis,
+          meta: { ...analysis.meta, success: true },
+          forces: {
+            ...analysis.forces,
+            known: true,
+            total: 608,
+            counted: 584,
+            fraction: 584 / 608,
+            nonKill: 30,
+            incomplete: false,
+          },
+        }}
+        selected={false}
+        onSelect={() => undefined}
+      />,
+    ),
+
+    // The same key short by more than any objective could explain, which is
+    // the one shortfall worth warning about. Nobody sees this unless a dungeon
+    // is hotfixed out from under the build, which is why it is rendered here.
+    runRowShort: renderToString(
+      <RunRow
+        analysis={{
+          ...analysis,
+          meta: { ...analysis.meta, success: true },
+          forces: {
+            ...analysis.forces,
+            known: true,
+            total: 608,
+            counted: 500,
+            fraction: 500 / 608,
+            nonKill: 30,
+            incomplete: true,
+          },
+        }}
         selected={false}
         onSelect={() => undefined}
       />,

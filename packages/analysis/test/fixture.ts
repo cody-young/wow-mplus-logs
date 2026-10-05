@@ -270,12 +270,18 @@ export const ACTORS = {
 };
 
 /**
- * Enemy forces for the fixture dungeon, in the shape the MDT reader produces.
+ * Enemy forces for the fixture dungeon, in the shape the generated table has.
  *
  * `challengeModeId` is 500 to match the fixture's CHALLENGE_MODE_START, and
  * the values are chosen so every case the UI has to render appears once: a
- * creature killed more than once, one tagged and never killed, a boss worth
- * nothing, and summons worth nothing.
+ * creature killed more than once, one tagged and never killed, and a summon
+ * worth nothing.
+ *
+ * Only creatures that award something are listed, which is what Blizzard's
+ * criteria data looks like — a boss, a totem and the fixture's two scenery
+ * mobs have no row at all and resolve to 0. Names and a boss flag are absent
+ * for the same reason: the criteria data carries neither, and nothing in the
+ * app ever asked.
  */
 export const FORCES: ForcesTable = {
   source: 'fixture',
@@ -284,18 +290,15 @@ export const FORCES: ForcesTable = {
       challengeModeId: 500,
       name: 'Test Hold',
       total: 100,
+      nonKillForces: 0,
       teleportSpellId: 393256,
       enemies: [
-        { npcId: 1001, name: 'Gnoll', count: 4, isBoss: false },
-        { npcId: 1002, name: 'Ogre', count: 10, isBoss: false },
-        { npcId: 1003, name: 'Straggler', count: 7, isBoss: false },
-        { npcId: 1004, name: 'Flame Shaman', count: 12, isBoss: false },
-        { npcId: 1005, name: 'Magma Totem', count: 0, isBoss: false },
-        { npcId: 2001, name: 'Big Bad', count: 0, isBoss: true },
-        { npcId: 2002, name: 'Minion', count: 2, isBoss: false },
-        { npcId: 1006, name: 'Wave Minion', count: 9, isBoss: false },
-        { npcId: 1008, name: 'Warded Ogre', count: 0, isBoss: false },
-        { npcId: 1009, name: 'Ice Tomb', count: 0, isBoss: false },
+        { npcId: 1001, count: 4 },
+        { npcId: 1002, count: 10 },
+        { npcId: 1003, count: 7 },
+        { npcId: 1004, count: 12 },
+        { npcId: 2002, count: 2 },
+        { npcId: 1006, count: 9 },
       ],
     },
   ],

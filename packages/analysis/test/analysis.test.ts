@@ -597,6 +597,8 @@ test('a boss contributes nothing, its adds contribute normally', () => {
   const { segments } = loadWithForces();
   const boss = labelled(segments, 'Big Bad');
   const byName = new Map(boss.roster.map((group) => [group.name, group]));
+  // Zero rather than null: the boss has no row in the table, and in Blizzard's
+  // criteria data that is how "awards nothing" is spelled.
   assert.equal(byName.get('Big Bad')!.forcesEach, 0);
   assert.equal(byName.get('Big Bad')!.forces, 0);
   assert.equal(byName.get('Minion')!.forces, 2);
@@ -622,11 +624,12 @@ test('run forces sum the segments and divide by the requirement', () => {
   assert.equal(segments.forces.fraction, 0.32);
   assert.equal(segments.forces.dungeon, 'Test Hold');
   assert.equal(segments.forces.known, true);
-  assert.deepEqual(segments.forces.unknown, [], 'the fixture table covers every kill');
 });
 
-test('a creature missing from the table is reported, not silently dropped', () => {
-  // A dungeon reworked since the table was built: the add is gone from it.
+test('a creature with no row in the table is worth nothing, not unknown', () => {
+  // The criteria data lists only creatures that award something, so a creature
+  // the table does not mention is worth 0 — the same answer as a boss or a
+  // totem, and for the same reason. There is no third state to render.
   const thinned = {
     ...FORCES,
     dungeons: [
@@ -637,14 +640,75 @@ test('a creature missing from the table is reported, not silently dropped', () =
     ],
   };
   const { segments } = loadWithForces(thinned);
-  assert.deepEqual(segments.forces.unknown, [2002]);
   assert.equal(segments.forces.counted, 30, 'the add no longer contributes its 2');
   const boss = labelled(segments, 'Big Bad');
-  assert.equal(boss.roster.find((group) => group.name === 'Minion')!.forcesEach, null);
+  assert.equal(boss.roster.find((group) => group.name === 'Minion')!.forcesEach, 0);
 });
 
 test('a log from a dungeon the table does not cover reads as unknown', () => {
   assert.equal(forcesFor(FORCES, 9999), null);
+});
+
+/** The fixture table with a different requirement, which is the only field these need. */
+function withTotal(total: number) {
+  return {
+    ...FORCES,
+    dungeons: [{ ...FORCES.dungeons[0]!, total }],
+  };
+}
+
+/** The fixture table with a non-kill award, as eight real dungeons have. */
+function withNonKill(nonKillForces: number) {
+  return {
+    ...FORCES,
+    dungeons: [{ ...FORCES.dungeons[0]!, nonKillForces }],
+  };
+}
+
+test('a completed key whose values fall short of the requirement is flagged', () => {
+  // The fixture key is completed and its kills come to 32 of 100, which is not
+  // a thing the game can produce: forces are a completion requirement, so the
+  // run reached 100% and something about this table is short.
+  const { run, segments } = loadWithForces();
+  assert.equal(run.meta.success, true);
+  assert.equal(segments.forces.counted, 32);
+  assert.equal(segments.forces.nonKill, 0);
+  assert.equal(segments.forces.incomplete, true);
+});
+
+test("a shortfall the dungeon's non-kill award covers is not flagged", () => {
+  // King's Rest in miniature: the kills come to 32 of 100 and the dungeon
+  // awards 68 for a scenario objective the combat log never mentions, so the
+  // key really did reach 100% and there is nothing to warn about. `counted`
+  // stays at the kills — there is no evidence the objective happened — so the
+  // page still reads 32%.
+  const { segments } = loadWithForces(withNonKill(68));
+  assert.equal(segments.forces.counted, 32, 'the award is a tolerance, not an addend');
+  assert.equal(segments.forces.fraction, 0.32);
+  assert.equal(segments.forces.nonKill, 68);
+  assert.equal(segments.forces.incomplete, false);
+});
+
+test('a non-kill award too small to close the gap still leaves the key flagged', () => {
+  const { segments } = loadWithForces(withNonKill(67));
+  assert.equal(segments.forces.incomplete, true);
+});
+
+test('a completed key that reaches the requirement is not flagged', () => {
+  const { segments } = loadWithForces(withTotal(32));
+  assert.equal(segments.forces.fraction, 1);
+  assert.equal(segments.forces.incomplete, false, 'exactly the requirement is enough');
+});
+
+test('a requirement the table does not carry cannot be fallen short of', () => {
+  const { segments } = loadWithForces(withTotal(0));
+  assert.equal(segments.forces.incomplete, false);
+});
+
+test('without a forces table nothing is short of anything', () => {
+  const { segments } = load();
+  assert.equal(segments.forces.known, false);
+  assert.equal(segments.forces.incomplete, false);
 });
 
 test('an enemy that died without being engaged counts for nothing', () => {

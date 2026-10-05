@@ -67,7 +67,7 @@ await esbuild.build({
   logLevel: 'error',
 });
 
-const { loadForces } = await import(new URL('apps/desktop/out/main/mdt.js', root));
+const { loadForces } = await import(new URL('apps/desktop/out/main/forces.js', root));
 const { table: forces } = await loadForces(logPath);
 
 const analysis = await new Promise((done, fail) => {

@@ -52,13 +52,13 @@ export interface EnemyGroup {
    * Enemy forces this creature awards per kill, or null when no forces table
    * covered it.
    *
-   * Null and 0 are different answers and must not collapse: 0 is a boss or a
-   * summon that is genuinely worth nothing, null is a creature the table has
-   * never heard of, and showing the second as the first would quietly
-   * understate a pull.
+   * Null means there is nothing to ask: no forces table covered this dungeon,
+   * or the creature's GUID carried no npc id to look up. A creature the table
+   * has no row for is 0 rather than null — the criteria data lists only what
+   * awards something, so a boss and a totem are genuinely worth nothing.
    */
   forcesEach: number | null;
-  /** `forcesEach * killed`, or 0 when unknown. */
+  /** `forcesEach * killed`, or 0 when there is no table to ask. */
   forces: number;
   /**
    * Largest max health seen on any of them, or 0 when never observed.
@@ -121,13 +121,35 @@ export interface RunForces {
   /** `counted / total`, clamped at 0 when there is no requirement to divide by. */
   fraction: number;
   /**
-   * Creatures that were killed but had no entry in the table, by npc id.
+   * Forces this dungeon awards for something other than killing anything.
    *
-   * Non-empty means `counted` is a lower bound rather than the answer — a
-   * dungeon reworked since MDT last shipped, most likely — and the UI says so
-   * rather than presenting a short total as exact.
+   * Eight dungeons have one: the Mists of Tirna Scithe maze, King's Rest's
+   * scenario objective, Ruby Life Pools. Nothing in the combat log reports an
+   * objective being completed, so these are never added to `counted` — but
+   * they are why `counted` can fall short of `total` on a key that finished,
+   * and the UI needs the number to say so.
    */
-  unknown: number[];
+  nonKill: number;
+  /**
+   * True when the game completed this key and these values fall short by more
+   * than the dungeon's non-kill award can explain.
+   *
+   * Enemy forces are a completion requirement alongside the bosses, so a key
+   * the game completed reached 100% by definition. That makes any shortfall a
+   * question about this table rather than about the party — but most of the
+   * time there is a perfectly good answer, which is `nonKill`.
+   *
+   * A real +12 King's Rest timed at 584 of 608. Every creature that died was
+   * credited at Blizzard's own value, so the 24 missing are not a kill this
+   * app failed to see; King's Rest awards 30 for a scenario objective, and 584
+   * plus those 30 clears 608. Nothing in the log says the objective happened,
+   * so `counted` stays at 584 and the run is simply not flagged.
+   *
+   * What is left after that tolerance is a genuine contradiction — a creature
+   * whose value the criteria data does not carry, or a requirement changed by
+   * a hotfix newer than the generated table — and worth saying out loud.
+   */
+  incomplete: boolean;
 }
 
 export interface SegmentIndex {
@@ -441,12 +463,6 @@ export function buildSegments(context: AnalysisContext, options: SegmentOptions 
   live.sort((a, b) => a.startTs - b.startTs || a.id - b.id);
 
   const counted = live.reduce((sum, segment) => sum + segment.forces, 0);
-  const unknown = new Set<number>();
-  for (const segment of live) {
-    for (const group of segment.roster) {
-      if (group.forcesEach === null && group.killed > 0 && group.npcId >= 0) unknown.add(group.npcId);
-    }
-  }
 
   return {
     segments: live,
@@ -458,7 +474,12 @@ export function buildSegments(context: AnalysisContext, options: SegmentOptions 
       teleportSpellId: forces?.teleportSpellId ?? 0,
       counted,
       fraction: forcesFraction(counted, forces?.total ?? 0),
-      unknown: [...unknown].sort((a, b) => a - b),
+      nonKill: forces?.nonKillForces ?? 0,
+      incomplete:
+        forces !== null &&
+        forces.total > 0 &&
+        run.meta.success === true &&
+        counted + forces.nonKillForces < forces.total,
     },
     enemySegment,
     party,

@@ -13,7 +13,7 @@ them yourself.
 packages/parser/    portable combat log engine — bytes in, columnar events out
 packages/analysis/  segmentation, damage/healing breakdowns, death post-mortems
 apps/desktop/       Electron shell: worker-thread parsing, live tail, React UI
-packages/data/      enemy-forces tables, the MDT reader, the spell tables
+packages/data/      the generated enemy-forces and spell tables, the MDT reader
 ```
 
 ## The rule that keeps a web version possible
@@ -74,34 +74,66 @@ onto an unrelated actor and silently zeroed every per-player total.
 spans the whole file, so over an evening with a tank swap the file-wide list is
 everyone who played. `RunMeta.party` holds the five who were actually there.
 
-## Enemy forces ("count"), and why MDT is read rather than bundled
+## Enemy forces ("count"), from Blizzard's own criteria
 
 A key is not finished until the party has killed enough trash: the enemy-forces
 bar, which players call **count**. The combat log does not carry it. Every event
 says who hit whom for how much; none of them says that killing a Ritual
-Chieftain moves the bar by 25 of the 817 Altar of Fangs asks for. That mapping
-lives in the game's scenario criteria, and the only practical community source
-for it is [Mythic Dungeon Tools][mdt].
+Chieftain moves the bar by 25 of the 817 Altar of Fangs asks for.
 
-**MDT is GPL-2.0.** Bundling its tables — or a JSON file generated from them —
-would make this app a GPL-2.0 derivative work. The obligations attach to
-*distribution*, so the app instead reads the copy already on the user's disk:
-nothing of MDT's is redistributed, and a user without MDT gets a build with no
-forces data rather than a build that cannot legally be handed to them.
+That mapping lives in the game's scenario criteria, and so does this table. A
+key is a scenario, a scenario's requirements are a tree of criteria, and one
+node per dungeon is called **Enemy Forces**: its `Amount` is the count the
+dungeon demands and its children are the ways to earn it. A `Criteria.Type 0`
+child names a creature and what killing one is worth.
+`scripts/enemy-forces.mjs` reads five DB2 tables via [wago.tools][wago] and
+generates `packages/data/src/enemy-forces.ts` — 74 dungeons, 1,531 creatures,
+24KB of ids and amounts.
 
-It is also the better engineering answer. MDT ships updates within days of a
-patch; a table baked into a release would be stale by the second week of a
-season and would need a release of its own to catch up.
+**This replaced [Mythic Dungeon Tools][mdt], which is where the number usually
+comes from.** MDT turned out to be exactly right: checked across six dungeons
+it agreed on every total and on all 110 overlapping per-kill values. Every
+difference ran one way — MDT *omits* creatures Blizzard credits, ten across
+those six dungeons — so this is not a second opinion about MDT's numbers. It is
+the same numbers from upstream, with the gaps filled.
 
-The reader lives in two halves. `packages/data` parses MDT's Lua from a string
-and stays browser-portable; `apps/desktop/src/main/mdt.ts` is the part that
-touches the filesystem. It finds MDT **next to the log being read** —
+Two things follow from the source change. Blizzard's data is not GPL-2.0, so
+unlike MDT's tables it can be shipped: **a user with no addons installed now
+gets counts**, where before they got none. And the criteria tree carries
+something a kill-based table structurally cannot — see below.
+
+**Some dungeons award forces for things that are not kills.** Eight of the 74 do:
+the Mists of Tirna Scithe maze, Ruby Life Pools, and King's Rest, where a
+scenario objective is worth 30 of its 608. Nothing in the combat log reports an
+objective being completed, so those points are unearnable by any log reader —
+which is why a real timed King's Rest counts 584 of 608 and reads 96%.
+
+That number is correct and is left alone. `nonKillForces` is carried per dungeon
+as a **tolerance, not an addend**: the count still reads 96% because there is no
+evidence in the log that the objective happened, but a completed key short by no
+more than the dungeon's own award is fully explained and is not flagged. What
+survives that tolerance is a genuine contradiction — a creature worth more than
+the table says, or a hotfix newer than the build — and is worth a warning.
+
+The committed table is checked in CI with `node scripts/enemy-forces.mjs
+--check`, which regenerates and exits non-zero if it differs. Hotfixes are
+already applied in what wago.tools exports, so the table is live data rather
+than a snapshot of a patch's shipped files: every hotfixed `CriteriaTree` row
+absent from the export is a delete.
+
+One field still comes from MDT, when the user has it: `teleportSpellId`, the
+spell whose icon is the dungeon's art. Nothing in Blizzard's data links a
+dungeon to a spell. `packages/data/src/mdt.ts` reads it from a string and stays
+browser-portable; `apps/desktop/src/main/forces.ts` is the half that touches the
+filesystem and finds MDT **next to the log being read** —
 `<install>/_retail_/Interface/AddOns/MythicDungeonTools`, derived from
 `<install>/_retail_/Logs/WoWCombatLog-*.txt` — because someone with a live and a
 PTR install has two MDTs at different versions and the right one is the one
-belonging to the client that wrote the log.
+belonging to the client that wrote the log. It is purely cosmetic now: without
+it a dungeon shows its initials and every number on the page is identical.
 
 [mdt]: https://github.com/Nnoggie/MythicDungeonTools
+[wago]: https://wago.tools
 
 ## Icons
 
@@ -127,10 +159,9 @@ the dungeon icon is one more spell id down the path that already existed, and
 the alternative — a hand-maintained table of dungeon ids to texture names, stale
 every season — never has to be written.
 
-That does mean dungeon art arrives with the forces table and is absent for the
-same reason a count is: no MDT beside the log. The key selector falls back to
-the dungeon's initials, so those rows still read as deliberate rather than
-broken.
+That does mean dungeon art is the one thing still gated on MDT being installed,
+now that the counts are not. The key selector falls back to the dungeon's
+initials, so those rows still read as deliberate rather than broken.
 
 **Nothing is vendored.** Blizzard's icon art is fetched per user at runtime and
 cached under `userData`, never committed here — the same reasoning that keeps
@@ -144,20 +175,26 @@ simply all there is. That is also what the server-rendered smoke test sees,
 which is why it can assert on the no-icon case for free.
 
 **The join key is the challenge-mode map id.** `CHALLENGE_MODE_START` writes
-both an instance id and a challenge-mode id, and only the second appears in MDT
-(`mapInfo[dungeonIndex].mapID`). Ruby Life Pools is challenge-mode 399 and
-instance 2521; joining on the wrong one matches nothing at all. Confirmed on
-real logs: Voidscar Arena 585, Altar of Fangs 588, Den of Nalorakk 586, Murder
-Row 587, The Blinding Vale 584 — all matching MDT exactly.
+both an instance id and a challenge-mode id, and only the second is what
+`MapChallengeMode.ID` holds (and what MDT keys `mapInfo[dungeonIndex].mapID`
+on). Ruby Life Pools is challenge-mode 399 and instance 2521; joining on the
+wrong one matches nothing at all. Confirmed on real logs: Voidscar Arena 585,
+Altar of Fangs 588, Den of Nalorakk 586, Murder Row 587, The Blinding Vale 584.
 
-**The Lua is read by brace depth, not by indentation or by regex alone.** The
-fields that matter (`id`, `count`, `name`, `isBoss`) sit at one known depth,
-while `spells` and `clones` — the bulk of every file, and the parts whose shape
-churns — nest deeper and are skipped wholesale. Doing it by indentation would
-break the first time MDT reformats; doing it by plain regex reads a clone's
-`["id"]` as a creature. The scanner was checked against a real Lua interpreter
-on all sixteen current dungeon files and agrees on every npc id, forces value,
-boss flag, name, map id and total.
+Getting from there to the criteria tree is the one join the data does not make
+for you: `MapChallengeMode` and `Scenario` were added five expansions apart and
+nothing links them numerically, so the generator matches them by name and keeps
+a four-entry alias table for the dungeons whose two names disagree ("Upper
+Return to Karazhan" against "Return to Karazhan: Upper"). An unmatched name is
+reported in the generator's output rather than silently dropped.
+
+**The Lua is read by brace depth, not by indentation or by regex alone.** Only
+MDT's `mapInfo` header is read now, but finding it in a real file is still the
+whole job: the enemy table below it is full of `["id"]` keys at several depths,
+and a dungeon name can contain a brace. Doing it by indentation would break the
+first time MDT reformats; doing it by plain regex reads a clone's `["id"]` as a
+map. A file whose braces do not balance reads as no teleport rather than as a
+guess, so a truncated download costs an icon and nothing else.
 
 **Forces are awarded on death, and only for enemies the party engaged.** Both
 halves of that are load-bearing. A pack tagged and walked past moves the bar by
@@ -597,15 +634,20 @@ their [Fan Content Policy][fan]. It reads logs the user's own client wrote, and
 the icon art it draws is fetched to that user's machine at runtime (see
 `## Icons`) rather than shipped in this repository or in a release.
 
-The two tables derived from Blizzard's own game data are the defensive-spell
-list in `packages/data/src/defensives.ts` and the inert-spell list in
-`packages/data/src/markers.ts` (see `## Defensives` above). Both hold spell ids
-and nothing else — no names, no descriptions, no art, no game text — and both
-are regenerated from the current patch rather than copied from anywhere.
+Three tables are derived from Blizzard's own game data: the enemy-forces table
+in `packages/data/src/enemy-forces.ts` (see `## Enemy forces` above), the
+defensive-spell list in `packages/data/src/defensives.ts` and the inert-spell
+list in `packages/data/src/markers.ts` (see `## Defensives`). All three hold
+numeric ids and amounts and nothing else — no creature or spell names, no
+descriptions, no art, no game text, the dungeons' own names being the one
+exception — and all three are regenerated from the current patch by a script in
+`scripts/` rather than copied from anywhere.
 
-**Mythic Dungeon Tools** is GPL-2.0 and is read from the user's own install at
-runtime for exactly that reason — the long version is under `## Enemy forces`
-above.
+**Mythic Dungeon Tools** is GPL-2.0, which is why none of its data is in this
+repository. It is read from the user's own install at runtime for one cosmetic
+field, the dungeon teleport spell whose icon is the dungeon's art; the forces
+values it used to supply now come from Blizzard's criteria data instead. The
+long version is under `## Enemy forces` above.
 
 **Wowhead** serves the icon lookups. That traffic is the only network access
 this app makes, it is driven by ids out of the user's own log, and it happens at
