@@ -2,11 +2,12 @@
 /**
  * Rebuild what we know about spells from Blizzard's own data.
  *
- * One table, SpellEffect.db2, answers two questions a death recap asks, so one
- * script reads it once and writes both answers:
+ * One table, SpellEffect.db2, answers three questions the reports ask, so one
+ * script reads it once and writes all three answers:
  *
  *   packages/data/src/defensives.ts  which spells do something about damage
  *   packages/data/src/markers.ts     which spells the data gives no effect at all
+ *   packages/data/src/interrupts.ts  which spells are interrupt buttons
  *
  * There is no "this is a defensive" flag in the game's data, and no amount of
  * looking for one will turn one up. What Blizzard does classify is *effects*:
@@ -26,6 +27,9 @@
  * all, and the markers the game leaves on players — Sated, Hypothermia,
  * Cauterized — are exactly that shape. See markers.ts for why that is only
  * trustworthy about an aura the player put on themselves.
+ *
+ * The third is the same move again, against a different effect: the one that
+ * stops a cast. See EFFECT_INTERRUPT_CAST and SCRIPTED_INTERRUPTS below.
  *
  *   node scripts/spell-effects.mjs [--build 12.1.0.69933] [--csv SpellEffect.csv]
  *                                  [--keep] [--check]
@@ -85,6 +89,58 @@ const SCRIPTED = [
 ];
 
 /**
+ * The effect that stops a cast.
+ *
+ * 68 is SPELL_EFFECT_INTERRUPT_CAST, read off the data rather than trusted
+ * from memory: every interrupt a player presses carries it — Kick (1766),
+ * Pummel (6552), Mind Freeze (47528), Counterspell (2139), Wind Shear (57994),
+ * Disrupt (183752), Quell (351338), Rebuke (96231), Spear Hand Strike
+ * (116705), Counter Shot (147362), Spell Lock (19647) — and TrinityCore's
+ * SharedDefines.h gives the same number the same name.
+ */
+const EFFECT_INTERRUPT_CAST = 68;
+
+/**
+ * An interrupt button is a spell that does nothing *but* interrupt.
+ *
+ * 603 spells in the data carry the interrupt effect, and most of them are not
+ * what anybody means by an interrupt. Avenger's Shield interrupts; a
+ * protection paladin presses it on cooldown as a rotational ability, and
+ * counting its casts as interrupt attempts would report a tank whiffing a
+ * hundred interrupts a key. What separates the two is not the interrupt but
+ * everything else: Avenger's Shield also deals damage, jumps to two more
+ * targets and applies a silence, while a Kick does nothing at all except stop
+ * a cast.
+ *
+ * So the rule is subtraction rather than curation: of the 603, the 136 whose
+ * *every* described effect is INTERRUPT_CAST. Every player interrupt in the
+ * game is in that set, and nothing that deals damage is.
+ */
+
+/**
+ * Interrupt buttons the data cannot describe, because the interrupt is in a
+ * script or behind a trigger rather than in the spell that was pressed.
+ *
+ * The same hand-held list as SCRIPTED above, for the same reason and with the
+ * same rule: each entry names the evidence. The first four are witnessed
+ * pairings — the cast is in a real log, followed within milliseconds by a
+ * SPELL_INTERRUPT under a different id — and the fifth is linked by the data
+ * itself through its own trigger spell.
+ *
+ * Nothing here is load-bearing for the interrupts a key *landed*: those are
+ * read off SPELL_INTERRUPT, which needs no table at all. A button missing from
+ * this list costs only its whiffs, which is why the list can afford to hold
+ * just what could be identified.
+ */
+const SCRIPTED_INTERRUPTS = [
+  { id: 106839, why: 'Skull Bash — DUMMY in the data; the interrupt lands as 93985 (64 pairings)' },
+  { id: 15487, why: 'Silence — a MOD_SILENCE aura; the interrupt lands as 220543 (18 pairings)' },
+  { id: 132409, why: 'Spell Lock, sacrificed pet — INTERRUPT_CAST plus a DUMMY, so not dedicated (7 pairings)' },
+  { id: 78675, why: 'Solar Beam — triggers 97547, which is dedicated (2 pairings)' },
+  { id: 89766, why: 'Axe Toss — a stun whose trigger, 347008, is dedicated' },
+];
+
+/**
  * The two numbers that spell "this effect does nothing the data can describe".
  *
  * Effect 6 is APPLY_AURA and aura 4 is SPELL_AURA_DUMMY, both confirmed against
@@ -105,6 +161,7 @@ const keep = args.includes('--keep');
 
 const outDefensives = fileURLToPath(new URL('../packages/data/src/defensives.ts', import.meta.url));
 const outMarkers = fileURLToPath(new URL('../packages/data/src/markers.ts', import.meta.url));
+const outInterrupts = fileURLToPath(new URL('../packages/data/src/interrupts.ts', import.meta.url));
 
 const build = flag('build') ?? (await liveBuild());
 const csvPath = flag('csv');
@@ -136,6 +193,10 @@ const flags = new Map();
 // a spell are not guaranteed to be adjacent.
 const doesNothing = new Set();
 const doesSomething = new Set();
+// Interrupts, gathered the same way and subtracted the same way: a spell is a
+// dedicated interrupt if it stops casts and does nothing else.
+const interrupts = new Set();
+const alsoDoesSomethingElse = new Set();
 let rows = 0;
 for (const line of csv.split('\n')) {
   if (line === '' || rows++ === 0) continue;
@@ -148,6 +209,8 @@ for (const line of csv.split('\n')) {
 
   const effect = Number(fields[effectAt]);
   if (effect === 0) continue;
+  if (effect === EFFECT_INTERRUPT_CAST) interrupts.add(id);
+  else alsoDoesSomethingElse.add(id);
   if (
     effect === EFFECT_APPLY_AURA &&
     Number(fields[auraAt]) === AURA_DUMMY &&
@@ -162,7 +225,14 @@ for (const { id, flag: bit } of SCRIPTED) flags.set(id, (flags.get(id) ?? 0) | b
 
 const ids = [...flags.keys()].sort((a, b) => a - b);
 const inert = [...doesNothing].filter((id) => !doesSomething.has(id)).sort((a, b) => a - b);
-console.log(`${rows - 1} effect rows → ${ids.length} defensive spells, ${inert.length} inert markers`);
+const dedicated = [...interrupts].filter((id) => !alsoDoesSomethingElse.has(id));
+const byHand = SCRIPTED_INTERRUPTS.filter(({ id }) => !dedicated.includes(id));
+const stoppers = [...new Set([...dedicated, ...SCRIPTED_INTERRUPTS.map(({ id }) => id)])].sort((a, b) => a - b);
+console.log(
+  `${rows - 1} effect rows → ${ids.length} defensive spells, ${inert.length} inert markers, ` +
+    `${stoppers.length} interrupts (${interrupts.size} carry the effect, ${dedicated.length} do nothing else, ` +
+    `${byHand.length} added by hand)`,
+);
 for (const { kind, flag: bit } of dedupe(KINDS)) {
   console.log(`  ${kind.padEnd(10)} ${ids.filter((id) => (flags.get(id) & bit) !== 0).length}`);
 }
@@ -170,6 +240,7 @@ for (const { kind, flag: bit } of dedupe(KINDS)) {
 const written = [
   [outDefensives, renderDefensives(ids, flags, build)],
   [outMarkers, renderMarkers(inert, build)],
+  [outInterrupts, renderInterrupts(stoppers, interrupts.size, dedicated.length, build)],
 ];
 if (checkOnly) {
   const stale = written.filter(([path, source]) => {
@@ -404,6 +475,92 @@ export function isInertMarker(spellId: number): boolean {
 
 /** How many spells the table knows. Exported for the test, which asserts it is not empty. */
 export function inertCount(): number {
+  table ??= decode();
+  return table.size;
+}
+`;
+}
+
+/**
+ * The interrupt table as a module.
+ *
+ * Same encoding and same shape as the markers table: a Set, because there is
+ * nothing to say about a member beyond that it is one.
+ */
+function renderInterrupts(ids, carrying, dedicated, version) {
+  let previous = 0;
+  const deltas = ids.map((id) => {
+    const delta = id - previous;
+    previous = id;
+    return delta.toString(36);
+  });
+  const scripted = SCRIPTED_INTERRUPTS.map(({ id, why }) => ` *   ${String(id).padStart(6)}  ${why}`);
+  return `/**
+ * The spells a player presses to stop a cast.
+ *
+ * GENERATED — do not edit. Rebuild with \`node scripts/spell-effects.mjs\`.
+ * Built from SpellEffect.db2, retail build ${version}, via wago.tools.
+ *
+ * Interrupts that landed need no table: the game logs SPELL_INTERRUPT and
+ * names both spells on it. This table answers the other half of the question —
+ * how many times the button was pressed — which the log only reports as an
+ * ordinary cast, indistinguishable from any other until you know what the
+ * spell is.
+ *
+ * The effect to look for is SPELL_EFFECT_INTERRUPT_CAST (68), and ${carrying} spells
+ * carry it. Most are not interrupts in the sense anyone means: Avenger's
+ * Shield interrupts, and a protection paladin presses it on cooldown as a
+ * rotational ability. What tells the two apart is everything else the spell
+ * does — Avenger's Shield also deals damage, jumps to two more targets and
+ * silences, while a Kick does nothing at all except stop a cast. So the rule
+ * is subtraction: the ${dedicated} spells whose *every* described effect is
+ * INTERRUPT_CAST. Every player interrupt in the game is in that set, and
+ * nothing that deals damage is.
+ *
+ * A further ${SCRIPTED_INTERRUPTS.length} are added by hand, because the press and the interrupt are two
+ * different spells and the data only describes the second one:
+ *
+${scripted.join('\n')}
+ *
+ * A button missing from this list costs only its whiffs. Its interrupts still
+ * count, because those are read off the log's own SPELL_INTERRUPT lines.
+ *
+ * ${ids.length} spells. Only ids are stored: no names, no descriptions, no art.
+ */
+
+const STOPPERS =
+  '${chunk(deltas.join('.'))}';
+
+/**
+ * Built on the first lookup rather than at import: most of the app never asks,
+ * and the decode is wasted work in a worker thread that only parses.
+ */
+let table: Set<number> | null = null;
+
+function decode(): Set<number> {
+  const built = new Set<number>();
+  let id = 0;
+  for (const delta of STOPPERS.split('.')) {
+    id += parseInt(delta, 36);
+    built.add(id);
+  }
+  return built;
+}
+
+/**
+ * Whether pressing this spell is an attempt to interrupt something.
+ *
+ * False for every id the table has never heard of, so an interrupt added in a
+ * patch newer than this file reads as an ordinary cast: it goes uncounted
+ * rather than counted wrong, and the interrupts it lands are reported anyway.
+ */
+export function isInterrupt(spellId: number): boolean {
+  table ??= decode();
+  return table.has(spellId);
+}
+
+/** How many spells the table knows. Exported for the test, which asserts it is not empty. */
+export function interruptCount(): number {
   table ??= decode();
   return table.size;
 }
