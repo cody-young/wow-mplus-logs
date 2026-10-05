@@ -268,8 +268,61 @@ export function aura(
   return `${at(seconds)}  ${event},${src},"${srcName}",0x511,0x0,${dst},"${dstName}",${dstFlags},0x0,${spellId},"${spellName}",0x8,${auraType}`;
 }
 
-export function cast(seconds: number, src: string, srcName: string, spellId: number, spellName: string): string {
-  return `${at(seconds)}  SPELL_CAST_SUCCESS,${src},"${srcName}",0x511,0x0,0000000000000000,nil,0x80000000,0x0,${spellId},"${spellName}",0x1,${adv(src, 500000, 1000000)}`;
+export function cast(
+  seconds: number,
+  src: string,
+  srcName: string,
+  spellId: number,
+  spellName: string,
+  opts: { dst?: string; dstName?: string; dstFlags?: string; srcFlags?: string } = {},
+): string {
+  const dst = opts.dst ?? '0000000000000000';
+  const dstName = opts.dstName === undefined ? 'nil' : `"${opts.dstName}"`;
+  const dstFlags = opts.dstFlags ?? '0x80000000';
+  const srcFlags = opts.srcFlags ?? '0x511';
+  return `${at(seconds)}  SPELL_CAST_SUCCESS,${src},"${srcName}",${srcFlags},0x0,${dst},${dstName},${dstFlags},0x0,${spellId},"${spellName}",0x1,${adv(src, 500000, 1000000)}`;
+}
+
+/**
+ * A cast that takes time, which is the only kind anything can interrupt.
+ *
+ * This line is the whole of what the log says about a cast being in progress,
+ * so it is what a press that stopped nothing has to be explained against: a
+ * press inside one of these windows met a cast, and a press outside every one
+ * of them met a target doing nothing.
+ */
+export function castStart(
+  seconds: number,
+  src: string,
+  srcName: string,
+  spellId: number,
+  spellName: string,
+  opts: { srcFlags?: string } = {},
+): string {
+  const srcFlags = opts.srcFlags ?? '0xa48';
+  return `${at(seconds)}  SPELL_CAST_START,${src},"${srcName}",${srcFlags},0x0,0000000000000000,nil,0x80000000,0x0,${spellId},"${spellName}",0x20`;
+}
+
+/**
+ * An interrupt landing, which names two spells: the one pressed and the one
+ * stopped. Both are needed — "interrupted Crush" is the useful half and the
+ * log puts it in the suffix.
+ */
+export function interrupt(
+  seconds: number,
+  src: string,
+  srcName: string,
+  dst: string,
+  dstName: string,
+  spellId: number,
+  spellName: string,
+  castSpellId: number,
+  castSpellName: string,
+  opts: { srcFlags?: string; dstFlags?: string } = {},
+): string {
+  const srcFlags = opts.srcFlags ?? '0x511';
+  const dstFlags = opts.dstFlags ?? '0xa48';
+  return `${at(seconds)}  SPELL_INTERRUPT,${src},"${srcName}",${srcFlags},0x0,${dst},"${dstName}",${dstFlags},0x0,${spellId},"${spellName}",0x1,${castSpellId},"${castSpellName}",0x20`;
 }
 
 const TRASH_A = creature(1001, 1);
@@ -360,6 +413,8 @@ export const FORCES: ForcesTable = {
  *   t=100..103 pull 4, one shaman plus four totems it summoned. The totems
  *              out-mass the shaman, so only the summon rule names the pull
  *              after the thing that was pulled.
+ *   t=115..120 interrupts: every outcome a press can have, on enemies already
+ *              in a pull, so the attempts are segmented the way damage is
  */
 export const LINES: string[] = [
   `${at(0)}  COMBAT_LOG_VERSION,22,ADVANCED_LOG_ENABLED,1,BUILD_VERSION,12.1.0,PROJECT_ID,1`,
@@ -482,6 +537,20 @@ export const LINES: string[] = [
   }),
   aura(74, BOSS, 'Big Bad', TANK, 'Tank', 888, 'Crushing Grip', true, { dstFlags: '0x511' }),
   heal(77, HEALER, 'Heals', TANK, 'Tank', 30000, 10000),
+  // Two casts the recap has to read in opposite directions. Crusading Strikes
+  // is a proc: the log writes it under the tank's own name on every
+  // auto-attack and nobody has it on a bar. Death Pact is a real press, aimed
+  // at themselves, which is the one shape a scan split by destination misses.
+  cast(77.3, TANK, 'Tank', 408385, 'Crusading Strikes', {
+    dst: BOSS,
+    dstName: 'Big Bad',
+    dstFlags: '0xa48',
+  }),
+  cast(77.4, TANK, 'Tank', 48743, 'Death Pact', {
+    dst: TANK,
+    dstName: 'Tank',
+    dstFlags: '0x511',
+  }),
   cast(77.5, TANK, 'Tank', 48792, 'Icebound Fortitude'),
   aura(77.5, TANK, 'Tank', TANK, 'Tank', 48792, 'Icebound Fortitude', true, {
     buff: true,
@@ -576,6 +645,82 @@ export const LINES: string[] = [
   // Self-harm that heals nobody. It must not be charged against the healing
   // the healer did with everything else.
   friendlyHit(114.3, HEALER, 'Heals', HEALER, 'Heals', 1000, 301, 'Burning Rush'),
+  // Interrupts, which are two questions rather than one: how many casts the
+  // party stopped, and what the presses that stopped nothing were doing. Both
+  // are read against the target's own cast windows, so every line here is
+  // either a window (`castStart` and whatever closed it) or a press.
+  //
+  // The Warded Ogre is the target throughout because it is already in the last
+  // pull, which is the point: an attempt belongs to the segment its enemy
+  // belongs to, exactly like a damage event, rather than to whichever pull the
+  // clock happened to be in.
+  castStart(115, WARDED, 'Warded Ogre', 666, 'Crush'),
+  cast(115.5, DPS, 'Dee', 1766, 'Kick', { dst: WARDED, dstName: 'Warded Ogre', dstFlags: '0xa48' }),
+  interrupt(115.5, DPS, 'Dee', WARDED, 'Warded Ogre', 1766, 'Kick', 666, 'Crush'),
+
+  // Two players on one cast. The tank's Mind Freeze lands; Dee's Kick 30ms
+  // later has nothing left to stop, which is the commonest whiff there is and
+  // the one that must not read as a missed interrupt.
+  castStart(116, WARDED, 'Warded Ogre', 666, 'Crush'),
+  cast(116.5, TANK, 'Tank', 47528, 'Mind Freeze', { dst: WARDED, dstName: 'Warded Ogre', dstFlags: '0xa48' }),
+  interrupt(116.5, TANK, 'Tank', WARDED, 'Warded Ogre', 47528, 'Mind Freeze', 666, 'Crush'),
+  cast(116.53, DPS, 'Dee', 1766, 'Kick', { dst: WARDED, dstName: 'Warded Ogre', dstFlags: '0xa48' }),
+
+  // One button, two cast lines, and the interrupt under the second id: this is
+  // how the game logs a druid's Skull Bash, every time. Counted as written it
+  // is two presses, one of which whiffed.
+  castStart(117, WARDED, 'Warded Ogre', 666, 'Crush'),
+  cast(117.2, HEALER, 'Heals', 93985, 'Skull Bash', { dst: WARDED, dstName: 'Warded Ogre', dstFlags: '0xa48' }),
+  cast(117.2, HEALER, 'Heals', 106839, 'Skull Bash', { dst: WARDED, dstName: 'Warded Ogre', dstFlags: '0xa48' }),
+  interrupt(117.2, HEALER, 'Heals', WARDED, 'Warded Ogre', 93985, 'Skull Bash', 666, 'Crush'),
+
+  // A guardian's interrupt, which is its owner's: the pet presses Spell Lock
+  // and the log credits the pet.
+  castStart(117.6, WARDED, 'Warded Ogre', 666, 'Crush'),
+  cast(117.7, TYRANT, 'Tyrant', 19647, 'Spell Lock', {
+    dst: WARDED,
+    dstName: 'Warded Ogre',
+    dstFlags: '0xa48',
+    srcFlags: '0x2112',
+  }),
+  interrupt(117.7, TYRANT, 'Tyrant', WARDED, 'Warded Ogre', 19647, 'Spell Lock', 666, 'Crush', {
+    srcFlags: '0x2112',
+  }),
+
+  // A cast that carried on regardless. The press landed inside the window and
+  // the cast completed anyway, which is what an uninterruptible cast looks
+  // like from the log's side — it never says so.
+  castStart(118, WARDED, 'Warded Ogre', 666, 'Crush'),
+  cast(118.2, TANK, 'Tank', 47528, 'Mind Freeze', { dst: WARDED, dstName: 'Warded Ogre', dstFlags: '0xa48' }),
+  cast(118.8, WARDED, 'Warded Ogre', 666, 'Crush', { srcFlags: '0xa48' }),
+
+  // An enemy interrupting a player, which is not one of the party's presses
+  // and must not be counted as one.
+  interrupt(118.85, WARDED, 'Warded Ogre', HEALER, 'Heals', 667, 'Overwhelming Shout', 116670, 'Vivify', {
+    srcFlags: '0xa48',
+    dstFlags: '0x512',
+  }),
+
+  // Three hundred milliseconds after that cast went off: a press at a target
+  // that had only just finished casting.
+  cast(119.1, DPS, 'Dee', 1766, 'Kick', { dst: WARDED, dstName: 'Warded Ogre', dstFlags: '0xa48' }),
+
+  // Immune. The log reports the interrupt itself as missing, and what the
+  // target happened to be casting explains nothing about it.
+  cast(119.3, HEALER, 'Heals', 93985, 'Skull Bash', { dst: WARDED, dstName: 'Warded Ogre', dstFlags: '0xa48' }),
+  cast(119.3, HEALER, 'Heals', 106839, 'Skull Bash', { dst: WARDED, dstName: 'Warded Ogre', dstFlags: '0xa48' }),
+  missed(119.3, HEALER, 'Heals', WARDED, 'Warded Ogre', 106839, 'Skull Bash', 'IMMUNE'),
+
+  // A beat too early, on the straggler from the pull that was dragged into the
+  // boss — so this attempt lands in that pull rather than in this one. Its
+  // cast is never resolved, the way a unit that despawns leaves one.
+  cast(119.6, DPS, 'Dee', 1766, 'Kick', { dst: DRAGGED, dstName: 'Straggler', dstFlags: '0xa48' }),
+  castStart(119.7, DRAGGED, 'Straggler', 668, 'Terrify'),
+
+  // A press at nobody: the Ogre's last cast ended 1.1s earlier and it never
+  // casts again.
+  cast(119.9, TANK, 'Tank', 47528, 'Mind Freeze', { dst: WARDED, dstName: 'Warded Ogre', dstFlags: '0xa48' }),
+
   // 120s of wall clock, and a keystone timer of 135s because someone died.
   // The two must stay different: a rate divided by the wrong one still looks
   // plausible, so only a fixture where they disagree can catch it.

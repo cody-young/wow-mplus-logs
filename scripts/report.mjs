@@ -19,6 +19,8 @@ import {
   damageReport,
   deathReports,
   healingReport,
+  interruptReport,
+  summarizeInterrupts,
 } from '../packages/analysis/dist/src/index.js';
 
 const target = process.argv[2];
@@ -159,6 +161,36 @@ for (const actor of taken.actors.slice(0, 6)) {
   );
 }
 
+const interrupts = interruptReport(context, segments);
+const stopping = summarizeInterrupts(interrupts.attempts, interrupts.stops);
+console.log(
+  `\nINTERRUPTS — ${stopping.casts} pressed, ${stopping.stops} casts stopped, ${stopping.whiffs} stopped nothing`,
+);
+for (const actor of stopping.actors) {
+  const reasons = Object.entries(actor.outcomes)
+    .filter(([outcome, count]) => outcome !== 'interrupted' && count > 0)
+    .map(([outcome, count]) => `${outcome} ${count}`)
+    .join(', ');
+  console.log(
+    `  ${actor.name.padEnd(26).slice(0, 26)} ${String(actor.casts).padStart(3)} pressed  ` +
+      `${String(actor.stops).padStart(3)} stopped  ${((actor.stops / Math.max(actor.casts, 1)) * 100).toFixed(0).padStart(3)}%  ` +
+      `${actor.abilities.map((a) => `${a.name}×${a.casts}`).join(', ')}` +
+      (reasons === '' ? '' : `\n      whiffs: ${reasons}`),
+  );
+}
+if (stopping.stopped.length > 0) {
+  console.log('  casts stopped:');
+  for (const cast of stopping.stopped.slice(0, 8)) {
+    console.log(`    ×${String(cast.count).padEnd(3)} ${cast.name} (${cast.sourceName})`);
+  }
+}
+// A press can stop two casts at once, so stops may exceed presses — but nobody
+// can stop more than they pressed without an interrupt whose cast went unlogged.
+const unpaired = interrupts.attempts.filter((attempt) => attempt.petName === '' && attempt.stops > 1);
+if (unpaired.length > 0) {
+  console.log(`  ${unpaired.length} presses stopped more than one cast`);
+}
+
 const deaths = deathReports(context, segments);
 console.log(`\nDEATHS — ${deaths.length}`);
 for (const death of deaths) {
@@ -193,9 +225,9 @@ for (const death of deaths) {
     console.log(`      ${short(ability.total).padStart(7)}  ${ability.name} ×${ability.hits} (${ability.sourceName})`);
   }
   if (death.ownCasts.length > 0) {
-    console.log(`    they cast: ${death.ownCasts.slice(-5).map((c) => c.name).join(', ')}`);
+    console.log(`    they pressed: ${death.ownCasts.slice(-5).reverse().map((c) => c.name).join(', ')}`);
   } else {
-    console.log('    they cast nothing in the window');
+    console.log('    they pressed nothing in the window');
   }
 }
 console.log();

@@ -12,7 +12,11 @@ import {
   damageReport,
   deathReports,
   healingReport,
+  interruptReport,
+  summarizeInterrupts,
   type AnalysisContext,
+  type InterruptAttempt,
+  type InterruptReport,
   type SegmentIndex,
   type SegmentOptions,
 } from '../src/index.js';
@@ -460,6 +464,17 @@ test('a death carries a descending health trace and the blow that landed it', ()
 
   // What they pressed is as diagnostic as what hit them.
   assert.ok(death.ownCasts.some((c) => c.name === 'Icebound Fortitude'));
+  // Including what they pressed on themselves, which names them on both sides
+  // of the event.
+  assert.ok(death.ownCasts.some((c) => c.name === 'Death Pact'), 'a cast aimed at themselves');
+  // And excluding what they never pressed. Crusading Strikes is logged as a
+  // cast on every auto-attack, so taken at face value a ret paladin presses
+  // forty buttons in the ten seconds before dying.
+  assert.equal(
+    death.ownCasts.some((c) => c.name === 'Crusading Strikes'),
+    false,
+    'a proc is not a press',
+  );
   assert.equal(death.segmentKind, SegmentKind.BOSS, 'the death is filed under the boss');
 });
 
@@ -626,6 +641,156 @@ test('uptime is the union of an aura\'s intervals, not a count of its events', (
     bossAgony.uptimeMs / inBoss.durationMs > agony.uptimeMs / report.durationMs,
     'the same 18s is more of a pull than it is of a key',
   );
+});
+
+// --- Interrupts --------------------------------------------------------------
+
+/** The fixture's presses, rolled up the way the view rolls them up. */
+function interrupts() {
+  const { context, segments } = load();
+  const report = interruptReport(context, segments);
+  return { report, summary: summarizeInterrupts(report.attempts, report.stops), segments };
+}
+
+function attemptsBy(report: InterruptReport, name: string): InterruptAttempt[] {
+  return report.attempts.filter((attempt) => attempt.name.startsWith(name));
+}
+
+test('an interrupt names the cast it stopped, not just the button pressed', () => {
+  const { report } = interrupts();
+  const stop = report.stops[0]!;
+  assert.equal(stop.spellName, 'Kick');
+  assert.equal(stop.castSpellName, 'Crush', 'the suffix spell is the one that was stopped');
+  assert.equal(stop.targetName, 'Warded Ogre');
+  // What the party stopped, pooled: the question a key leader actually asks.
+  const crush = report.stops.filter((entry) => entry.castSpellId === 666);
+  assert.equal(crush.length, 4, 'four of the Ogre\'s five Crushes were stopped');
+  const { summary } = interrupts();
+  assert.deepEqual(
+    summary.stopped.map((cast) => [cast.name, cast.count, cast.sourceName]),
+    [['Crush', 4, 'Warded Ogre']],
+  );
+});
+
+test('a press that stopped nothing is counted, which the log never reports', () => {
+  const { summary } = interrupts();
+  // Ten presses: four that stopped a cast — one of them pressed by a pet — and
+  // six that stopped nothing. Nothing in the log says any of the ten was an
+  // interrupt attempt; they are ordinary casts of spells whose only effect is
+  // to stop one.
+  assert.equal(summary.casts, 10);
+  assert.equal(summary.stops, 4);
+  assert.equal(summary.whiffs, 6);
+  assert.equal(
+    summary.actors.reduce((total, actor) => total + actor.casts, 0),
+    summary.casts,
+    'every press belongs to a player',
+  );
+});
+
+test('one button logged under two ids is one press, not a press and a whiff', () => {
+  const { report, summary } = interrupts();
+  // Skull Bash arrives as a cast of 93985 and a cast of 106839 on the same
+  // millisecond at the same target, and the interrupt is logged under the
+  // first. Taken at face value the healer pressed four interrupts and whiffed
+  // two of them.
+  const heals = summary.actors.find((actor) => actor.name.startsWith('Heals'))!;
+  assert.equal(heals.casts, 2);
+  assert.deepEqual(
+    heals.abilities.map((ability) => [ability.name, ability.casts]),
+    [['Skull Bash', 2]],
+    'one ability row, not one per id',
+  );
+  // And the pairing still finds the interrupt, which carries the other id.
+  const landed = attemptsBy(report, 'Heals').find((attempt) => attempt.stops > 0)!;
+  assert.equal(landed.outcome, 'interrupted');
+  assert.equal(landed.castSpellName, 'Crush');
+});
+
+test("a pet's interrupt is its owner's", () => {
+  const { report } = interrupts();
+  const pressed = attemptsBy(report, 'Dee').find((attempt) => attempt.petName !== '')!;
+  assert.equal(pressed.spellName, 'Spell Lock');
+  assert.equal(pressed.petName, 'Tyrant');
+  assert.equal(pressed.outcome, 'interrupted');
+  assert.equal(report.stops.some((stop) => stop.name.startsWith('Tyrant')), false, 'credited to Dee');
+});
+
+test('an enemy interrupting a player is not one of the party\'s interrupts', () => {
+  const { report } = interrupts();
+  assert.equal(
+    report.stops.some((stop) => stop.name.startsWith('Warded')),
+    false,
+  );
+  assert.equal(report.stops.length, 4, 'four stops, all of them the party\'s');
+});
+
+test('a whiff says what became of the cast it was about', () => {
+  const { report } = interrupts();
+  const whiffs = report.attempts.filter((attempt) => attempt.stops === 0);
+  const outcomes = new Map(whiffs.map((attempt) => [attempt.outcome, attempt]));
+  // Every outcome a whiff can have, once each, which is what the fixture was
+  // built to produce.
+  assert.equal(outcomes.size, whiffs.length, 'no two whiffs share an outcome here');
+  assert.deepEqual(
+    [...outcomes.keys()].sort(),
+    ['doubled', 'early', 'ignored', 'late', 'missed', 'nothing'],
+  );
+
+  // Someone else got the cast first, which is most whiffs in a real key.
+  const doubled = outcomes.get('doubled')!;
+  assert.equal(doubled.name.startsWith('Dee'), true);
+  assert.equal(doubled.castSpellName, 'Crush');
+  assert.equal(doubled.beatenBy.startsWith('Tank'), true);
+
+  // The press landed inside a cast that completed anyway.
+  assert.equal(outcomes.get('ignored')!.castSpellName, 'Crush');
+  // The cast had already gone off.
+  assert.equal(outcomes.get('late')!.castSpellName, 'Crush');
+  // The log reports the press itself as missing, so the target's casts are
+  // beside the point.
+  assert.equal(outcomes.get('missed')!.spellName, 'Skull Bash');
+  // The target began casting just after the press.
+  assert.equal(outcomes.get('early')!.castSpellName, 'Terrify');
+});
+
+test('a press at a target that was not casting is told from one that was', () => {
+  const { report } = interrupts();
+  const idle = report.attempts.filter((attempt) => attempt.outcome === 'nothing');
+  assert.equal(idle.length, 1);
+  assert.equal(idle[0]!.name.startsWith('Tank'), true);
+  // No cast to name, which is the whole content of the outcome.
+  assert.equal(idle[0]!.castSpellId, 0);
+  assert.equal(idle[0]!.castSpellName, '');
+});
+
+test('an attempt belongs to its target\'s pull, not to the clock', () => {
+  const { report, segments } = interrupts();
+  // The Kick at t=119.6 is aimed at the straggler, which was engaged at t=60
+  // and dragged through the boss fight. Everything else at that moment is in
+  // the last pull.
+  const early = report.attempts.find((attempt) => attempt.outcome === 'early')!;
+  const dragged = labelled(segments, 'Straggler');
+  assert.equal(early.segmentId, dragged.id);
+  const ogre = report.attempts.find((attempt) => attempt.targetName === 'Warded Ogre')!;
+  assert.notEqual(ogre.segmentId, dragged.id);
+  assert.equal(segments.get(ogre.segmentId)?.enemies.includes(ogre.targetIndex), true);
+});
+
+test('summarising a pull is the same question asked of fewer attempts', () => {
+  const { report, segments } = interrupts();
+  // What the view does when a pull is selected: the same roll-up over the
+  // attempts that belong to it, rather than a second report to compute.
+  const dragged = labelled(segments, 'Straggler');
+  const summary = summarizeInterrupts(
+    report.attempts.filter((attempt) => attempt.segmentId === dragged.id),
+    report.stops.filter((stop) => stop.segmentId === dragged.id),
+  );
+  assert.equal(summary.casts, 1);
+  assert.equal(summary.stops, 0);
+  assert.equal(summary.whiffs, 1);
+  assert.deepEqual(summary.stopped, []);
+  assert.equal(summary.actors[0]!.outcomes.early, 1);
 });
 
 function indexOf(run: Run, guid: string): number {

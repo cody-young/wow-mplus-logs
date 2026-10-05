@@ -6,7 +6,7 @@
   --border: #272733;
   --text: #e6e6f0;
   --muted: #8b8ba3;
-  --dim: #5e5e75;
+  --dim: #717185;
   --accent: #6ea8fe;
   --boss: #d4a24a;
   --pull: #4a7fd4;
@@ -215,6 +215,21 @@ tr.actor:hover td { background: var(--panel-raised); }
 }
 .spec-ico img { display: block; border-radius: 3px; }
 
+/* A spell's art, in a box that exists whether or not the art arrives — the
+   same contract as .spec-ico, minus a colour to fall back to: a spell has no
+   class colour, so the box is just a dark square until the icon lands. */
+.spell-ico {
+  flex: none;
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+  overflow: hidden;
+  vertical-align: middle;
+  background: var(--panel-raised);
+}
+.spell-ico img { display: block; border-radius: 3px; }
+
 .dungeon-ico {
   flex: none;
   display: grid;
@@ -300,6 +315,19 @@ table.roster-table { margin-top: 6px; }
 .roster-summon { color: var(--muted); }
 .chip.summon { color: var(--dim); }
 .roster-note { color: var(--dim); font-size: 12px; line-height: 1.5; margin: 7px 0 0; max-width: 62ch; }
+
+/* Interrupts */
+/* The whiff chips sit in a cell of their own, so that cell sets the row height
+   rather than being clipped by it when a player whiffed three different ways. */
+.breakdown.players td .chips { padding: 4px 0; }
+/* The press log is an ability table with no numbers in it: four left-aligned
+   columns, so the generic 28px indent for an ability name would push every one
+   of them in. Only the first column is a nested row's name. */
+.interrupt-log th.left,
+.interrupt-log tr.spell td.left { padding-left: 8px; }
+.interrupt-log th.left:first-child,
+.interrupt-log tr.spell td.left:first-child { padding-left: 20px; font-variant-numeric: tabular-nums; }
+.interrupt-log tr.spell td { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* Deaths */
 .death-grid { display: grid; grid-template-columns: 300px 1fr; gap: 16px; align-items: start; }

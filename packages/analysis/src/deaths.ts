@@ -1,4 +1,4 @@
-import { isDefensive, isInertMarker } from '@mplus/data';
+import { isButton, isDefensive, isInertMarker } from '@mplus/data';
 import { Ev, EvFlag } from '@mplus/parser';
 
 import { actorName, spellName, type AnalysisContext } from './context.js';
@@ -9,6 +9,7 @@ import {
   HEAL_CODES,
   SELF_DAMAGE_CODES,
   VICTIM_MELEE_CODES,
+  creditedActor,
   effective,
 } from './events.js';
 import { SegmentKind, type SegmentIndex } from './segments.js';
@@ -199,7 +200,12 @@ export interface DeathReport {
   damageTaken: number;
   healingReceived: number;
   absorbed: number;
-  /** What the dying player cast in the window — did they press anything? */
+  /**
+   * What the dying player pressed in the window — did they press anything?
+   *
+   * Presses only: the log reports a proc as a cast under the player's name too,
+   * and those are dropped. See `pressed`.
+   */
   ownCasts: CastRecord[];
   /** Debuffs on them at the moment of death. */
   debuffsAtDeath: CastRecord[];
@@ -227,6 +233,32 @@ const DEFAULT_WINDOW_MS = 10_000;
  * death in memory on a key with twenty of them.
  */
 const DEFAULT_SCROLLBACK_MS = 30_000;
+
+/**
+ * Whether a cast under the player's name was something the player did.
+ *
+ * The log does not distinguish the two. A retribution paladin with Crusading
+ * Strikes writes a SPELL_CAST_SUCCESS on every auto-attack, an evoker's
+ * Charged Blast does it for a stacking buff, and a rogue flips a Fatebound
+ * Coin — hundreds of casts apiece in one arena, none of them a keypress. Taken
+ * at face value the recap reports a player hammering buttons as they died,
+ * which is worse than reporting nothing: the one Shield Wall that is the actual
+ * answer is buried in it.
+ *
+ * Two tables are asked, and either one is enough:
+ *
+ * - The game puts a clock on everything a player can press — a global
+ *   cooldown, a cooldown of its own, or a charge — and gives a triggered spell
+ *   none, because the thing that triggers it owns the rate. See
+ *   `@mplus/data/buttons`.
+ * - It is a defensive. A few of those carry no clock in the data at all
+ *   (Renewing Blaze, Shield of Vengeance), and a defensive missing from the
+ *   recap of the death it was pressed in is the one error worth ruling out at
+ *   the cost of letting a defensive-shaped proc through.
+ */
+function pressed(spellId: number): boolean {
+  return isButton(spellId) || isDefensive(spellId);
+}
 
 export function deathReports(
   context: AnalysisContext,
@@ -324,14 +356,16 @@ function buildReport(
       }
     }
 
-    if (dst !== victim) {
-      // Casts by the dying player: what they did, or failed to do, in the window.
-      if (inSummary && src === victim && code === Ev.SPELL_CAST_SUCCESS) {
-        const spellId = store.spellId[row]!;
-        ownCasts.push({ ts, spellId, name: spellName(context, spellId) });
-      }
-      continue;
+    // Casts by the dying player: what they did, or failed to do, in the window.
+    // Ahead of the victim/other split rather than inside it, because a cast
+    // aimed at themselves names them as the destination too — a shield or a
+    // heal on their own health bar, 3% of the casts in a real log.
+    if (inSummary && src === victim && code === Ev.SPELL_CAST_SUCCESS) {
+      const spellId = store.spellId[row]!;
+      if (pressed(spellId)) ownCasts.push({ ts, spellId, name: spellName(context, spellId) });
     }
+
+    if (dst !== victim) continue;
 
     const amount = store.amount[row]!;
     const waste = store.waste[row]!;
@@ -345,7 +379,7 @@ function buildReport(
       if (VICTIM_MELEE_CODES.has(code)) continue;
       const net = effective(amount, waste);
       const spellId = store.spellId[row]!;
-      const sourceOwner = actors.attribute(src);
+      const sourceOwner = creditedActor(run, row);
       const hit: IncomingHit = {
         ts,
         sourceIndex: sourceOwner,
@@ -374,11 +408,12 @@ function buildReport(
     }
 
     if (HEAL_CODES.has(code)) {
+      if (flags & EvFlag.SUPPORT) continue; // a duplicate row, as above
       const net = effective(amount, waste);
       if (inSummary) healingReceived += net;
       healsReceived.push({
         ts,
-        sourceName: actorName(context, actors.attribute(src)),
+        sourceName: actorName(context, creditedActor(run, row)),
         spellId: store.spellId[row]!,
         spellName: spellName(context, store.spellId[row]!),
         amount: net,

@@ -11,13 +11,27 @@ import type {
   BreakdownReport,
   DeathReport,
   EnemyGroup,
+  InterruptAttempt,
+  InterruptReport,
+  InterruptStop,
   RunForces,
   Segment,
 } from '@mplus/analysis';
 import type { ForcesTable } from '@mplus/data';
 import type { RunMeta } from '@mplus/parser';
 
-export type { ActorBreakdown, BreakdownReport, DeathReport, EnemyGroup, RunForces, Segment, RunMeta };
+export type {
+  ActorBreakdown,
+  BreakdownReport,
+  DeathReport,
+  EnemyGroup,
+  InterruptAttempt,
+  InterruptReport,
+  InterruptStop,
+  RunForces,
+  Segment,
+  RunMeta,
+};
 
 /** Per-segment reports, keyed by segment id. */
 export interface SegmentReports {
@@ -36,6 +50,15 @@ export interface RunAnalysis {
   taken: BreakdownReport;
   healing: BreakdownReport;
   deaths: DeathReport[];
+  /**
+   * Every interrupt pressed and every cast stopped, as two flat lists.
+   *
+   * Not split per segment like the damage reports, because they need the event
+   * store and these do not: each attempt carries the segment its target belongs
+   * to, so selecting a pull is a filter in the view rather than another report
+   * to compute and ship.
+   */
+  interrupts: InterruptReport;
   bySegment: Record<number, SegmentReports>;
   /**
    * Enemy forces for the run. `known: false` when no table covered the

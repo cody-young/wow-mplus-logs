@@ -20,9 +20,9 @@
  *
  * --view names a view from apps/desktop/test/ui-smoke.tsx; --html keeps the
  * intermediate document, which is what to open when a screenshot looks wrong.
- * --death picks which death the recap opens on, by dropping the ones before it:
- * the panel always opens on the first in its list, and the second death in a
- * key is otherwise unreachable without clicking something.
+ * --death picks which death the recap opens on, by dropping the ones after it:
+ * the panel opens on the most recent in its list, and any earlier death is
+ * otherwise unreachable without clicking something.
  */
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -45,7 +45,9 @@ if (!logPath) {
 }
 const viewName = flag('view', 'deaths');
 const runIndex = Number(flag('run', 0));
-const deathIndex = Number(flag('death', 0));
+// Null is "leave the list alone", which opens on the most recent death.
+const deathPick = flag('death', null);
+const deathIndex = deathPick === undefined || deathPick === null ? null : Number(deathPick);
 const width = Number(flag('width', 1500));
 const outPath = resolve(flag('out', 'shot.png'));
 const keepHtml = args.includes('--html');
@@ -90,7 +92,7 @@ const analysis = await new Promise((done, fail) => {
 const { render } = await import(bundle);
 rmSync(bundle, { force: true });
 const views = render(
-  deathIndex === 0 ? analysis : { ...analysis, deaths: analysis.deaths.slice(deathIndex) },
+  deathIndex === null ? analysis : { ...analysis, deaths: analysis.deaths.slice(0, deathIndex + 1) },
 );
 const body = views[viewName];
 if (body === undefined) {
@@ -103,7 +105,7 @@ console.log(
 );
 analysis.deaths.forEach((death, index) => {
   console.log(
-    `  ${index === deathIndex ? '>' : ' '} death ${index}: ${death.name} at ${(death.ts / 1000).toFixed(1)}s` +
+    `  ${index === (deathIndex ?? analysis.deaths.length - 1) ? '>' : ' '} death ${index}: ${death.name} at ${(death.ts / 1000).toFixed(1)}s` +
       ` — ${death.killingBlow?.spellName ?? 'cause unclear'}`,
   );
 });

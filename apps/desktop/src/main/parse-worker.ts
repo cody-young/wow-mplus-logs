@@ -20,6 +20,7 @@ import {
   damageReport,
   deathReports,
   healingReport,
+  interruptReport,
   type SegmentIndex,
 } from '@mplus/analysis';
 import { EMPTY_TABLE, forcesFor, type ForcesTable } from '@mplus/data';
@@ -81,6 +82,7 @@ function analyze(active: LogSession, run: Run, live: boolean): RunAnalysis {
     taken: damageReport(context, segments, { direction: 'taken' }),
     healing: healingReport(context, segments),
     deaths: deathReports(context, segments),
+    interrupts: interruptReport(context, segments),
     bySegment,
     // Every field is a scalar now, so a shallow copy is a full one.
     forces: { ...segments.forces },

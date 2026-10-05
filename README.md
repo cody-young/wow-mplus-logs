@@ -11,7 +11,7 @@ them yourself.
 
 ```
 packages/parser/    portable combat log engine — bytes in, columnar events out
-packages/analysis/  segmentation, damage/healing breakdowns, death post-mortems
+packages/analysis/  segmentation, damage/healing breakdowns, interrupts, deaths
 apps/desktop/       Electron shell: worker-thread parsing, live tail, React UI
 packages/data/      the generated enemy-forces and spell tables, the MDT reader
 ```
@@ -307,7 +307,128 @@ than by the recipient would not be caught. In every log checked it is applied by
 the recipient, and the cost of being wrong is one line of noise rather than a
 missing mechanic.
 
+### What they pressed, when the log cannot tell a press from a proc
+
+The recap's other lane is what the dying player did about it, and the log is no
+help at all here: it reports a proc exactly the way it reports a keypress. A
+retribution paladin who took Crusading Strikes writes a `SPELL_CAST_SUCCESS`
+under their own name on *every auto-attack* — 258 of them in one logged arena —
+and an evoker's Charged Blast does the same for a stacking buff nobody has a
+keybind for. A demon hunter picking up Soul Fragments logs 637. Read at face
+value the lane reads as a player hammering buttons as they died, with the one
+Shield Wall that is the actual answer buried in it.
+
+Same move as the defensives, against a different fact. Everything a player can
+press is on a clock of some kind — the global cooldown, a cooldown of its own,
+or a charge — because an ability with no clock at all would be spammable and
+nothing in the game is. A triggered strike has none of the three, because the
+talent that triggers it owns the rate. `scripts/spell-presses.mjs` reads those
+three columns out of `SpellCategories.db2`, `SpellCooldowns.db2` and
+`SpellCategory.db2` and writes `packages/data/src/buttons.ts`: 40k spells, ids
+only. The three downloads come to ~4MB, so unlike its sibling this one is cheap
+to re-run.
+
+Across two real logs it drops exactly the right rows and nothing else:
+Crusading Strikes, Charged Blast, Soul Fragment, a rogue's Fatebound Coin flip,
+Mutilate's off-hand half, Voidblade's triggered half, and the warrior pattern
+where Charge, Heroic Leap, Whirlwind and Intervene each log a second cast line
+beside the press — whose partner is kept, so the recap loses nothing.
+
+Two caveats, both in the generated file:
+
+- **A few defensives carry no clock either.** Renewing Blaze and Shield of
+  Vengeance have no cooldown anywhere in the data, so the question is asked
+  beside `isDefensive` and a defensive is a press whatever the button table
+  says. A defensive missing from the recap of the death it was pressed in is
+  the one error worth paying noise to avoid. The pairing is done once, in
+  `pressed` in @mplus/analysis.
+- **Above the build's highest spell id, everything is a press.** Spell ids are
+  handed out in order, so an id past the frontier belongs to a patch newer than
+  the table, and the honest answer about it is "no idea". Saying press costs a
+  line of noise; saying proc would hide a brand-new button.
+
+What it does drop that was really pressed is a cast with no clock *and* no
+cooldown: weapon poisons and food, which take a cast but nothing else. Neither
+happens in the ten seconds before someone dies.
+
+The lane was also missing presses, for an unrelated reason worth writing down.
+The scan split on destination before it looked at casts, so a cast aimed at the
+dying player themselves — a shield or a heal on their own health bar, which
+names them on both sides of the event — fell down the "not about the victim"
+branch and was never recorded. That is 3% of player casts in a real log, and
+disproportionately the interesting ones.
+
 [wago]: https://wago.tools
+
+## Interrupts, and what a whiff actually is
+
+The interrupts tab answers two questions that the log answers from opposite
+ends. **What was stopped** is stated outright: `SPELL_INTERRUPT` names the
+interrupt and the cast it ended, so that half needs no table and no inference.
+**What was pressed** is not reported at all — a Kick is an ordinary
+`SPELL_CAST_SUCCESS`, indistinguishable from a Frostbolt unless you already know
+what the spell does.
+
+So the press side needs the same treatment as the defensives, against a
+different effect: `SPELL_EFFECT_INTERRUPT_CAST`. 603 spells carry it, and most
+of them are not interrupts in the sense anyone means — Avenger's Shield carries
+it, and a protection paladin presses that on cooldown for its damage. Counting
+those casts would report a tank whiffing a hundred interrupts a key. What
+separates the two is everything *else* the spell does, so the rule is
+subtraction: the 136 spells whose every described effect is the interrupt. Every
+player interrupt in the game is in that set and nothing that deals damage is.
+Five more are added by hand in `scripts/spell-effects.mjs`, because the press
+and the interrupt are two different spells and the data only describes the
+second — Skull Bash, Silence, Solar Beam, the sacrificed-pet Spell Lock and Axe
+Toss. A button missing from that list costs only its whiffs; its interrupts
+still count, because those come from the log.
+
+Pairing the two halves is easier than it looks: across five real logs the
+interrupt followed its own cast by a median of 1 ms and never by more than
+84 ms. The match is on the player and the clock rather than on the spell,
+because it has to be — a druid's press is Skull Bash `106839` and the interrupt
+arrives as Skull Bash `93985`.
+
+**One press, two cast lines.** Skull Bash is logged as a cast of `93985` *and* a
+cast of `106839`, same millisecond, same target, every time. Taken at face value
+a druid presses 46 interrupts in a key and lands 17, because the second line of
+each pair always whiffs — the first has already claimed the interrupt. Collapsed
+the same way the damage tables merge an ability logged under several ids, the
+same key reads 23 presses and 17 stops. Two presses by one player at one target
+in the same millisecond is not a thing that happens, so the collapse costs
+nothing.
+
+### Why the whiffs are broken down
+
+"Pressed 15, interrupted 10" is an accusation, and usually a wrong one. Over
+sixteen real keys — 1,033 presses, 802 casts stopped — the 231 whiffs were:
+
+| what the press ran into | count |
+| --- | --- |
+| another player's interrupt got that cast first | 122 |
+| the target was not casting at all | 77 |
+| the cast had already finished | 15 |
+| the target was mid-cast and the cast carried on | 10 |
+| the target started casting just after | 6 |
+| the log reports the interrupt itself as missed | 1 |
+
+The largest group is not a mistake by the player it is charged to: it is two
+cooldowns spent on one cast, which is a conversation for the party and a
+different one from "you were asleep". So each press is put to the target's own
+cast windows — built from `SPELL_CAST_START` and whatever closed it — and
+reported with what became of the cast it was about.
+
+The one inference in that table is the fourth row. The log never says a cast
+could not be interrupted; what it says is that the press landed inside a cast
+that completed anyway, which is what an uninterruptible cast and an unreported
+immunity both look like. The outcome is named for the observation
+(`ignored`, "cast carried on") rather than for the conclusion.
+
+Pets are rolled up like damage: a felhunter's Spell Lock is the warlock's
+interrupt, and the press log names the pet beside the spell. Attempts are
+attributed to the segment their **target** belongs to, like damage and for the
+same reason — a Kick into a straggler dragged through a boss fight belongs to
+that straggler's pull, not to whatever the clock was in.
 
 ## Segmentation, and why it is keyed on the enemy
 
@@ -515,10 +636,11 @@ npm run typecheck      # including the renderer
 npm run check:pure     # fail on node: imports in the portable packages
 npm run inspect -- <log>      # format drift report
 npm run summary -- <log>      # per-run dps/hps/deaths sanity check
-npm run report -- <log> [n]   # segments, breakdowns and death post-mortems
+npm run report -- <log> [n]   # segments, breakdowns, interrupts and deaths
 npm run ui-smoke -- <log> [n] # server-render every view against a real run
 npm run shot -- <log> [--view deaths] [--death 0]   # screenshot a view
 npm run spell-effects         # rebuild the spell tables from Blizzard's DB2
+npm run spell-presses         # rebuild the button table from Blizzard's DB2
 ```
 
 `ui-smoke` is how the UI is verified without launching Electron: it runs the real

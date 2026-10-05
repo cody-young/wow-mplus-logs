@@ -69,6 +69,16 @@ const { render, partyOf } = await import(outFile);
 rmSync(outFile, { force: true });
 const views = render(analysis);
 
+/** The words the panel puts on a whiff. Kept in step with InterruptsPanel. */
+const REASON_LABELS = [
+  'doubled up',
+  'cast carried on',
+  'a beat late',
+  'a beat early',
+  'missed',
+  'nothing to stop',
+];
+
 let failures = 0;
 function check(name, condition, detail) {
   if (condition) {
@@ -237,7 +247,20 @@ if (analysis.forces.known) {
 }
 
 if (analysis.deaths.length > 0) {
-  const death = analysis.deaths[0];
+  // The list reads newest first and opens on the newest, so the death every
+  // recap assertion below is about is the last one of the key.
+  const death = analysis.deaths[analysis.deaths.length - 1];
+  // Every death, latest at the top, with that one already open — the clock on
+  // each item has to run backwards down the list, and the selected item has to
+  // be the first one.
+  const listTimes = views.deaths.split('class="death-item').slice(1)
+    .map((item) => /(\d+:\d\d)/.exec(item)?.[1] ?? '');
+  check('the death list holds every death, newest first, open on the newest',
+    listTimes.length === analysis.deaths.length &&
+      listTimes.every((time, index) => index === 0 || time <= listTimes[index - 1]) &&
+      views.deaths.indexOf('class="death-item selected"') ===
+        views.deaths.indexOf('class="death-item'),
+    `${listTimes.join(' ')} — selected at ${views.deaths.indexOf('class="death-item selected"')}`);
   check('deaths view names the victim', views.deaths.includes(death.name.split('-')[0]));
   check('deaths view names the killing blow',
     death.killingBlow === null || views.deaths.includes(escapeHtml(death.killingBlow.spellName)));
@@ -435,9 +458,26 @@ if (analysis.deaths.length > 0) {
     death.healsReceived.length === 0
       ? views.deaths.includes('No healing landed')
       : views.deaths.includes('Healing received'));
+  // Out of the summary window, not out of the capture: the panel groups the
+  // heals the totals describe, and the list reaches three times further back.
+  // Asserting on the first heal in the list fails whenever the oldest one
+  // captured is older than the ten seconds shown.
+  const shownHeal = death.healsReceived.find(
+    (heal) => heal.amount > 0 && heal.ts >= death.ts - death.windowMs,
+  );
   check('death recap names a heal the player actually got',
-    death.healsReceived.length === 0 ||
-      views.deaths.includes(escapeHtml(death.healsReceived[0].spellName)));
+    shownHeal === undefined || views.deaths.includes(escapeHtml(shownHeal.spellName)),
+    `${death.healsReceived.length} heals captured, first shown ${shownHeal?.spellName ?? 'none'}`);
+  // Most recent first, like the death list beside it and the timeline above it.
+  // Only a press chip carries a time, so these are the presses and nothing
+  // else; newest first means the seconds-before-death run upwards.
+  const pressAges = [...views.deaths.matchAll(
+    /class="chip">[^<]*<span[^>]*>\s*\u2212(?:<!-- -->)?([\d.]+)(?:<!-- -->)?s</g,
+  )].map(([, age]) => Number(age));
+  check('the press chips read newest first',
+    pressAges.length === death.ownCasts.length &&
+      pressAges.every((age, index) => index === 0 || age >= pressAges[index - 1]),
+    `${pressAges.length} chips for ${death.ownCasts.length} presses: ${pressAges.join(' ')}`);
   check('death recap bar widths are real percentages',
     !/width:\s*(NaN|Infinity|-)/.test(views.deaths));
   // The native title tooltip was replaced by the chart's own, so a bar must
@@ -458,6 +498,58 @@ if (analysis.deaths.length > 0) {
     !views.deaths.includes('src=""') && !views.deaths.includes('src="undefined"'));
 } else {
   console.log('  (run had no deaths; death view assertions skipped)');
+}
+
+// --- Interrupts --------------------------------------------------------------
+check('empty interrupts view says so', views.emptyInterrupts.includes('No interrupts'));
+const pressed = analysis.interrupts.attempts;
+if (pressed.length > 0) {
+  const stopped = pressed.filter((attempt) => attempt.stops > 0);
+  check('interrupts view names a player who pressed one',
+    views.interrupts.includes(pressed[0].name.split('-')[0]));
+  check('interrupts view is collapsed by default (no press log)',
+    !views.interrupts.includes('interrupt-log'));
+  check('the press log holds every press, once',
+    countOf(views.interruptLog, 'class="spell"') === pressed.length,
+    `${countOf(views.interruptLog, 'class="spell"')} rows for ${pressed.length} presses`);
+  // The whole point of the tab: a press that stopped nothing is in the log
+  // with a reason, and the log never reports it at all.
+  check('a press that stopped nothing is in the log with a reason',
+    pressed.length === stopped.length ||
+      REASON_LABELS.some((label) => text(views.interruptLog).includes(label)),
+    text(views.interruptLog).slice(0, 400));
+  // Most recent at the top, like every other list in the app. The log is one
+  // table per player, so time runs backwards inside each block and steps
+  // forward once at each player boundary — never more often than that.
+  const logTimes = [...views.interruptLog.matchAll(/<tr class="spell"><td class="left">([^<]*)</g)]
+    .map((match) => match[1]);
+  const players = new Set(pressed.map((attempt) => attempt.actorIndex)).size;
+  const forwards = logTimes.filter((time, index) => index > 0 && time > logTimes[index - 1]).length;
+  check('the press log reads newest first',
+    logTimes.length === pressed.length && forwards <= players - 1,
+    `${logTimes.length} times, ${forwards} forward steps, ${players} players`);
+  check('interrupts view names a cast that was stopped',
+    stopped.length === 0 || views.interrupts.includes(escapeHtml(stopped[0].castSpellName)));
+  check('every press names its target',
+    pressed.every((attempt) => attempt.targetName === '' ||
+      views.interruptLog.includes(escapeHtml(attempt.targetName))));
+  // Whiff chips are explained by a native title, which is the one place in
+  // these views that is deliberate: the reasons need a sentence each.
+  check('every whiff chip explains itself',
+    !views.interrupts.includes('class="chip"') ||
+      /class="chip" title="[^"]+"/.test(views.interrupts));
+  check('a key where nothing landed is still explained',
+    views.allWhiffedInterrupts.includes('nothing to stop') &&
+      views.allWhiffedInterrupts.includes('nothing stopped by any of them'));
+  check('interrupts view renders with no icons available',
+    !views.interrupts.includes('src=""') && !views.interruptLog.includes('src="undefined"'));
+  const landed = pressed.filter((attempt) => attempt.stops > 0).length;
+  console.log(
+    `  (interrupts: ${pressed.length} pressed, ${analysis.interrupts.stops.length} casts stopped, ` +
+      `${pressed.length - landed} stopped nothing)`,
+  );
+} else {
+  console.log('  (nobody pressed an interrupt; interrupt view assertions skipped)');
 }
 
 // --- Icons -------------------------------------------------------------------

@@ -34,6 +34,19 @@ export {
   type IncomingHit,
 } from './deaths.js';
 export {
+  interruptReport,
+  summarizeInterrupts,
+  type InterruptAbility,
+  type InterruptActor,
+  type InterruptAttempt,
+  type InterruptOptions,
+  type InterruptOutcome,
+  type InterruptReport,
+  type InterruptStop,
+  type InterruptSummary,
+  type StoppedCast,
+} from './interrupts.js';
+export {
   ABSORBED_CODES,
   AURA_DOWN_CODES,
   AURA_UP_CODES,

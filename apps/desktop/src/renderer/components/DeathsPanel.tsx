@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useMemo, useState } from 'react';
 
 import { SegmentKind, type DeathReport } from '@mplus/analysis';
 
@@ -11,11 +11,18 @@ import { SpecIcon } from './SpecIcon.js';
 const CASCADE_MS = 8000;
 
 export function DeathsPanel({ deaths }: { deaths: DeathReport[] }): React.JSX.Element {
-  const [selected, setSelected] = useState(0);
-  // Keep the selection valid as a live run appends deaths.
-  useEffect(() => {
-    if (selected >= deaths.length) setSelected(Math.max(0, deaths.length - 1));
-  }, [deaths.length, selected]);
+  // Most recent at the top, and open on it: a key is read from the death that
+  // just happened backwards, not from the first one forwards.
+  const order = useMemo(() => [...deaths].reverse(), [deaths]);
+  /**
+   * The chosen death by identity rather than by position.
+   *
+   * A live run keeps appending, and newest-first means every append shifts
+   * every index — so an index would quietly slide the reader onto a different
+   * death while they were reading this one. Null is "the newest", which is
+   * what a live run should keep following.
+   */
+  const [picked, setPicked] = useState<string | null>(null);
 
   if (deaths.length === 0) {
     return (
@@ -26,21 +33,25 @@ export function DeathsPanel({ deaths }: { deaths: DeathReport[] }): React.JSX.El
     );
   }
 
-  const death = deaths[Math.min(selected, deaths.length - 1)]!;
+  const death = order.find((entry) => identify(entry) === picked) ?? order[0]!;
   const healing = healingBySpell(death);
+  // Newest first, like the death list beside it and the timeline above it: the
+  // press that mattered is the last one they got off, not the first.
+  const presses = useMemo(() => [...death.ownCasts].reverse(), [death]);
 
   return (
     <div className="death-grid">
       <div className="death-list">
-        {deaths.map((entry, index) => {
+        {order.map((entry) => {
+          const id = identify(entry);
           const entrySpec = specOf(entry.specId);
           const cascade = entry.sincePreviousDeathMs !== null && entry.sincePreviousDeathMs < CASCADE_MS;
           return (
             <button
-              key={`${entry.actorIndex}-${entry.ts}`}
+              key={id}
               type="button"
-              className={`death-item${index === selected ? ' selected' : ''}`}
-              onClick={() => setSelected(index)}
+              className={`death-item${id === identify(death) ? ' selected' : ''}`}
+              onClick={() => setPicked(id)}
             >
               <span className="who">
                 <SpecIcon
@@ -128,13 +139,13 @@ export function DeathsPanel({ deaths }: { deaths: DeathReport[] }): React.JSX.El
 
         <div className="panel">
           <h3>What they pressed</h3>
-          {death.ownCasts.length === 0 ? (
+          {presses.length === 0 ? (
             <p style={{ margin: 0, color: 'var(--danger)' }}>
-              Nothing cast in the {death.windowMs / 1000}s before dying.
+              Nothing pressed in the {death.windowMs / 1000}s before dying.
             </p>
           ) : (
             <div className="chips">
-              {death.ownCasts.map((castRecord, index) => (
+              {presses.map((castRecord, index) => (
                 <span className="chip" key={`${castRecord.ts}-${castRecord.spellId}-${index}`}>
                   {castRecord.name}
                   <span style={{ color: 'var(--dim)' }}> −{((death.ts - castRecord.ts) / 1000).toFixed(1)}s</span>
@@ -178,6 +189,11 @@ interface HealingTotal {
  * the window first: the percentages beside each spell are shares of that
  * total, and shares of a different window add up to more than all of it.
  */
+/** One death, named by who and when: stable while a live run appends more. */
+function identify(death: DeathReport): string {
+  return `${death.actorIndex}-${death.ts}`;
+}
+
 function healingBySpell(death: DeathReport): HealingTotal[] {
   const grouped = new Map<number, HealingTotal & { sources: Map<string, number> }>();
   for (const heal of death.healsReceived) {

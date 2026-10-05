@@ -5,6 +5,7 @@ import { SegmentKind } from '@mplus/analysis';
 import { BreakdownTable } from './components/BreakdownTable.js';
 import { DeathsPanel } from './components/DeathsPanel.js';
 import { EnemyRoster } from './components/EnemyRoster.js';
+import { InterruptsPanel } from './components/InterruptsPanel.js';
 import { RunRow, memberTitle, partyOf } from './components/RunRow.js';
 import { SegmentTimeline } from './components/SegmentTimeline.js';
 import { SpecIcon } from './components/SpecIcon.js';
@@ -13,7 +14,7 @@ import { clock, integer, percent, short } from './format.js';
 import { shortName, specOf } from './specs.js';
 import type { LogSummary, ParseProgress, RunAnalysis } from '../shared.js';
 
-type Tab = 'damage' | 'taken' | 'healing' | 'deaths';
+type Tab = 'damage' | 'taken' | 'healing' | 'interrupts' | 'deaths';
 
 export function App(): React.JSX.Element {
   const [summary, setSummary] = useState<LogSummary | null>(null);
@@ -125,6 +126,22 @@ export function App(): React.JSX.Element {
     if (run === null) return [];
     if (selectedSegment === null) return run.deaths;
     return run.deaths.filter((death) => death.segmentId === selectedSegment);
+  }, [run, selectedSegment]);
+
+  /**
+   * The same filter for interrupts, which is all a pull's interrupts are.
+   *
+   * Every attempt carries the segment its target belongs to, so there is no
+   * per-segment report to look up here the way there is for damage — the view
+   * rolls the filtered lists up itself.
+   */
+  const interrupts = useMemo(() => {
+    if (run === null) return { attempts: [], stops: [] };
+    if (selectedSegment === null) return run.interrupts;
+    return {
+      attempts: run.interrupts.attempts.filter((attempt) => attempt.segmentId === selectedSegment),
+      stops: run.interrupts.stops.filter((stop) => stop.segmentId === selectedSegment),
+    };
   }, [run, selectedSegment]);
 
   return (
@@ -275,6 +292,10 @@ export function App(): React.JSX.Element {
                   ['damage', 'Damage done'],
                   ['taken', 'Damage taken'],
                   ['healing', 'Healing'],
+                  [
+                    'interrupts',
+                    `Interrupts${interrupts.stops.length > 0 ? ` (${interrupts.stops.length})` : ''}`,
+                  ],
                   ['deaths', `Deaths${deaths.length > 0 ? ` (${deaths.length})` : ''}`],
                 ] as Array<[Tab, string]>
               ).map(([key, label]) => (
@@ -326,6 +347,11 @@ export function App(): React.JSX.Element {
 
               {tab === 'deaths' ? (
                 <DeathsPanel key={`${run.runId}:${selectedSegment ?? 'all'}`} deaths={deaths} />
+              ) : tab === 'interrupts' ? (
+                <InterruptsPanel
+                  key={`${run.runId}:${selectedSegment ?? 'all'}`}
+                  interrupts={interrupts}
+                />
               ) : reports !== null ? (
                 <BreakdownTable
                   report={tab === 'damage' ? reports.damage : tab === 'taken' ? reports.taken : reports.healing}

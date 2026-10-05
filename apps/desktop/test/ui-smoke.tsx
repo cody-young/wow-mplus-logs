@@ -14,6 +14,7 @@ import { DeathTimeline } from '../src/renderer/components/DeathTimeline.js';
 import { DeathsPanel } from '../src/renderer/components/DeathsPanel.js';
 import { DungeonIcon } from '../src/renderer/components/DungeonIcon.js';
 import { EnemyRoster, RosterTable } from '../src/renderer/components/EnemyRoster.js';
+import { InterruptsPanel } from '../src/renderer/components/InterruptsPanel.js';
 import { RunRow, partyOf } from '../src/renderer/components/RunRow.js';
 import { SegmentTimeline } from '../src/renderer/components/SegmentTimeline.js';
 import { SpecIcon } from '../src/renderer/components/SpecIcon.js';
@@ -85,6 +86,13 @@ export function render(analysis: RunAnalysis): Record<string, string> {
     taken: renderToString(<BreakdownTable report={analysis.taken} mode="taken" />),
     healing: renderToString(<BreakdownTable report={analysis.healing} mode="healing" />),
     deaths: renderToString(<DeathsPanel deaths={analysis.deaths} />),
+    interrupts: renderToString(<InterruptsPanel interrupts={analysis.interrupts} />),
+    // The press log, which is the half of this view a string render cannot
+    // click its way into. Expanded by hand for the same reason the damage
+    // table has an `expandedDamage` above.
+    interruptLog: renderToString(
+      <InterruptsPanel interrupts={analysis.interrupts} defaultExpanded />,
+    ),
     roster: widest === null ? '' : renderToString(<EnemyRoster segment={widest} forces={analysis.forces} />),
     rosterTable: widest === null ? '' : renderToString(<RosterTable segment={widest} forces={analysis.forces} />),
     // The same pull with no forces table at all — the case for anyone without
@@ -121,6 +129,26 @@ export function render(analysis: RunAnalysis): Record<string, string> {
         : renderToString(<DeathTimeline death={analysis.deaths[0]} defaultResolutionMs={250} />),
     // Degenerate inputs the UI must tolerate.
     emptyDeaths: renderToString(<DeathsPanel deaths={[]} />),
+    // A key where nothing was ever interruptible, which is a real outcome and
+    // not an error: no presses at all.
+    emptyInterrupts: renderToString(<InterruptsPanel interrupts={{ attempts: [], stops: [] }} />),
+    // Presses that stopped nothing whatsoever — the case where the panel's
+    // headline number is zero and the breakdown is the whole content.
+    allWhiffedInterrupts: renderToString(
+      <InterruptsPanel
+        interrupts={{
+          attempts: analysis.interrupts.attempts.map((attempt) => ({
+            ...attempt,
+            outcome: 'nothing',
+            stops: 0,
+            castSpellId: 0,
+            castSpellName: '',
+            beatenBy: '',
+          })),
+          stops: [],
+        }}
+      />,
+    ),
     emptyDamage: renderToString(
       <BreakdownTable report={{ ...analysis.damage, actors: [], total: 0 }} mode="done" />,
     ),
