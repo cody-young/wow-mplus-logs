@@ -15,6 +15,14 @@ jobs:
     strategy:
       # Windows failing should not deny you the Linux build, and vice versa.
       fail-fast: false
+      # One at a time, because both jobs publish into the same release and
+      # electron-builder creates it if it is not there yet. Run in parallel,
+      # both look, both find nothing, and both create one: v0.2.0 came out as
+      # two draft releases for the same tag, each holding one platform's
+      # installers, with both jobs reporting success. Serialized, the first job
+      # creates the release and the second finds it and uploads into it. The
+      # cost is the second platform's four minutes, once per tag.
+      max-parallel: 1
       matrix:
         include:
           - os: ubuntu-latest
