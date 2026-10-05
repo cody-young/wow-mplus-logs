@@ -34,13 +34,11 @@
  * to a **draft** release, and a draft is invisible to the feed. Tagging does
  * not ship an update; clicking Publish on the release does.
  */
-import { readFile, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
-
 import { app, shell } from 'electron';
 import { autoUpdater } from 'electron-updater';
 
 import type { UpdateCapability, UpdateState, UpdateStatus } from '../shared.js';
+import { load as loadSettings, save as saveSettings } from './settings.js';
 
 /**
  * Where a build that cannot update itself sends the reader. Has to agree with
@@ -99,36 +97,10 @@ function set(next: UpdateStatus): void {
   broadcast(state());
 }
 
-/**
- * The one setting this app has, so it is a file rather than a settings
- * subsystem. Lives beside the icon cache in userData; a missing or unreadable
- * file means the default, which is on.
- */
-function settingsPath(): string {
-  return join(app.getPath('userData'), 'settings.json');
-}
-
-async function loadSettings(): Promise<void> {
-  try {
-    const parsed: unknown = JSON.parse(await readFile(settingsPath(), 'utf8'));
-    if (typeof parsed === 'object' && parsed !== null) {
-      const value = (parsed as Record<string, unknown>)['automaticUpdates'];
-      if (typeof value === 'boolean') automatic = value;
-    }
-  } catch {
-    // No settings yet, or a file someone edited into invalid JSON. Either way
-    // the default stands rather than the app refusing to start.
-  }
-}
-
 export async function setAutomatic(on: boolean): Promise<void> {
   automatic = on;
   broadcast(state());
-  try {
-    await writeFile(settingsPath(), JSON.stringify({ automaticUpdates: on }, null, 2), 'utf8');
-  } catch {
-    // The choice holds for this session; it just will not be remembered.
-  }
+  await saveSettings({ automaticUpdates: on });
 }
 
 export function openReleases(): void {
@@ -167,7 +139,7 @@ export function install(): void {
 
 export async function initUpdates(send: (state: UpdateState) => void): Promise<void> {
   broadcast = send;
-  await loadSettings();
+  automatic = (await loadSettings()).automaticUpdates;
 
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = true;

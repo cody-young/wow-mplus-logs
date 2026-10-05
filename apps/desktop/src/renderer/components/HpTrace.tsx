@@ -62,13 +62,13 @@ export function HpTrace({ death }: { death: DeathReport }): React.JSX.Element {
         );
       })}
 
-      <text x={4} y={y(1) - 1} fill="#5e5e75" fontSize={10}>
+      <text x={4} y={y(1) - 1} fill="#5e5e75" fontSize={11}>
         {short(samples[0]!.hpMax)} max
       </text>
-      <text x={4} y={height - 4} fill="#5e5e75" fontSize={10}>
+      <text x={4} y={height - 4} fill="#5e5e75" fontSize={11}>
         −{death.scrollbackMs / 1000}s
       </text>
-      <text x={width - 4} y={height - 4} fill="#5e5e75" fontSize={10} textAnchor="end">
+      <text x={width - 4} y={height - 4} fill="#5e5e75" fontSize={11} textAnchor="end">
         death
       </text>
     </svg>

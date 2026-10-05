@@ -1,22 +1,57 @@
 /**
- * Finding the WoW log directory on Linux.
+ * Finding the WoW log directory.
  *
- * There is no single location: the game runs under Wine or Proton and every
- * launcher puts its prefix somewhere different. Rather than hardcode one path,
- * search a few likely roots for a `_retail_/Logs` directory, bounded in depth so
- * a stray symlink cannot turn this into a scan of the whole home directory.
+ * On Windows there is a default worth trying first: Blizzard's installer puts
+ * the client in `Program Files (x86)\World of Warcraft` — the 32-bit one, even
+ * for the 64-bit client — and most installs are still there. On Linux there is
+ * no single location at all: the game runs under Wine or Proton and every
+ * launcher puts its prefix somewhere different. Either way the search is the
+ * same shape — look for a `_retail_/Logs` directory under a few likely roots,
+ * bounded in depth so a stray symlink cannot turn this into a scan of the whole
+ * home directory — and either way it can come up empty, which is what the file
+ * picker in the main process is for.
  */
 import { readdir, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
-const CANDIDATE_ROOTS = [
+/** Linux roots, relative to the home directory. */
+const LINUX_ROOTS = [
   'Games',
   '.wine/drive_c/Program Files (x86)',
   '.local/share/Steam/steamapps/compatdata',
   '.var/app/com.usebottles.bottles/data/bottles/bottles',
   'Documents',
 ];
+
+/**
+ * Where an install might be, best guess first.
+ *
+ * The Windows list reads `ProgramFiles` from the environment as well as
+ * hardcoding `C:\`, because the two disagree on a machine that moved Program
+ * Files to another drive and the literal path is still the one Blizzard's
+ * installer offers. The second drive letter is not worth guessing: an install
+ * somewhere else entirely is what the picker handles.
+ */
+function candidateRoots(): string[] {
+  const home = homedir();
+  if (process.platform === 'win32') {
+    const bases = [
+      process.env['ProgramFiles(x86)'],
+      process.env['ProgramFiles'],
+      'C:\\Program Files (x86)',
+      'C:\\Program Files',
+    ];
+    const roots = bases
+      .filter((base): base is string => base !== undefined && base !== '')
+      .map((base) => join(base, 'World of Warcraft'));
+    // Battle.net can be pointed anywhere, but it offers the drive root as the
+    // other option often enough to be worth the one readdir it costs.
+    roots.push('C:\\World of Warcraft', join(home, 'Documents'));
+    return [...new Set(roots)];
+  }
+  return LINUX_ROOTS.map((relative) => join(home, relative));
+}
 
 const MAX_DEPTH = 7;
 const MAX_VISITS = 4000;
@@ -84,11 +119,9 @@ export async function listLogs(directory: string): Promise<LogFile[]> {
  * both a live and a PTR install actually wants.
  */
 export async function findLatestLog(): Promise<string | null> {
-  const home = homedir();
   let best: LogFile | null = null;
 
-  for (const relative of CANDIDATE_ROOTS) {
-    const root = join(home, relative);
+  for (const root of candidateRoots()) {
     for await (const directory of findLogDirs(root)) {
       for (const file of await listLogs(directory)) {
         if (best === null || file.modifiedMs > best.modifiedMs) best = file;

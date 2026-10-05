@@ -94,23 +94,33 @@ interface Span {
 /** One reserved colour for every absorb, whichever shield it was. */
 const ABSORB_COLOR = '#4a7fd4';
 
-/** Square, and the bar is 14px tall. Must match .dt-ico in the stylesheet. */
+/** Square. Must match .dt-ico in the stylesheet. */
 const ICON_PX = 14;
+/**
+ * The breathing room around an icon, on a bar and in an aura span. It is what
+ * sizes both: a bar is this plus the icon tall, and an aura column is this plus
+ * the icon wide. Must match the padding on .dt-bar and .dt-span.
+ */
+const ICON_PAD_PX = 2;
+/** What an icon needs of a box to be drawn in it whole, on either axis. */
+const ICON_BOX_PX = ICON_PX + ICON_PAD_PX * 2;
 /** Lane width assumed until the real one is measured, for the first paint. */
 const ASSUMED_LANE_PX = 260;
-/** Width of an aura lane and the height of one row. Must match the stylesheet. */
-const AURA_LANE_PX = 76;
-const ROW_PX = 20;
+/** The height of one row, bars and all. Must match the stylesheet. */
+const ROW_PX = 24;
 const ROW_GAP_PX = 2;
 /** The gap between packed aura columns, also from the stylesheet. */
 const AURA_COL_GAP_PX = 2;
+/** Columns an aura lane is wide, and so the width of the lane itself. */
+const AURA_COLS = 4;
+const AURA_LANE_PX = ICON_BOX_PX * AURA_COLS + AURA_COL_GAP_PX * (AURA_COLS - 1);
 /**
- * Width of one character of the bar's figure, at the stylesheet's 10px tabular
+ * Width of one character of the bar's figure, at the stylesheet's 11px tabular
  * font. Over- rather than under-stated: a figure that does not quite fit is
  * clipped to something like "16" and reads as a different number, which is
  * worse than no figure at all.
  */
-const DIGIT_PX = 6.4;
+const DIGIT_PX = 7;
 
 /**
  * Row lengths the chart can be read at, longest first.
@@ -449,13 +459,15 @@ function AuraLane({
   onEnter: (data: AuraWindow) => (event: React.MouseEvent<HTMLElement>) => void;
   onLeave: () => void;
 }): React.JSX.Element {
-  // Both dimensions are known without measuring: the lane's width is fixed by
-  // the stylesheet and split evenly between however many columns the packing
-  // needed, and the track's height is one row per bucket. A cropped icon is
-  // unrecognisable, so it is all or nothing on both axes.
-  const columnPx =
-    (AURA_LANE_PX - AURA_COL_GAP_PX * Math.max(0, columns.length - 1)) / Math.max(1, columns.length);
-  const roomForIcons = columnPx >= ICON_PX;
+  // Both dimensions are known without measuring: a column is one icon wide
+  // until the packing needs more columns than the lane holds, at which point
+  // they share what there is, and the track's height is one row per bucket. A
+  // cropped icon is unrecognisable, so it is all or nothing on both axes.
+  const columnPx = Math.min(
+    ICON_BOX_PX,
+    (AURA_LANE_PX - AURA_COL_GAP_PX * Math.max(0, columns.length - 1)) / Math.max(1, columns.length),
+  );
+  const roomForIcons = columnPx >= ICON_BOX_PX;
 
   return (
     <div className={`dt-lane ${side}`}>
@@ -466,7 +478,7 @@ function AuraLane({
             {column.map((span) => {
               const icon = icons.get(span.aura.spellId);
               const showIcon =
-                roomForIcons && icon !== undefined && (span.height / 100) * trackPx >= ICON_PX + 2;
+                roomForIcons && icon !== undefined && (span.height / 100) * trackPx >= ICON_BOX_PX;
               return (
                 <span
                   key={span.key}
@@ -568,12 +580,12 @@ function Segment({
   // Whether the icon fits is a question about pixels, not about share of the
   // scale: the same 4% bar is legible in a maximised window and a sliver in a
   // tiled one. A cropped icon is unrecognisable, so it is all or nothing.
-  const showIcon = icon !== undefined && width >= ICON_PX + 2;
+  const showIcon = icon !== undefined && width >= ICON_BOX_PX;
   // The figure is the thing most often wanted off a bar, and the one the row
   // total cannot give when two abilities share a second. It joins the icon
   // only when both fit whole: a clipped number is a wrong number.
   const figure = `${short(bar.amount)}${bar.crits > 0 ? '*' : ''}`;
-  const showFigure = width >= (showIcon ? ICON_PX : 0) + figure.length * DIGIT_PX + 8;
+  const showFigure = width >= (showIcon ? ICON_BOX_PX : 0) + figure.length * DIGIT_PX + 8;
 
   const detail = [
     bar.label,

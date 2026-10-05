@@ -100,7 +100,7 @@ export function SegmentTimeline({ segments, durationMs, forces, selectedId, onSe
     <div className="timeline">
       <div className="timeline-head">
         <h3>Route</h3>
-        <span style={{ fontSize: 11, color: 'var(--dim)' }}>
+        <span style={{ fontSize: 12, color: 'var(--dim)' }}>
           {pullCount} pulls · {bossCount} bosses
           {forces.known
             ? ` · ${integer(forces.counted)}/${integer(forces.total)} count` +

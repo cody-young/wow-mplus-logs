@@ -120,8 +120,12 @@ export interface UpdateState {
 export interface DesktopApi {
   /** Opens a file picker and begins parsing. Resolves to the chosen path. */
   pickLog(): Promise<string | null>;
-  /** Most recent log in the detected WoW Logs directory, if one was found. */
-  findLatestLog(): Promise<string | null>;
+  /**
+   * The log to follow live: the newest in the remembered directory, else the
+   * newest the install search finds, else whatever the reader picks when asked.
+   * Null when there is nothing to watch and they dismissed the picker.
+   */
+  watchLog(): Promise<string | null>;
   open(path: string, tail: boolean): Promise<void>;
   /**
    * Spell icons as data URLs, keyed by spell id. Ids with no icon available

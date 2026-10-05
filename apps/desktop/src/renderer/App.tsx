@@ -145,7 +145,7 @@ export function App(): React.JSX.Element {
               type="button"
               disabled={busy}
               title="Find the newest combat log and follow it as you play"
-              onClick={() => void window.mplus.findLatestLog().then((path) => open(path, true))}
+              onClick={() => void window.mplus.watchLog().then((path) => open(path, true))}
             >
               Watch live
             </button>
@@ -165,7 +165,7 @@ export function App(): React.JSX.Element {
 
         <div className="runs">
           {analyses.length === 0 && !busy ? (
-            <p style={{ color: 'var(--dim)', padding: '10px 9px', fontSize: 12, lineHeight: 1.5 }}>
+            <p style={{ color: 'var(--dim)', padding: '10px 9px', fontSize: 13, lineHeight: 1.5 }}>
               No keys loaded yet.
             </p>
           ) : null}
@@ -378,7 +378,8 @@ function Welcome({
               <strong>Open log…</strong> reads a saved <code>WoWCombatLog-*.txt</code> and lists every key in it.
             </p>
             <p>
-              <strong>Watch live</strong> finds your newest log and follows it as you play.
+              <strong>Watch live</strong> finds your newest log and follows it as you play. If it cannot
+              find one, it asks you for it once and remembers the folder.
             </p>
             <p style={{ marginTop: 18, color: 'var(--dim)' }}>
               Type <code>/combatlog</code> in game to start logging, and turn on advanced combat logging

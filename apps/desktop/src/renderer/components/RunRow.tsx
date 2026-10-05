@@ -70,7 +70,7 @@ export function RunRow({
       <span className="run-body">
         <span className="top">
           <span className="level">+{meta.keystoneLevel}</span>
-          <span className={state} style={{ fontSize: 11 }}>
+          <span className={state} style={{ fontSize: 12 }}>
             {analysis.live ? 'in progress' : meta.success ? 'timed' : 'depleted'}
           </span>
         </span>

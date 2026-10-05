@@ -1,12 +1,13 @@
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { Worker } from 'node:worker_threads';
 
 import { BrowserWindow, app, dialog, ipcMain, shell } from 'electron';
 
 import type { UpdateState, WorkerEvent, WorkerRequest } from '../shared.js';
 import { resolveIcons, resolveNamed } from './icons.js';
-import { findLatestLog } from './logs.js';
+import { findLatestLog, listLogs } from './logs.js';
 import { loadForces } from './forces.js';
+import { load as loadSettings, save as saveSettings } from './settings.js';
 import {
   check as checkForUpdate,
   download as downloadUpdate,
@@ -96,7 +97,46 @@ ipcMain.handle('mplus:pickLog', async () => {
   return result.canceled ? null : (result.filePaths[0] ?? null);
 });
 
-ipcMain.handle('mplus:findLatestLog', () => findLatestLog());
+/**
+ * The log to follow when someone asks to watch live.
+ *
+ * Three steps, in increasing order of how much they ask of the reader: the
+ * directory they pointed us at last time, then the install search, then a
+ * picker. What is remembered is the directory and not the file, because the
+ * game starts a new log every time `/combatlog` is turned on — so a reader
+ * whose install the search cannot find is asked once, not once per session.
+ */
+async function watchTarget(): Promise<string | null> {
+  const remembered = (await loadSettings()).logDirectory;
+  if (remembered !== null) {
+    const newest = (await listLogs(remembered))[0];
+    if (newest !== undefined) return newest.path;
+  }
+
+  const found = await findLatestLog();
+  if (found !== null) return found;
+
+  const result = await dialog.showOpenDialog({
+    // The title carries the explanation: `message` only shows on macOS, and
+    // this dialog opening at all means the search already failed.
+    title: 'No combat log found — open one from your World of Warcraft Logs folder',
+    buttonLabel: 'Watch',
+    ...(remembered !== null ? { defaultPath: remembered } : {}),
+    properties: ['openFile'],
+    filters: [
+      { name: 'Combat logs', extensions: ['txt'] },
+      { name: 'All files', extensions: ['*'] },
+    ],
+  });
+  const picked = result.canceled ? undefined : result.filePaths[0];
+  if (picked === undefined) return null;
+  // Remembered even though this run follows the picked file directly, so the
+  // next press resolves without asking.
+  await saveSettings({ logDirectory: dirname(picked) });
+  return picked;
+}
+
+ipcMain.handle('mplus:watchLog', () => watchTarget());
 
 ipcMain.handle('mplus:icons', (_event, spellIds: number[]) =>
   resolveIcons(Array.isArray(spellIds) ? spellIds : []),
