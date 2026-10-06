@@ -19,6 +19,7 @@ import { DeathsPanel } from '../src/renderer/components/DeathsPanel.js';
 import { DungeonIcon } from '../src/renderer/components/DungeonIcon.js';
 import { EnemyRoster, RosterTable } from '../src/renderer/components/EnemyRoster.js';
 import { InterruptsPanel } from '../src/renderer/components/InterruptsPanel.js';
+import { MapPanel } from '../src/renderer/components/MapPanel.js';
 import { RunRow, partyOf } from '../src/renderer/components/RunRow.js';
 import { SegmentTimeline } from '../src/renderer/components/SegmentTimeline.js';
 import { SpecIcon } from '../src/renderer/components/SpecIcon.js';
@@ -30,6 +31,7 @@ import {
   shareDeaths,
   shareDispels,
   shareInterrupts,
+  shareRoute,
 } from '../src/renderer/share.js';
 import { SPECS } from '../src/renderer/specs.js';
 import type { RunAnalysis, RunForces, UpdateState, UpdateStatus } from '../src/shared.js';
@@ -114,6 +116,9 @@ export function render(analysis: RunAnalysis): Record<string, string> {
     // Every player's hits open, for the same reason.
     avoidableLog: renderToString(<AvoidablePanel avoidable={analysis.avoidable} defaultExpanded />),
     avoidableCompare: renderToString(<AvoidableComparePanel avoidable={analysis.avoidable} />),
+    // Only the chrome around the canvas: the canvas has no size until it is
+    // mounted, so a string render draws nothing on it by design.
+    map: renderToString(<MapPanel run={analysis} selectedSegment={null} onSelectSegment={() => {}} />),
     // The copy button's text for every tab, whole key, which is plain text
     // rather than markup but fails the same ways: a crash on real data, a
     // line too long for chat.
@@ -125,6 +130,7 @@ export function render(analysis: RunAnalysis): Record<string, string> {
     shareDispels: shareDispels(analysis.dispels, { meta: analysis.meta, segment: null }),
     shareAvoidable: shareAvoidable(analysis.avoidable, { meta: analysis.meta, segment: null }),
     shareDeaths: shareDeaths(analysis.deaths, { meta: analysis.meta, segment: null }),
+    shareRoute: shareRoute(analysis.segments, analysis.forces, { meta: analysis.meta, segment: null }),
     // One pull's text, which names the pull in its heading.
     shareSegment:
       analysis.segments[0] === undefined || perSegment === undefined

@@ -70,7 +70,7 @@ await esbuild.build({
 });
 
 const { loadForces } = await import(new URL('apps/desktop/out/main/forces.js', root));
-const { table: forces } = await loadForces(logPath);
+const { table: forces, mdt } = await loadForces(logPath);
 
 const analysis = await new Promise((done, fail) => {
   const worker = new Worker(new URL('apps/desktop/out/main/parse-worker.js', root));
@@ -86,7 +86,7 @@ const analysis = await new Promise((done, fail) => {
     }
   });
   worker.on('error', fail);
-  worker.postMessage({ type: 'open', path: logPath, tail: false, forces });
+  worker.postMessage({ type: 'open', path: logPath, tail: false, forces, mdt });
 });
 
 const { render } = await import(bundle);

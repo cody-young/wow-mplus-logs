@@ -20,10 +20,15 @@ import type {
   InterruptAttempt,
   InterruptReport,
   InterruptStop,
+  MdtFloorFit,
+  MdtMatch,
+  MdtPlacement,
+  PositionReport,
+  PositionTrack,
   RunForces,
   Segment,
 } from '@mplus/analysis';
-import type { ForcesTable } from '@mplus/data';
+import type { ForcesTable, MdtDungeon } from '@mplus/data';
 import type { RunMeta } from '@mplus/parser';
 
 export type {
@@ -40,6 +45,11 @@ export type {
   InterruptAttempt,
   InterruptReport,
   InterruptStop,
+  MdtFloorFit,
+  MdtMatch,
+  MdtPlacement,
+  PositionReport,
+  PositionTrack,
   RunForces,
   Segment,
   RunMeta,
@@ -94,6 +104,19 @@ export interface RunAnalysis {
    * Not split per segment, for the same reason as the control list.
    */
   avoidable: AvoidableReport;
+  /**
+   * Where every party member and engaged enemy was over the key, for the map.
+   *
+   * The one report made of typed arrays, a few hundred kilobytes for a long
+   * key. They cross the worker and IPC boundaries as copies of their bytes,
+   * which is far cheaper than the same samples as objects would be.
+   */
+  positions: PositionReport;
+  /**
+   * The run fitted to Mythic Dungeon Tools' map of the dungeon, floor by
+   * floor. Null when MDT is not installed or has no map of this dungeon.
+   */
+  mdt: MdtPlacement | null;
   bySegment: Record<number, SegmentReports>;
   /**
    * Enemy forces for the run. `known: false` when no table covered the
@@ -126,7 +149,7 @@ export type WorkerRequest =
    * other install discovery in the main process, and because the worker is
    * meant to be portable enough to become a browser worker later.
    */
-  | { type: 'open'; path: string; tail: boolean; forces: ForcesTable }
+  | { type: 'open'; path: string; tail: boolean; forces: ForcesTable; mdt: MdtDungeon[] }
   | { type: 'stop' };
 
 export type WorkerEvent =
@@ -221,4 +244,11 @@ export interface DesktopApi {
    * build swaps this for that.
    */
   copyText(text: string): Promise<void>;
+  /**
+   * One MDT floor's 150 map tiles as data URLs, in MDT's order (row by row
+   * from the top left), with null for a tile that could not be read. Null
+   * when MDT is not installed beside the open log. `textureDir` is a
+   * sublevel's, relative to MDT's folder.
+   */
+  mdtTiles(textureDir: string, sublevel: number): Promise<Array<string | null> | null>;
 }

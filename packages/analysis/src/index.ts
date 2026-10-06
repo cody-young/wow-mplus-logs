@@ -95,6 +95,14 @@ export {
   wasted,
 } from './events.js';
 export {
+  MDT_MATCH_UNITS,
+  placeOnMdt,
+  toMdt,
+  type MdtFloorFit,
+  type MdtMatch,
+  type MdtPlacement,
+} from './mdt.js';
+export {
   TrackKind,
   mapPoint,
   positionAt,

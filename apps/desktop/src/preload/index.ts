@@ -76,6 +76,8 @@ const api: DesktopApi = {
   openReleases: () => ipcRenderer.invoke('mplus:openReleases') as Promise<void>,
   onUpdateState: (handler) => subscribe(handlers.update, handler),
   copyText: (text) => ipcRenderer.invoke('mplus:copyText', text) as Promise<void>,
+  mdtTiles: (textureDir, sublevel) =>
+    ipcRenderer.invoke('mplus:mdtTiles', textureDir, sublevel) as Promise<Array<string | null> | null>,
 };
 
 contextBridge.exposeInMainWorld('mplus', api);

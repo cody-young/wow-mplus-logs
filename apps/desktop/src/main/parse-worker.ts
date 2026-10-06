@@ -24,9 +24,11 @@ import {
   dispelReport,
   healingReport,
   interruptReport,
+  placeOnMdt,
+  positionTracks,
   type SegmentIndex,
 } from '@mplus/analysis';
-import { EMPTY_TABLE, forcesFor, type ForcesTable } from '@mplus/data';
+import { EMPTY_TABLE, forcesFor, type ForcesTable, type MdtDungeon } from '@mplus/data';
 import { LogSession, type Run } from '@mplus/parser';
 
 import type { RunAnalysis, SegmentReports, WorkerEvent, WorkerRequest } from '../shared.js';
@@ -38,16 +40,21 @@ const post = (event: WorkerEvent): void => port.postMessage(event);
 
 /** Minimum gap between recomputes while a key is in progress. */
 const LIVE_THROTTLE_MS = 1500;
+/** Minimum gap between progress reports while reading, so the bar moves without flooding the port. */
+const PROGRESS_THROTTLE_MS = 100;
 
 let session: LogSession | null = null;
 let watcher: FSWatcher | null = null;
 let offset = 0;
 let reading = false;
 let lastLiveAt = 0;
+let lastProgressAt = 0;
 let startedAt = 0;
 let totalBytes = 0;
 /** Enemy forces for the client that wrote this log; empty when MDT was absent. */
 let forcesTable: ForcesTable = EMPTY_TABLE;
+/** MDT's map of each dungeon, by challenge-mode id; empty when MDT was absent. */
+let mdtDungeons = new Map<number, MdtDungeon>();
 
 function analyze(active: LogSession, run: Run, live: boolean): RunAnalysis {
   const context = contextFor(active, run);
@@ -76,6 +83,9 @@ function analyze(active: LogSession, run: Run, live: boolean): RunAnalysis {
   for (const index of run.meta.party) note(index);
   for (const segment of segments.segments) for (const enemy of segment.enemies) note(enemy);
 
+  const positions = positionTracks(context, segments);
+  const mdtDungeon = mdtDungeons.get(run.meta.challengeModeId);
+
   return {
     runId: run.meta.id,
     meta: structuredCloneable(run.meta),
@@ -89,6 +99,8 @@ function analyze(active: LogSession, run: Run, live: boolean): RunAnalysis {
     control: crowdControlReport(context, segments),
     dispels: dispelReport(context, segments),
     avoidable: avoidableReport(context, segments),
+    positions,
+    mdt: mdtDungeon === undefined ? null : placeOnMdt(positions, mdtDungeon),
     bySegment,
     // Every field is a scalar now, so a shallow copy is a full one.
     forces: { ...segments.forces },
@@ -103,10 +115,12 @@ function structuredCloneable(meta: Run['meta']): Run['meta'] {
     affixes: [...meta.affixes],
     party: [...meta.party],
     encounters: meta.encounters.map((encounter) => ({ ...encounter })),
+    maps: meta.maps.map((map) => ({ ...map })),
   };
 }
 
 function emitProgress(linesSeen: number): void {
+  lastProgressAt = Date.now();
   post({
     type: 'progress',
     progress: { bytesRead: offset, totalBytes, linesSeen, elapsedMs: Date.now() - startedAt },
@@ -175,6 +189,7 @@ async function drainWith(active: LogSession, size: number): Promise<void> {
     const bytes = chunk as Buffer;
     active.push(bytes);
     offset += bytes.length;
+    if (Date.now() - lastProgressAt >= PROGRESS_THROTTLE_MS) emitProgress(active.parser.linesSeen);
   }
   totalBytes = Math.max(size, offset);
   emitProgress(active.parser.linesSeen);
@@ -193,11 +208,14 @@ port.on('message', (message: WorkerRequest) => {
       watcher = null;
       currentPath = message.path;
       forcesTable = message.forces;
+      mdtDungeons = new Map(message.mdt.map((dungeon) => [dungeon.challengeModeId, dungeon]));
       lastVersionSeen = '';
       offset = 0;
       startedAt = Date.now();
       totalBytes = statSync(currentPath).size;
       session = makeSession();
+      // Report zero straight away, so the bar appears before the first chunk.
+      emitProgress(0);
 
       await drain(session);
       // A run still open at end of file is a key in progress; report it now

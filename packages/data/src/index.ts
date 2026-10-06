@@ -27,7 +27,18 @@ export {
   type ForcesTable,
 } from './forces.js';
 export { DB2_BUILD, db2DungeonCount, db2Dungeons } from './enemy-forces.js';
-export { parseMdtTeleport, type MdtTeleport } from './mdt.js';
+export {
+  MDT_CANVAS,
+  MDT_TILES,
+  mdtTileName,
+  parseMdtDungeon,
+  parseMdtTeleport,
+  type MdtClone,
+  type MdtDungeon,
+  type MdtEnemy,
+  type MdtSublevel,
+  type MdtTeleport,
+} from './mdt.js';
 export { Defense, defenseKinds, defensiveCount, isDefensive, type DefenseKind } from './defensives.js';
 export {
   avoidable,

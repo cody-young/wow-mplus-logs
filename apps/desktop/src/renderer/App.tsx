@@ -10,6 +10,7 @@ import { DispelsPanel } from './components/DispelsPanel.js';
 import { DeathsPanel } from './components/DeathsPanel.js';
 import { EnemyRoster } from './components/EnemyRoster.js';
 import { InterruptsPanel } from './components/InterruptsPanel.js';
+import { MapPanel } from './components/MapPanel.js';
 import { RunRow, memberTitle, partyOf } from './components/RunRow.js';
 import { SegmentTimeline } from './components/SegmentTimeline.js';
 import { SpecIcon } from './components/SpecIcon.js';
@@ -23,6 +24,7 @@ import {
   shareDeaths,
   shareDispels,
   shareInterrupts,
+  shareRoute,
 } from './share.js';
 import { shortName, specOf } from './specs.js';
 import type { LogSummary, ParseProgress, RunAnalysis } from '../shared.js';
@@ -36,7 +38,8 @@ type Tab =
   | 'dispels'
   | 'avoidable'
   | 'avoidable-compare'
-  | 'deaths';
+  | 'deaths'
+  | 'map';
 
 export function App(): React.JSX.Element {
   const [summary, setSummary] = useState<LogSummary | null>(null);
@@ -89,6 +92,8 @@ export function App(): React.JSX.Element {
     setSelectedRun(null);
     setSelectedSegment(null);
     browsingOlder.current = false;
+    // Cleared so the bar starts from empty rather than where the last log finished.
+    setProgress(null);
     setBusy(true);
     setSummary({ path, sizeBytes: 0, advancedLogging: null, buildVersion: '' });
     await window.mplus.open(path, tail);
@@ -234,6 +239,8 @@ export function App(): React.JSX.Element {
         return shareAvoidableCompare(avoidable, scope);
       case 'deaths':
         return shareDeaths(deaths, scope);
+      case 'map':
+        return shareRoute(run.segments, run.forces, scope);
     }
   };
 
@@ -263,13 +270,9 @@ export function App(): React.JSX.Element {
           {summary !== null ? <div className="path">{summary.path}</div> : null}
         </header>
 
-        {busy && progress !== null ? (
+        {busy ? (
           <div className="progress">
-            <div
-              style={{
-                width: `${progress.totalBytes > 0 ? Math.min(100, (progress.bytesRead / progress.totalBytes) * 100) : 0}%`,
-              }}
-            />
+            <div style={{ width: `${percentRead(progress)}%` }} />
           </div>
         ) : null}
 
@@ -397,6 +400,7 @@ export function App(): React.JSX.Element {
                   ],
                   ['avoidable-compare', 'Avoidable vs Blizzard*'],
                   ['deaths', `Deaths${deaths.length > 0 ? ` (${deaths.length})` : ''}`],
+                  ['map', 'Map'],
                 ] as Array<[Tab, string]>
               ).map(([key, label]) => (
                 <button
@@ -442,7 +446,14 @@ export function App(): React.JSX.Element {
 
               {segment !== null ? <EnemyRoster segment={segment} forces={run.forces} /> : null}
 
-              {tab === 'deaths' ? (
+              {tab === 'map' ? (
+                <MapPanel
+                  key={run.runId}
+                  run={run}
+                  selectedSegment={selectedSegment}
+                  onSelectSegment={setSelectedSegment}
+                />
+              ) : tab === 'deaths' ? (
                 <DeathsPanel key={`${run.runId}:${selectedSegment ?? 'all'}`} deaths={deaths} />
               ) : tab === 'interrupts' ? (
                 <InterruptsPanel
@@ -511,6 +522,12 @@ function CopyButton({ text }: { text: () => string }): React.JSX.Element {
   );
 }
 
+/** How far through the file the worker is, 0 to 100; 0 before the first report. */
+function percentRead(progress: ParseProgress | null): number {
+  if (progress === null || progress.totalBytes <= 0) return 0;
+  return Math.min(100, (progress.bytesRead / progress.totalBytes) * 100);
+}
+
 function Welcome({
   summary,
   busy,
@@ -533,9 +550,19 @@ function Welcome({
         ) : busy ? (
           <>
             <h2>Reading {summary?.path.split('/').pop() ?? 'log'}…</h2>
+            <div
+              className="progress reading"
+              role="progressbar"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={Math.round(percentRead(progress))}
+            >
+              <div style={{ width: `${percentRead(progress)}%` }} />
+            </div>
             {progress !== null ? (
               <p>
-                {integer(progress.linesSeen)} lines · {(progress.bytesRead / 1_048_576).toFixed(0)} MB
+                {percentRead(progress).toFixed(0)}% · {integer(progress.linesSeen)} lines ·{' '}
+                {(progress.bytesRead / 1_048_576).toFixed(0)} of {(progress.totalBytes / 1_048_576).toFixed(0)} MB
                 {progress.elapsedMs > 0
                   ? ` · ${(progress.bytesRead / 1_048_576 / (progress.elapsedMs / 1000)).toFixed(0)} MB/s`
                   : ''}

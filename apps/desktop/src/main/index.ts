@@ -7,6 +7,7 @@ import type { UpdateState, WorkerEvent, WorkerRequest } from '../shared.js';
 import { resolveIcons, resolveNamed } from './icons.js';
 import { findLatestLog, listLogs } from './logs.js';
 import { loadForces } from './forces.js';
+import { mdtTiles } from './mdt-tiles.js';
 import { load as loadSettings, save as saveSettings } from './settings.js';
 import {
   check as checkForUpdate,
@@ -22,6 +23,8 @@ const isDev = !app.isPackaged;
 
 let window: BrowserWindow | null = null;
 let worker: Worker | null = null;
+/** The MDT install beside the open log, where its map tiles are read from. */
+let mdtDirectory: string | null = null;
 
 function startWorker(): Worker {
   if (worker !== null) return worker;
@@ -156,13 +159,18 @@ ipcMain.handle('mplus:copyText', (_event, text: unknown) => {
   if (typeof text === 'string') clipboard.writeText(text);
 });
 
+ipcMain.handle('mplus:mdtTiles', (_event, textureDir: unknown, sublevel: unknown) =>
+  mdtDirectory === null ? null : mdtTiles(mdtDirectory, textureDir, sublevel),
+);
+
 ipcMain.handle('mplus:open', async (_event, path: string, tail: boolean) => {
   // Awaited rather than loaded in parallel with the parse: the analysis needs
   // the table from its first pass, and re-running a 200 MB key to attach the
   // forces values afterwards costs far more than the scan does. It reads a
   // dozen files beside the log, so this is milliseconds.
-  const { table } = await loadForces(path);
-  send({ type: 'open', path, tail, forces: table });
+  const { table, iconsFrom, mdt } = await loadForces(path);
+  mdtDirectory = iconsFrom;
+  send({ type: 'open', path, tail, forces: table, mdt });
 });
 
 void app.whenReady().then(async () => {

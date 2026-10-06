@@ -16,11 +16,15 @@
  * bundled for the same licence reason as before, and it is purely cosmetic —
  * without MDT a dungeon shows its initials instead of its icon, and every
  * count on the page is identical either way.
+ *
+ * The same scan reads each dungeon's spawns and map art, which is what puts a
+ * run on MDT's map. That is optional in the same way: without MDT the map tab
+ * draws the log's own coordinates.
  */
 import { readFile, readdir, stat } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
-import { DB2_BUILD, db2Dungeons, parseMdtTeleport, type ForcesTable } from '@mplus/data';
+import { DB2_BUILD, db2Dungeons, parseMdtDungeon, parseMdtTeleport, type ForcesTable, type MdtDungeon } from '@mplus/data';
 
 /** Addon folder names to try, newest fork first; MDT has been forked twice. */
 const ADDON_NAMES = ['MythicDungeonTools', 'DungeonTools'];
@@ -87,18 +91,25 @@ async function luaFiles(directory: string): Promise<string[]> {
   return found;
 }
 
+interface MdtScan {
+  /** Teleport spells by challenge-mode id. */
+  teleports: Map<number, number>;
+  /** Spawns and map art, by challenge-mode id. */
+  dungeons: Map<number, MdtDungeon>;
+}
+
 /**
- * Teleport spells by challenge-mode id, read from one MDT directory.
+ * Everything read from one MDT directory.
  *
  * Null when the directory holds no MDT dungeon files at all, which is how a
  * missing or half-installed addon is told from one that simply has no teleport
  * for a dungeon.
  */
-async function teleports(directory: string): Promise<Map<number, number> | null> {
+async function scan(directory: string): Promise<MdtScan | null> {
   const files = await luaFiles(directory);
   if (files.length === 0) return null;
 
-  const found = new Map<number, number>();
+  const found: MdtScan = { teleports: new Map(), dungeons: new Map() };
   for (const file of files.sort()) {
     let info;
     try {
@@ -108,27 +119,33 @@ async function teleports(directory: string): Promise<Map<number, number> | null>
     }
     if (info.size > MAX_FILE_BYTES) continue;
 
-    let teleport;
+    let source;
     try {
-      teleport = parseMdtTeleport(await readFile(file, 'utf8'));
+      source = await readFile(file, 'utf8');
     } catch {
       continue; // an unreadable file is one fewer icon, not a failed load
     }
-    if (teleport === null) continue;
-    // A dungeon reused across expansions ships twice with the same teleport.
-    // Files are scanned in sorted order, so the first wins deterministically
-    // rather than whichever won the race.
-    if (!found.has(teleport.challengeModeId)) {
-      found.set(teleport.challengeModeId, teleport.teleportSpellId);
+    // A dungeon reused across expansions ships twice. Files are scanned in
+    // sorted order, so the first wins deterministically rather than whichever
+    // won the race.
+    const teleport = parseMdtTeleport(source);
+    if (teleport !== null && !found.teleports.has(teleport.challengeModeId)) {
+      found.teleports.set(teleport.challengeModeId, teleport.teleportSpellId);
+    }
+    const dungeon = parseMdtDungeon(source);
+    if (dungeon !== null && !found.dungeons.has(dungeon.challengeModeId)) {
+      found.dungeons.set(dungeon.challengeModeId, dungeon);
     }
   }
-  return found.size === 0 ? null : found;
+  return found.teleports.size === 0 && found.dungeons.size === 0 ? null : found;
 }
 
 export interface ForcesLoad {
   table: ForcesTable;
   /** The MDT directory the dungeon icons came from, or null when none was found. */
   iconsFrom: string | null;
+  /** Every dungeon MDT has a map of; empty without MDT. */
+  mdt: MdtDungeon[];
 }
 
 /**
@@ -146,12 +163,12 @@ export async function loadForces(logPath: string | null): Promise<ForcesLoad> {
   };
 
   for (const directory of mdtCandidates(logPath)) {
-    const found = await teleports(directory).catch(() => null);
+    const found = await scan(directory).catch(() => null);
     if (found === null) continue;
     for (const dungeon of dungeons) {
-      dungeon.teleportSpellId = found.get(dungeon.challengeModeId) ?? 0;
+      dungeon.teleportSpellId = found.teleports.get(dungeon.challengeModeId) ?? 0;
     }
-    return { table, iconsFrom: directory };
+    return { table, iconsFrom: directory, mdt: [...found.dungeons.values()] };
   }
-  return { table, iconsFrom: null };
+  return { table, iconsFrom: null, mdt: [] };
 }

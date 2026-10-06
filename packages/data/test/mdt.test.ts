@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { parseMdtTeleport } from '../src/index.js';
+import { mdtTileName, parseMdtDungeon, parseMdtTeleport } from '../src/index.js';
 
 /**
  * An MDT dungeon file in miniature, shaped like the real ones.
@@ -24,6 +24,17 @@ MDT.mapInfo[dungeonIndex] = {
   englishName = "Test Hold",
   mapID = 588
 };
+
+MDT.dungeonMaps[dungeonIndex] = {
+  [0] = "",
+  [1] = { customTextures = 'Interface\\\\AddOns\\\\'..addonName..'\\\\Midnight\\\\Textures\\\\TestHold' },
+  [2] = "Interface\\\\WorldMap\\\\TestHoldLower\\\\",
+}
+
+MDT.dungeonSubLevels[dungeonIndex] = {
+  [1] = L["TestHold"],
+  [2] = L["Test Hold Lower"],
+}
 
 MDT.dungeonTotalCount[dungeonIndex] = { normal = 800 }
 
@@ -50,7 +61,8 @@ MDT.dungeonEnemies[dungeonIndex] = {
         ["x"] = 70.5,
         ["y"] = -210.5,
         ["id"] = 999998,
-        ["sublevel"] = 1,
+        ["g"] = 4,
+        ["sublevel"] = 2,
       },
     },
   },
@@ -121,4 +133,53 @@ test('a truncated header reads as no teleport rather than a guess', () => {
 test('a literal dungeon index is read like the local one', () => {
   const literal = FIXTURE.replace('MDT.mapInfo[dungeonIndex]', 'MDT.mapInfo[164]');
   assert.equal(parseMdtTeleport(literal)!.teleportSpellId, 1286812);
+});
+
+test('a dungeon file yields its spawns, floors and map art', () => {
+  const dungeon = parseMdtDungeon(FIXTURE);
+  assert.notEqual(dungeon, null);
+  assert.equal(dungeon!.challengeModeId, 588);
+  assert.equal(dungeon!.dungeonIndex, 164);
+  assert.equal(dungeon!.name, 'Test Hold');
+  assert.equal(dungeon!.teleportSpellId, 1286812);
+  // MDT's own floor names are locale keys; the key is the name.
+  assert.deepEqual(dungeon!.sublevels, [
+    // Built by concatenation around the addon's folder name, which is
+    // whatever the user's addon folder is called: what matters is the rest.
+    { index: 1, name: 'TestHold', textureDir: 'Midnight/Textures/TestHold' },
+    // Blizzard's own map art is in the game's archives, out of reach.
+    { index: 2, name: 'Test Hold Lower', textureDir: null },
+  ]);
+
+  const chieftain = dungeon!.enemies.find((enemy) => enemy.npcId === 270306)!;
+  assert.equal(chieftain.index, 1);
+  assert.equal(chieftain.count, 25);
+  assert.equal(chieftain.isBoss, false);
+  assert.deepEqual(chieftain.clones, [
+    { index: 1, x: 65.5, y: -205.5, sublevel: 1, group: null },
+    { index: 2, x: 70.5, y: -210.5, sublevel: 2, group: 4 },
+  ]);
+  // A clone with no sublevel is on the first, as MDT draws it.
+  assert.equal(dungeon!.enemies.find((enemy) => enemy.npcId === 270307)!.clones[0]!.sublevel, 1);
+  assert.equal(dungeon!.enemies.find((enemy) => enemy.npcId === 270400)!.isBoss, true);
+});
+
+test('a dungeon file that is cut short or is not a dungeon reads as none', () => {
+  assert.equal(parseMdtDungeon('local _, MDT = ...\nMDT.L = {}\n'), null);
+  // Missing half its spawns would fit a run worse than no map, and look right.
+  const cut = FIXTURE.slice(0, FIXTURE.indexOf('"Brace { Bearer"'));
+  assert.equal(parseMdtDungeon(cut), null);
+});
+
+test('a texture folder that climbs out of the addon is refused', () => {
+  const climbing = FIXTURE.replace("'\\\\Midnight\\\\Textures\\\\TestHold'", "'\\\\..\\\\..\\\\WTF'");
+  assert.notEqual(climbing, FIXTURE);
+  assert.equal(parseMdtDungeon(climbing)!.sublevels[0]!.textureDir, null);
+});
+
+test("tiles are named the way MDT's map view asks for them", () => {
+  assert.equal(mdtTileName(1, 0, 0), '1_1.png');
+  assert.equal(mdtTileName(1, 0, 14), '1_15.png');
+  assert.equal(mdtTileName(2, 1, 0), '2_16.png');
+  assert.equal(mdtTileName(1, 9, 14), '1_150.png');
 });

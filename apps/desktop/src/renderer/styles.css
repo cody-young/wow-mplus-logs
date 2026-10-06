@@ -668,6 +668,7 @@ table.roster-table { margin-top: 6px; }
 }
 .progress { height: 2px; background: var(--border); }
 .progress > div { height: 100%; background: var(--accent); transition: width 120ms linear; }
+.progress.reading { height: 6px; width: min(360px, 100%); margin: 14px auto 10px; border-radius: 3px; overflow: hidden; }
 .live {
   display: inline-flex; align-items: center; gap: 5px;
   color: var(--boss); font-size: 12px; text-transform: uppercase; letter-spacing: 0.6px;
@@ -773,3 +774,35 @@ table.roster-table { margin-top: 6px; }
   font-size: 12px;
 }
 .tabs .share.done { color: var(--good); border-color: var(--good); }
+
+/* Map tab */
+.map-panel { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
+.map-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.map-floors { display: flex; flex-wrap: wrap; gap: 5px; }
+.map-floor, .map-follow {
+  background: var(--panel-raised); border: 1px solid var(--border); border-radius: 11px;
+  padding: 2px 10px; font-size: 12px; color: var(--muted);
+}
+.map-floor:hover, .map-follow:hover { color: var(--text); }
+.map-floor.active { color: var(--text); border-color: var(--accent); background: #1b2231; }
+/* The floor the party is on, while following them. */
+.map-floor.party::before { content: '●'; color: var(--good); margin-right: 5px; font-size: 9px; vertical-align: 1px; }
+.map-follow { border-style: dashed; }
+.map-floor-name { font-size: 13px; color: var(--muted); }
+.map-legend { display: flex; flex-wrap: wrap; gap: 12px; font-size: 12px; color: var(--muted); }
+.map-legend-item { display: inline-flex; align-items: center; gap: 5px; }
+.map-legend-item.dim { color: var(--dim); }
+.map-mdt-toggle { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); cursor: pointer; }
+.map-mdt-toggle input { margin: 0; }
+.map-note { font-size: 12px; color: var(--muted); margin: -4px 0 8px; }
+.map-dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+.map-canvas {
+  display: flex; justify-content: center; width: 100%;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 7px; padding: 8px 0;
+}
+.map-canvas canvas { display: block; }
+.map-replay { display: flex; align-items: center; gap: 10px; }
+.map-replay input[type='range'] { flex: 1 1 auto; min-width: 80px; accent-color: var(--accent); }
+.map-play { width: 32px; padding: 3px 0; font-size: 12px; }
+.map-clock { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.map-replay select { font-size: 12px; }

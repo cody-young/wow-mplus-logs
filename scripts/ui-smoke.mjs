@@ -40,7 +40,7 @@ await esbuild.build({
 // resolves, and on one without it the initials path does. The counts
 // themselves are compiled in and render either way.
 const { loadForces } = await import(new URL('../apps/desktop/out/main/forces.js', import.meta.url));
-const { table: forces, iconsFrom } = await loadForces(logPath);
+const { table: forces, iconsFrom, mdt } = await loadForces(logPath);
 console.log(
   `\n  (${forces.dungeons.length} dungeons from ${forces.source}` +
     (iconsFrom === null
@@ -62,7 +62,7 @@ const analysis = await new Promise((resolve, reject) => {
     }
   });
   worker.on('error', reject);
-  worker.postMessage({ type: 'open', path: logPath, tail: false, forces });
+  worker.postMessage({ type: 'open', path: logPath, tail: false, forces, mdt });
 });
 
 const { render, partyOf } = await import(outFile);
@@ -661,6 +661,36 @@ for (const [name, text] of shares) {
   check(`${name} is headed with the key`, lines[0].includes(analysis.meta.zoneName), lines[0]);
   check(`${name} carries no markup`, !/[<>]/.test(text));
 }
+// --- Map -----------------------------------------------------------------------
+const partyTracks = analysis.positions.tracks.filter((track) => track.kind === 0);
+if (partyTracks.some((track) => track.ts.length > 0)) {
+  check('map names every party member', analysis.meta.party.every((index) =>
+    views.map.includes(escapeHtml(analysis.names[index]?.split('-')[0] ?? ''))));
+  check('map has a replay scrubber', views.map.includes('type="range"'));
+  const floors = new Set(partyTracks.flatMap((track) => [...track.uiMapId]));
+  check('map offers a tab per floor the party stood on',
+    floors.size === 1 || countOf(views.map, 'role="tab"') === floors.size, `${floors.size} floors`);
+  check('every engaged enemy has a start point',
+    analysis.positions.tracks.every((track) => track.kind === 0 || track.home !== null));
+  // MDT's map, when MDT is beside the log: a toggle exactly when a floor fitted.
+  const fitted = (analysis.mdt?.floors ?? []).filter((fit) => fit.good);
+  check('map offers MDT art exactly when a floor fitted it',
+    views.map.includes('MDT map') === fitted.length > 0, `${fitted.length} floors fitted`);
+  check('no MDT spawn is claimed by two kills',
+    new Set((analysis.mdt?.matches ?? []).map((m) => `${m.enemyIndex}:${m.cloneIndex}`)).size ===
+      (analysis.mdt?.matches.length ?? 0));
+  console.log(
+    analysis.mdt === null
+      ? '  (mdt: no map of this dungeon)'
+      : `  (mdt: ${analysis.mdt.floors.map((fit) => `${fit.uiMapId} ${fit.matched}/${fit.observed}${fit.good ? '' : ' weak'}`).join(', ')}; ${analysis.mdt.matches.length} kills placed)`,
+  );
+} else {
+  check('map says when there are no positions', views.map.includes('No positions'));
+}
+check('route share text numbers every pull',
+  analysis.segments.length <= 10
+    ? analysis.segments.filter((segment) => segment.kind === 0).every((segment) => views.shareRoute.includes(`${segment.pullNumber}. `))
+    : views.shareRoute.includes('earlier'));
 check('a pull\'s share text names the pull',
   views.shareSegment === '' || views.shareSegment.split('\n')[0].includes(analysis.segments[0].label));
 check('uncovered share text says nothing was checked', views.shareUncovered.includes('not on the avoidable list'));

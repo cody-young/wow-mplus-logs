@@ -1,4 +1,5 @@
 import {
+  SegmentKind,
   combinedAvoidable,
   summarizeAvoidable,
   summarizeCrowdControl,
@@ -6,7 +7,7 @@ import {
   summarizeInterrupts,
 } from '@mplus/analysis';
 
-import { clock, percent, short } from './format.js';
+import { clock, integer, percent, short } from './format.js';
 import { shortName } from './specs.js';
 import type {
   AvoidableReport,
@@ -15,6 +16,7 @@ import type {
   DeathReport,
   DispelReport,
   InterruptReport,
+  RunForces,
   RunMeta,
   Segment,
 } from '../shared.js';
@@ -209,5 +211,23 @@ export function shareAvoidableCompare(report: AvoidableReport, scope: ShareScope
       ),
     );
   }
+  return join(lines);
+}
+
+/**
+ * The route: each pull with its size, its share of the count and when it
+ * started. Newest first like every list here; the pull numbers keep the order.
+ */
+export function shareRoute(segments: readonly Segment[], forces: RunForces, scope: ShareScope): string {
+  const shown = scope.segment === null ? segments : segments.filter((segment) => segment.id === scope.segment!.id);
+  const ordered = [...shown].sort((a, b) => a.startTs - b.startTs);
+  const lines = [heading(`Route (${ordered.filter((segment) => segment.kind === SegmentKind.PULL).length} pulls)`, scope)];
+  for (const segment of ordered.reverse().slice(0, LINES)) {
+    const name = segment.kind === SegmentKind.BOSS ? `Boss: ${segment.label}` : `${segment.pullNumber}. ${segment.label}`;
+    const mobs = `${integer(segment.enemies.length)} ${segment.enemies.length === 1 ? 'mob' : 'mobs'}`;
+    const count = forces.known && segment.forces > 0 ? ` · ${percent(segment.forces / forces.required)}` : '';
+    lines.push(fit(`${clock(segment.startTs)} ${name} — ${mobs}${count}`));
+  }
+  if (ordered.length > LINES) lines.push(`…and ${ordered.length - LINES} earlier.`);
   return join(lines);
 }
