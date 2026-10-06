@@ -14,6 +14,8 @@ import {
   healingReport,
   controlKindNames,
   crowdControlReport,
+  dispelReport,
+  summarizeDispels,
   interruptReport,
   summarizeCrowdControl,
   summarizeInterrupts,
@@ -24,8 +26,10 @@ import {
   type InterruptReport,
   type SegmentIndex,
   type SegmentOptions,
+  avoidableReport,
+  summarizeAvoidable,
 } from '../src/index.js';
-import { ACTORS, DPS, FORCES, HEALER, LOG_TEXT, PET, TANK, creature, hit } from './fixture.js';
+import { ACTORS, DPS, FORCES, HEALER, LINES, LOG_TEXT, PET, TANK, at, creature, hit, taken } from './fixture.js';
 
 function load(options: SegmentOptions = {}): {
   session: LogSession;
@@ -1125,4 +1129,142 @@ test('what a control does to the unit comes off the table, not the name', () => 
   assert.deepEqual(controlKindNames(poly.kinds), ['disorient'], 'a sheep is a disorient');
   const nova = appliedTo(report, 'Wave Minion', 179057)[0]!;
   assert.deepEqual(controlKindNames(nova.kinds), ['stun']);
+});
+
+// --- Dispels ----------------------------------------------------------------
+
+function dispels() {
+  const { context, segments } = load();
+  const report = dispelReport(context, segments);
+  return { report, summary: summarizeDispels(report.dispels), segments };
+}
+
+test('dispels are sorted into purges, soothes and cleanses', () => {
+  const { summary } = dispels();
+  // Two Purges and a Spellsteal; a Soothe; a Singe Magic, a Cleanse and a
+  // Revival that took two.
+  assert.deepEqual(summary.byKind, { purge: 3, soothe: 1, cleanse: 4 });
+  assert.equal(summary.removed, 8);
+});
+
+test('an enrage taken off an enemy is a soothe, a magic buff a purge', () => {
+  const { report } = dispels();
+  const soothe = report.dispels.find((entry) => entry.spellId === 2908)!;
+  assert.equal(soothe.kind, 'soothe');
+  assert.equal(soothe.auraName, 'Berserker Rage', 'what came off is named, not just the button');
+  const purge = report.dispels.find((entry) => entry.spellId === 370)!;
+  assert.equal(purge.kind, 'purge');
+});
+
+test('a spellsteal is a purge, and says the buff was taken', () => {
+  const { report } = dispels();
+  const steal = report.dispels.find((entry) => entry.spellId === 30449)!;
+  assert.equal(steal.kind, 'purge');
+  assert.equal(steal.stolen, true);
+});
+
+test('one mass dispel is one press and several auras', () => {
+  // Revival took two in the same millisecond; the two Purges 1.2s apart are
+  // two presses, which a crowd-control-sized window would have merged.
+  const { summary } = dispels();
+  const heals = summary.actors.find((actor) => actor.name.startsWith('Heals'))!;
+  const revival = heals.abilities.find((ability) => ability.spellId === 115310)!;
+  assert.equal(revival.removed, 2);
+  assert.equal(revival.casts, 1);
+  const dee = summary.actors.find((actor) => actor.name.startsWith('Dee'))!;
+  const purge = dee.abilities.find((ability) => ability.spellId === 370)!;
+  assert.equal(purge.casts, 2);
+});
+
+test("a pet's dispel is its owner's", () => {
+  const { report } = dispels();
+  const singe = report.dispels.find((entry) => entry.spellId === 89808)!;
+  assert.equal(singe.petName, 'Imp');
+  assert.ok(singe.name.startsWith('Dee'), `credited to the owner, got ${singe.name}`);
+});
+
+test('a root-breaker, an enemy purge and a buff off a friend are not dispels', () => {
+  const { report } = dispels();
+  assert.ok(!report.dispels.some((entry) => entry.spellId === 768), 'Cat Form breaks roots, it does not dispel');
+  assert.ok(!report.dispels.some((entry) => entry.auraId === 7007), "the boss's purge is not the party's");
+  assert.ok(!report.dispels.some((entry) => entry.spellId === 32592), 'a buff off a friend is not a purge');
+});
+
+test('a purge belongs to its target\'s pull, a cleanse to the pull it happened in', () => {
+  // A cleanse names no enemy, so it is filed by time like a death.
+  const { report, segments } = dispels();
+  const boss = labelled(segments, 'Big Bad');
+  for (const entry of report.dispels) assert.equal(entry.segmentId, boss.id, `${entry.spellName} at ${entry.ts}`);
+});
+
+test('one mechanic under two aura ids is one line of what came off', () => {
+  // Real keys do this: Corroding Spittle came off one party as two ids.
+  const { report } = dispels();
+  const base = report.dispels.find((entry) => entry.kind === 'cleanse')!;
+  const twin = { ...base, auraId: base.auraId + 1 };
+  const summary = summarizeDispels([base, twin]);
+  assert.equal(summary.auras.length, 1);
+  assert.equal(summary.auras[0]!.count, 2);
+});
+
+// --- Avoidable damage ---------------------------------------------------------
+
+/**
+ * A key of its own rather than more lines in the shared fixture, because the
+ * list is keyed on real spell ids and dungeons: this one is Murder Row, and
+ * every id below is a real Xathuux ability.
+ */
+function murderRow(challengeModeId = 587) {
+  const xathuux = creature(228470, 40);
+  const lines = [
+    LINES[0]!,
+    `${at(0)}  CHALLENGE_MODE_START,"Murder Row",2000,${challengeModeId},12,[10,9,147]`,
+    ...LINES.filter((line) => line.includes('COMBATANT_INFO')),
+    hit(10, DPS, 'Dee', xathuux, 'Xathuux', 1000),
+    // His puddles: counted.
+    taken(11, xathuux, 'Xathuux', DPS, 'Dee', 5000, { spellId: 474234, spellName: 'Burning Steps' }),
+    // The chaos hit on everyone that comes with them: not.
+    taken(12, xathuux, 'Xathuux', DPS, 'Dee', 3000, { spellId: 474197, spellName: 'Demonic Rage' }),
+    // His frontal, on the tank who is meant to take it and on the healer who
+    // is not.
+    taken(13, xathuux, 'Xathuux', TANK, 'Tank', 8000, { spellId: 473898, spellName: 'Legion Strike' }),
+    taken(14, xathuux, 'Xathuux', HEALER, 'Heals', 7000, { spellId: 473898, spellName: 'Legion Strike' }),
+    // A last tick of the puddle that killed: 1000 of the 4000 was overkill.
+    taken(15, xathuux, 'Xathuux', DPS, 'Dee', 4000, { spellId: 474234, spellName: 'Burning Steps', overkill: 1000 }),
+    `${at(30)}  CHALLENGE_MODE_END,2000,1,12,30000,30`,
+  ];
+  const session = new LogSession({ assumedYear: 2026 });
+  session.pushText(lines.join('\n') + '\n');
+  session.end();
+  const run = session.runs[0]!;
+  const context = contextFor(session, run);
+  return avoidableReport(context, buildSegments(context));
+}
+
+test('a puddle counts and the hit that came with it does not', () => {
+  const { hits } = murderRow();
+  const dee = hits.filter((entry) => entry.name.startsWith('Dee'));
+  assert.deepEqual(dee.map((entry) => entry.spellName), ['Burning Steps', 'Burning Steps']);
+});
+
+test("a tank frontal counts against everyone but the tank", () => {
+  const { hits } = murderRow();
+  const strikes = hits.filter((entry) => entry.spellId === 473898);
+  assert.deepEqual(strikes.map((entry) => entry.name), ['Heals']);
+});
+
+test('amounts are net of overkill, and a killing blow says so', () => {
+  const summary = summarizeAvoidable(murderRow().hits);
+  const dee = summary.actors.find((actor) => actor.name.startsWith('Dee'))!;
+  assert.equal(dee.amount, 5000 + 3000);
+  assert.equal(dee.deaths, 1);
+  assert.equal(summary.amount, 8000 + 7000);
+  // Worst offender first.
+  assert.equal(summary.actors[0]!.name, 'Dee');
+  assert.equal(summary.abilities[0]!.name, 'Burning Steps');
+});
+
+test('a dungeon the list does not cover says so instead of reading clean', () => {
+  assert.equal(murderRow().covered, true);
+  assert.equal(murderRow(500).covered, false);
 });

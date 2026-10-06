@@ -12,7 +12,7 @@ import {
   creditedActor,
   effective,
 } from './events.js';
-import { SegmentKind, type SegmentIndex } from './segments.js';
+import { SegmentKind, segmentAt, type SegmentIndex } from './segments.js';
 
 /**
  * Death post-mortems.
@@ -555,30 +555,6 @@ function buildReport(
     y,
     sincePreviousDeathMs: null,
   };
-}
-
-/**
- * UNIT_DIED has no hostile side, so it cannot be segmented by enemy. Fall back
- * to the narrowest segment whose window contains it, preferring a boss, since a
- * death during a boss fight belongs to that fight even if a dragged-in pack is
- * also live.
- */
-function segmentAt(segments: SegmentIndex, ts: number): number {
-  let best = -1;
-  let bestSpan = Number.POSITIVE_INFINITY;
-  for (const segment of segments.segments) {
-    if (ts < segment.startTs || ts > segment.endTs) continue;
-    const span = segment.endTs - segment.startTs;
-    const better =
-      best < 0 ||
-      (segment.kind === SegmentKind.BOSS && segments.get(best)?.kind !== SegmentKind.BOSS) ||
-      span < bestSpan;
-    if (better) {
-      best = segment.id;
-      bestSpan = span;
-    }
-  }
-  return best;
 }
 
 function dominant(context: AnalysisContext, sources: Map<number, number>): string {

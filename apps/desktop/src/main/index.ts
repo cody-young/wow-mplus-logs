@@ -1,7 +1,7 @@
 import { dirname, join } from 'node:path';
 import { Worker } from 'node:worker_threads';
 
-import { BrowserWindow, app, dialog, ipcMain, shell } from 'electron';
+import { BrowserWindow, app, clipboard, dialog, ipcMain, shell } from 'electron';
 
 import type { UpdateState, WorkerEvent, WorkerRequest } from '../shared.js';
 import { resolveIcons, resolveNamed } from './icons.js';
@@ -152,6 +152,9 @@ ipcMain.handle('mplus:downloadUpdate', () => downloadUpdate());
 ipcMain.handle('mplus:installUpdate', () => installUpdate());
 ipcMain.handle('mplus:setAutomaticUpdates', (_event, on: boolean) => setAutomatic(on === true));
 ipcMain.handle('mplus:openReleases', () => openReleases());
+ipcMain.handle('mplus:copyText', (_event, text: unknown) => {
+  if (typeof text === 'string') clipboard.writeText(text);
+});
 
 ipcMain.handle('mplus:open', async (_event, path: string, tail: boolean) => {
   // Awaited rather than loaded in parallel with the parse: the analysis needs

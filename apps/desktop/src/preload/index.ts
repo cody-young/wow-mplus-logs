@@ -75,6 +75,7 @@ const api: DesktopApi = {
   setAutomaticUpdates: (on) => ipcRenderer.invoke('mplus:setAutomaticUpdates', on) as Promise<void>,
   openReleases: () => ipcRenderer.invoke('mplus:openReleases') as Promise<void>,
   onUpdateState: (handler) => subscribe(handlers.update, handler),
+  copyText: (text) => ipcRenderer.invoke('mplus:copyText', text) as Promise<void>,
 };
 
 contextBridge.exposeInMainWorld('mplus', api);

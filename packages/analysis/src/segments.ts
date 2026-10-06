@@ -655,3 +655,30 @@ function labelPull(context: AnalysisContext, segment: Segment): string {
   const suffix = primary.spawns > 1 ? ` ×${primary.spawns}` : '';
   return extra > 0 ? `${primary.name}${suffix} +${extra}` : `${primary.name}${suffix}`;
 }
+
+/**
+ * The segment a moment belongs to, for an event with no hostile side.
+ *
+ * A death or a cleanse cannot be segmented by enemy the way a damage row is,
+ * because nothing hostile is named on it. Falls back to the narrowest segment
+ * whose window contains it, preferring a boss, since anything during a boss
+ * fight belongs to that fight even if a dragged-in pack is also live. -1 when
+ * no segment was open: between pulls.
+ */
+export function segmentAt(segments: SegmentIndex, ts: number): number {
+  let best = -1;
+  let bestSpan = Number.POSITIVE_INFINITY;
+  for (const segment of segments.segments) {
+    if (ts < segment.startTs || ts > segment.endTs) continue;
+    const span = segment.endTs - segment.startTs;
+    const better =
+      best < 0 ||
+      (segment.kind === SegmentKind.BOSS && segments.get(best)?.kind !== SegmentKind.BOSS) ||
+      span < bestSpan;
+    if (better) {
+      best = segment.id;
+      bestSpan = span;
+    }
+  }
+  return best;
+}

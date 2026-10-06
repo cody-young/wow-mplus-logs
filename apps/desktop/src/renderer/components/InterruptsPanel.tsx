@@ -98,7 +98,7 @@ export function InterruptsPanel({
     });
   };
 
-  const peak = Math.max(1, ...summary.actors.map((actor) => actor.casts));
+  const peak = Math.max(1, ...summary.actors.map((actor) => actor.stops));
 
   return (
     <div className="breakdown-wrap">
@@ -137,12 +137,12 @@ export function InterruptsPanel({
               <Fragment key={actor.actorIndex}>
                 <tr className="actor" onClick={() => toggle(actor.actorIndex)}>
                   <td className="left barcell">
-                    {/* Scaled to presses rather than to interrupts, so the bar
-                        is how much of the party's interrupting this player was
-                        asked to do and the columns say how it went. */}
+                    {/* Scaled to casts actually stopped, so the bar is each
+                        player's share of the work that counted and the columns
+                        say how many presses it took. */}
                     <div
                       className="bar"
-                      style={{ width: `${(actor.casts / peak) * 100}%`, background: spec.color }}
+                      style={{ width: `${(actor.stops / peak) * 100}%`, background: spec.color }}
                     />
                     <span className="namecell">
                       <span className="chev">{open ? '▾' : '▸'}</span>

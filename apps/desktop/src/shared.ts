@@ -8,10 +8,14 @@
  */
 import type {
   ActorBreakdown,
+  AvoidableHit,
+  AvoidableReport,
   BreakdownReport,
   ControlApplication,
   ControlReport,
   DeathReport,
+  DispelRecord,
+  DispelReport,
   EnemyGroup,
   InterruptAttempt,
   InterruptReport,
@@ -24,10 +28,14 @@ import type { RunMeta } from '@mplus/parser';
 
 export type {
   ActorBreakdown,
+  AvoidableHit,
+  AvoidableReport,
   BreakdownReport,
   ControlApplication,
   ControlReport,
   DeathReport,
+  DispelRecord,
+  DispelReport,
   EnemyGroup,
   InterruptAttempt,
   InterruptReport,
@@ -71,6 +79,21 @@ export interface RunAnalysis {
    * filter in the view rather than another report to compute and ship.
    */
   control: ControlReport;
+  /**
+   * Every aura the party dispelled, purged, soothed or stole, as one flat list.
+   *
+   * One list rather than three, because the tab's first chart stacks the three
+   * kinds per player; each record says which it was. Not split per segment,
+   * for the same reason as the control list.
+   */
+  dispels: DispelReport;
+  /**
+   * Every avoidable hit the party took, as one flat list, and whether the
+   * dungeon is one the avoidable list covers at all.
+   *
+   * Not split per segment, for the same reason as the control list.
+   */
+  avoidable: AvoidableReport;
   bySegment: Record<number, SegmentReports>;
   /**
    * Enemy forces for the run. `known: false` when no table covered the
@@ -190,4 +213,12 @@ export interface DesktopApi {
   /** Opens the releases page in the system browser. */
   openReleases(): Promise<void>;
   onUpdateState(handler: (state: UpdateState) => void): () => void;
+  /**
+   * Puts text on the system clipboard, for the share button on every tab.
+   *
+   * Through the main process rather than navigator.clipboard, which a
+   * sandboxed renderer only gets with focus and a permission grant; a web
+   * build swaps this for that.
+   */
+  copyText(text: string): Promise<void>;
 }

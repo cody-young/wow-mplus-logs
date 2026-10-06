@@ -527,6 +527,91 @@ only evidence there is. There is no hit rate here to match the interrupts tab's.
 Pets roll up like damage, and applications are attributed to the segment their
 **target** belongs to, for the same reason interrupts are.
 
+## Dispels, sorted into the three jobs the word covers
+
+The Dispels tab separates what players already keep apart: **purges** (magic
+off an enemy — Purge, Spellsteal, Dispel Magic), **soothes** (enrages off an
+enemy — Soothe, Shiv, Tranquilizing Shot) and **friendly dispels** (magic,
+curses, poisons, diseases and bleeds off the party). It opens with all three
+stacked per player and then gives each its own section, with what came off and
+off whom.
+
+The log does nearly all of it. SPELL_DISPEL and SPELL_STOLEN name the dispel,
+the aura removed, the unit and whether the aura was a BUFF or a DEBUFF, so the
+friendly-or-offensive split is free. Two judgements are left, and
+`packages/data/src/dispels.ts` makes both from the game's data:
+
+- **Was it a dispel at all?** The log also writes SPELL_DISPEL when Cat Form,
+  Disengage, Tiger's Lust or Demonic Circle shrugs off a root. A real dispel
+  carries `SPELL_EFFECT_DISPEL` (38) or Spellsteal's 126; none of those do. On
+  eight real evenings they were a fifth of every party-on-party "dispel".
+- **Purge or soothe?** Read off the removed aura's `DispelType` in
+  SpellCategories.db2 (9 is Enrage), never off the button: Tranquilizing Shot
+  removes both kinds.
+
+One press can take several auras — Revival, Mass Dispel — so removals are
+grouped into presses. The window is 100ms, not crowd control's second: across
+those logs a press's removals landed within 50ms, and the next cluster starts
+just over a second, which is Purge pressed on consecutive globals.
+
+What this cannot see is a dispel that removed nothing. That writes no line, so
+there is no hit rate here.
+
+## Avoidable damage, and why this list is curated
+
+The Superiority Assister tab is [Elitism Helper][eh] again: who stood in what,
+worst offender first, with a line to paste into chat. The addon cannot do it any
+more — Midnight's pre-patch took the in-game combat log away from addons — but
+the log file still has every hit, so the app can.
+
+Unlike the defensives above, this list is hand-kept, in
+`packages/data/src/avoidable.ts`, and ships with each release. The game's data
+classifies what a spell does, not whether you should have moved: a puddle and a
+pulse nobody can dodge are both area damage to `SpellEffect.db2`. Measured on
+the logs behind this, their targeting columns do not separate them either —
+nearly every enemy spell in a Murder Row key is an area effect that hit every
+non-tank in every run.
+
+The seed is [Method's ability trackers][method] for Midnight Season 2, which tag
+each ability Avoid, Frontal, Party Damage and so on. Those tags name the cast,
+and what lands on a player is often another id with only half the ability in
+it, so every entry was then matched to its damage id through SpellEffect's
+trigger chains, the spell's tooltip in `Spell.db2`, and sixteen logged keys:
+
+- Defiled Slam is cast as 1294824 and hits as 1294827, which is the unavoidable
+  slam; the avoidable half is the Defiled Detonations it leaves, 1294836.
+- Demonic Rage's chaos hit is unavoidable and has the guide's id. Its puddles
+  are Burning Steps, 474234, which no guide row names.
+- An id that hit every non-tank about equally in every logged key is left out
+  whatever its tags say — Cosmic Crash, Poison Splash, both Hunting Leap frontal
+  channels. Blaming a player for damage nobody avoids is worse than missing a
+  fail.
+
+What else stays out — anything centred on its own target, soaks — and why each
+excluded id was excluded is written beside it in the file, so the next edit
+does not re-litigate it. A frontal aimed at the tank counts against everyone
+but the tank, which is the addon's `SpellsNoTank`. Amounts are the Damage Taken
+tab's net figure, so the two tabs agree on what a hit was worth.
+
+A key from a dungeon the list does not cover says so rather than reading as a
+clean run.
+
+**Keeping it current.** A new season means a new block per dungeon. The ids
+marked "not in a log yet" are the first to check once someone has run the key:
+they come from the guide and the spell data alone. Elitism Helper's own table
+was not usable as a starting point — it covers none of this season's dungeons,
+and it has no licence.
+
+**Copy, on every tab.** The button at the end of the tab bar copies what the tab
+shows, for the key or the selected pull, as plain numbered lines: a heading,
+then one line per player, each under WoW's 255-character chat limit so it pastes
+as one message. The clipboard is reached through the preload bridge rather than
+`navigator.clipboard`, which a sandboxed renderer only gets with focus and a
+permission grant.
+
+[eh]: https://github.com/amki/ElitismHelper
+[method]: https://www.method.gg/guides/dungeons/murder-row/ability-tracker
+
 ## Segmentation, and why it is keyed on the enemy
 
 A key splits into boss fights and trash pulls. Boss windows come free from
@@ -895,6 +980,12 @@ numeric ids and amounts and nothing else — no creature or spell names, no
 descriptions, no art, no game text, the dungeons' own names being the one
 exception — and all three are regenerated from the current patch by a script in
 `scripts/` rather than copied from anywhere.
+
+The avoidable-damage list in `packages/data/src/avoidable.ts` is the exception
+to both: it is hand-kept rather than generated, and it carries spell names,
+because people edit it. Which abilities to consider came from Method's public
+ability trackers, credited in the file and in `## Avoidable damage` above; no
+guide text is copied, and the ids and judgements are this project's own.
 
 **Mythic Dungeon Tools** is GPL-2.0, which is why none of its data is in this
 repository. It is read from the user's own install at runtime for one cosmetic

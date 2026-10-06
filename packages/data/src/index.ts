@@ -14,7 +14,8 @@
  * README.
  *
  * Every generated table here holds ids and amounts and nothing else: no names
- * beyond the dungeons' own, no descriptions, no art.
+ * beyond the dungeons' own, no descriptions, no art. The one hand-kept table,
+ * avoidable damage, also names its spells, because people edit it.
  */
 export {
   EMPTY_TABLE,
@@ -28,6 +29,12 @@ export {
 export { DB2_BUILD, db2DungeonCount, db2Dungeons } from './enemy-forces.js';
 export { parseMdtTeleport, type MdtTeleport } from './mdt.js';
 export { Defense, defenseKinds, defensiveCount, isDefensive, type DefenseKind } from './defensives.js';
+export {
+  avoidable,
+  avoidableDungeons,
+  avoidableEntries,
+  type AvoidableSpell,
+} from './avoidable.js';
 export { buttonCount, isButton } from './buttons.js';
 export {
   Control,
@@ -36,5 +43,6 @@ export {
   isCrowdControl,
   type ControlKind,
 } from './crowd-control.js';
+export { dispelCount, enrageCount, isDispel, isEnrage } from './dispels.js';
 export { inertCount, isInertMarker } from './markers.js';
 export { interruptCount, isInterrupt } from './interrupts.js';

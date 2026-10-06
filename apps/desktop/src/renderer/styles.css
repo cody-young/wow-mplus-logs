@@ -12,6 +12,11 @@
   --pull: #4a7fd4;
   --danger: #e05c5c;
   --good: #5cc98a;
+  /* The three kinds of dispel. Validated as a categorical set against
+     --panel for colour-vision separation and contrast; reused nowhere else. */
+  --purge: #3987e5;
+  --soothe: #d95926;
+  --cleanse: #199e70;
   --row: 28px;
   font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   font-size: 14px;
@@ -710,3 +715,43 @@ table.roster-table { margin-top: 6px; }
 .update-banner.failed p { color: var(--danger); word-break: break-word; }
 .update-actions { display: flex; gap: 6px; margin-top: 8px; }
 .update-actions button { padding: 3px 9px; font-size: 12px; }
+
+/* Dispels */
+.dispel-section { margin-bottom: 26px; scroll-margin-top: 8px; }
+.dispel-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0 0 9px;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--dim);
+}
+.swatch { flex: none; display: inline-block; width: 10px; height: 10px; border-radius: 2px; }
+.swatch.purge, .seg.purge, .bar.purge { background: var(--purge); }
+.swatch.soothe, .seg.soothe, .bar.soothe { background: var(--soothe); }
+.swatch.cleanse, .seg.cleanse, .bar.cleanse { background: var(--cleanse); }
+.dispel-legend { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 10px; }
+.dispel-key { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); padding: 3px 9px; }
+.dispel-key .n { color: var(--text); font-variant-numeric: tabular-nums; }
+/* The stacked chart: full-strength fills, unlike the 0.4 gauges behind names,
+   because here the bar is the figure rather than a backdrop for text. A 2px
+   gap between segments keeps adjacent kinds apart without relying on hue. */
+.stack { display: flex; gap: 2px; height: 14px; min-width: 4px; }
+.stack .seg { min-width: 3px; border-radius: 2px; }
+.stack .seg:last-child { border-top-right-radius: 4px; border-bottom-right-radius: 4px; }
+.dispel-stack td.zero { color: var(--dim); }
+
+/* Avoidable damage */
+.avoid-table td.zero { color: var(--dim); }
+.avoid-fatal { color: var(--danger); }
+
+/* The copy button, at the far end of the tab bar on every tab. */
+.tabs .share {
+  margin-left: auto;
+  align-self: center;
+  padding: 4px 11px;
+  font-size: 12px;
+}
+.tabs .share.done { color: var(--good); border-color: var(--good); }

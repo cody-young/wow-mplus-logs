@@ -2,8 +2,10 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { SegmentKind } from '@mplus/analysis';
 
+import { AvoidablePanel } from './components/AvoidablePanel.js';
 import { BreakdownTable } from './components/BreakdownTable.js';
 import { ControlPanel } from './components/ControlPanel.js';
+import { DispelsPanel } from './components/DispelsPanel.js';
 import { DeathsPanel } from './components/DeathsPanel.js';
 import { EnemyRoster } from './components/EnemyRoster.js';
 import { InterruptsPanel } from './components/InterruptsPanel.js';
@@ -12,10 +14,26 @@ import { SegmentTimeline } from './components/SegmentTimeline.js';
 import { SpecIcon } from './components/SpecIcon.js';
 import { UpdateFooter, useUpdates } from './components/UpdateFooter.js';
 import { clock, integer, percent, short } from './format.js';
+import {
+  shareAvoidable,
+  shareBreakdown,
+  shareControl,
+  shareDeaths,
+  shareDispels,
+  shareInterrupts,
+} from './share.js';
 import { shortName, specOf } from './specs.js';
 import type { LogSummary, ParseProgress, RunAnalysis } from '../shared.js';
 
-type Tab = 'damage' | 'taken' | 'healing' | 'interrupts' | 'control' | 'deaths';
+type Tab =
+  | 'damage'
+  | 'taken'
+  | 'healing'
+  | 'interrupts'
+  | 'control'
+  | 'dispels'
+  | 'avoidable'
+  | 'deaths';
 
 export function App(): React.JSX.Element {
   const [summary, setSummary] = useState<LogSummary | null>(null);
@@ -161,6 +179,57 @@ export function App(): React.JSX.Element {
       casts: new Set(applications.map((application) => application.castId)).size,
     };
   }, [run, selectedSegment]);
+
+  /**
+   * And dispels, one list of all three kinds for the same reason.
+   */
+  const dispels = useMemo(() => {
+    if (run === null) return { dispels: [], casts: 0 };
+    if (selectedSegment === null) return run.dispels;
+    const list = run.dispels.dispels.filter((entry) => entry.segmentId === selectedSegment);
+    return { dispels: list, casts: new Set(list.map((entry) => entry.castId)).size };
+  }, [run, selectedSegment]);
+
+  /**
+   * And avoidable damage, one list of hits for the same reason.
+   */
+  const avoidable = useMemo(() => {
+    if (run === null) return { hits: [], covered: false };
+    if (selectedSegment === null) return run.avoidable;
+    return {
+      hits: run.avoidable.hits.filter((hit) => hit.segmentId === selectedSegment),
+      covered: run.avoidable.covered,
+    };
+  }, [run, selectedSegment]);
+
+  /**
+   * The open tab as text, for the copy button.
+   *
+   * Built on the click rather than on every render: the summaries behind it
+   * are the panels' own, and nobody needs them twice unless they copy.
+   */
+  const shareText = (): string => {
+    if (run === null || reports === null) return '';
+    const scope = { meta: run.meta, segment };
+    switch (tab) {
+      case 'damage':
+        return shareBreakdown(reports.damage, 'done', scope);
+      case 'taken':
+        return shareBreakdown(reports.taken, 'taken', scope);
+      case 'healing':
+        return shareBreakdown(reports.healing, 'healing', scope);
+      case 'interrupts':
+        return shareInterrupts(interrupts, scope);
+      case 'control':
+        return shareControl(control, scope);
+      case 'dispels':
+        return shareDispels(dispels, scope);
+      case 'avoidable':
+        return shareAvoidable(avoidable, scope);
+      case 'deaths':
+        return shareDeaths(deaths, scope);
+    }
+  };
 
   return (
     <div className="app">
@@ -312,6 +381,14 @@ export function App(): React.JSX.Element {
                     `Interrupts${interrupts.stops.length > 0 ? ` (${interrupts.stops.length})` : ''}`,
                   ],
                   ['control', `CC${control.casts > 0 ? ` (${control.casts})` : ''}`],
+                  [
+                    'dispels',
+                    `Dispels${dispels.dispels.length > 0 ? ` (${dispels.dispels.length})` : ''}`,
+                  ],
+                  [
+                    'avoidable',
+                    `Superiority Assister${avoidable.hits.length > 0 ? ` (${avoidable.hits.length})` : ''}`,
+                  ],
                   ['deaths', `Deaths${deaths.length > 0 ? ` (${deaths.length})` : ''}`],
                 ] as Array<[Tab, string]>
               ).map(([key, label]) => (
@@ -324,6 +401,7 @@ export function App(): React.JSX.Element {
                   {label}
                 </button>
               ))}
+              <CopyButton text={shareText} />
             </nav>
 
             <div className="content">
@@ -366,6 +444,13 @@ export function App(): React.JSX.Element {
                 />
               ) : tab === 'control' ? (
                 <ControlPanel key={`${run.runId}:${selectedSegment ?? 'all'}`} control={control} />
+              ) : tab === 'dispels' ? (
+                <DispelsPanel key={`${run.runId}:${selectedSegment ?? 'all'}`} dispels={dispels} />
+              ) : tab === 'avoidable' ? (
+                <AvoidablePanel
+                  key={`${run.runId}:${selectedSegment ?? 'all'}`}
+                  avoidable={avoidable}
+                />
               ) : reports !== null ? (
                 <BreakdownTable
                   report={tab === 'damage' ? reports.damage : tab === 'taken' ? reports.taken : reports.healing}
@@ -377,6 +462,40 @@ export function App(): React.JSX.Element {
         )}
       </main>
     </div>
+  );
+}
+
+/**
+ * Copies the open tab as text, and says so for a moment.
+ *
+ * Takes a function rather than the text, so the text is only built when
+ * someone actually copies.
+ */
+function CopyButton({ text }: { text: () => string }): React.JSX.Element {
+  const [state, setState] = useState<'idle' | 'done' | 'failed'>('idle');
+  const timer = useRef<number | undefined>(undefined);
+  useEffect(() => () => window.clearTimeout(timer.current), []);
+
+  const copy = (): void => {
+    window.clearTimeout(timer.current);
+    window.mplus
+      .copyText(text())
+      .then(() => setState('done'))
+      .catch(() => setState('failed'))
+      .finally(() => {
+        timer.current = window.setTimeout(() => setState('idle'), 1600);
+      });
+  };
+
+  return (
+    <button
+      type="button"
+      className={`share${state === 'done' ? ' done' : ''}`}
+      title="Copy this tab as text, ready to paste into chat or Discord"
+      onClick={copy}
+    >
+      {state === 'done' ? 'Copied' : state === 'failed' ? 'Copy failed' : 'Copy'}
+    </button>
   );
 }
 

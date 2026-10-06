@@ -26,6 +26,28 @@ export {
   type ControlSummary,
 } from './crowd-control.js';
 export {
+  avoidableReport,
+  summarizeAvoidable,
+  type AvoidableAbility,
+  type AvoidableActor,
+  type AvoidableHit,
+  type AvoidableReport,
+  type AvoidableSummary,
+} from './avoidable.js';
+export {
+  DISPEL_KINDS,
+  dispelReport,
+  summarizeDispels,
+  type DispelAbility,
+  type DispelActor,
+  type DispelKind,
+  type DispelOptions,
+  type DispelRecord,
+  type DispelReport,
+  type DispelSummary,
+  type DispelledAura,
+} from './dispels.js';
+export {
   damageReport,
   healingReport,
   type ActorBreakdown,
@@ -74,6 +96,7 @@ export {
 export {
   SegmentKind,
   buildSegments,
+  segmentAt,
   type EnemyGroup,
   type RunForces,
   type Segment,

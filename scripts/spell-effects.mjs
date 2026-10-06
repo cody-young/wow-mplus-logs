@@ -9,6 +9,7 @@
  *   packages/data/src/markers.ts        which spells the data gives no effect at all
  *   packages/data/src/interrupts.ts     which spells are interrupt buttons
  *   packages/data/src/crowd-control.ts  which auras take a unit out of the fight
+ *   packages/data/src/dispels.ts        which spells are dispels, and which auras are enrages
  *
  * There is no "this is a defensive" flag in the game's data, and no amount of
  * looking for one will turn one up. What Blizzard does classify is *effects*:
@@ -35,15 +36,21 @@
  * The fourth is the aura vocabulary again, for a different question: which
  * auras mean the unit is not fighting. See CONTROLS.
  *
+ * The fifth needs a second, much smaller table. Which spells are dispels is an
+ * effect again (EFFECT_DISPEL), but whether the aura a dispel removed was an
+ * enrage is not an effect of anything: it is the aura's own dispel type, which
+ * lives in SpellCategories.db2. See DISPEL_EFFECTS and DISPEL_TYPE_ENRAGE.
+ *
  *   node scripts/spell-effects.mjs [--build 12.1.0.69933] [--csv SpellEffect.csv]
+ *                                  [--categories-csv SpellCategories.csv]
  *                                  [--keep] [--check]
  *
- * --build pins a build (default: whatever wago.tools says is live), --csv reads
- * a table already on disk, --keep leaves the download in the cache directory it
- * prints, and --check writes nothing and exits non-zero if either committed
- * table is out of date, which is the form to run in CI.
+ * --build pins a build (default: whatever wago.tools says is live), --csv and
+ * --categories-csv read tables already on disk, --keep leaves the downloads in
+ * the cache directory it prints, and --check writes nothing and exits non-zero
+ * if any committed table is out of date, which is the form to run in CI.
  *
- * The download is ~57MB and the result is ~130KB of spell IDs, which is the
+ * The downloads are ~60MB and the result is ~130KB of spell IDs, which is the
  * whole reason this is a build step and not something the app does at runtime.
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -184,6 +191,38 @@ const CONTROLS = [
 ];
 
 /**
+ * The effects that make a spell a dispel.
+ *
+ * 38 is SPELL_EFFECT_DISPEL, whose misc value is the dispel type it removes,
+ * and 126 is SPELL_EFFECT_STEAL_BENEFICIAL_BUFF, which is Spellsteal. Both read
+ * off the data rather than trusted from memory: every dispel a party presses
+ * carries 38 — Purge (370), Cleanse (4987), Detox (115450), Purify (527),
+ * Soothe (2908), Tranquilizing Shot (19801), the Poison Cleansing totem's pulse
+ * (383015) — and Spellsteal (30449) carries 126 alone.
+ *
+ * The table exists because the log is generous with the word. SPELL_DISPEL is
+ * also what the game writes when Cat Form, Disengage, Tiger's Lust or Demonic
+ * Circle shrug off a root, and across eight real evenings of logs those were a
+ * fifth of every party member's "dispels" of their own party. None of them
+ * carries effect 38 — a shapeshift is an aura, a Disengage is a leap — so the
+ * effect is the line between "removed a debuff" and "moved out of a root",
+ * and no list of exceptions has to be kept.
+ */
+const DISPEL_EFFECTS = new Set([38, 126]);
+
+/**
+ * The dispel type that makes a removed buff a soothe rather than a purge.
+ *
+ * Read off SpellDispelType.db2, where 9 is Enrage (1 Magic, 2 Curse, 3 Disease,
+ * 4 Poison, 11 Bleed). The witnesses are the dispels themselves: Soothe and
+ * Shiv carry EFFECT_DISPEL with misc value 9 and nothing else, and
+ * Tranquilizing Shot carries both 1 and 9 — which is exactly why this is a
+ * property of the aura and not of the button. One Tranquilizing Shot is a
+ * purge and the next is a soothe, and only the aura it took says which.
+ */
+const DISPEL_TYPE_ENRAGE = 9;
+
+/**
  * The two numbers that spell "this effect does nothing the data can describe".
  *
  * Effect 6 is APPLY_AURA and aura 4 is SPELL_AURA_DUMMY, both confirmed against
@@ -206,10 +245,16 @@ const outDefensives = fileURLToPath(new URL('../packages/data/src/defensives.ts'
 const outMarkers = fileURLToPath(new URL('../packages/data/src/markers.ts', import.meta.url));
 const outInterrupts = fileURLToPath(new URL('../packages/data/src/interrupts.ts', import.meta.url));
 const outControl = fileURLToPath(new URL('../packages/data/src/crowd-control.ts', import.meta.url));
+const outDispels = fileURLToPath(new URL('../packages/data/src/dispels.ts', import.meta.url));
 
 const build = flag('build') ?? (await liveBuild());
 const csvPath = flag('csv');
-const csv = csvPath === undefined ? await download(build) : readFileSync(csvPath, 'utf8');
+const csv = csvPath === undefined ? await download('SpellEffect', build) : readFileSync(csvPath, 'utf8');
+const categoriesPath = flag('categories-csv');
+const categoriesCsv =
+  categoriesPath === undefined
+    ? await download('SpellCategories', build)
+    : readFileSync(categoriesPath, 'utf8');
 
 const header = csv.slice(0, csv.indexOf('\n')).split(',');
 const columns = {
@@ -249,6 +294,9 @@ const doesSomething = new Set();
 // dedicated interrupt if it stops casts and does nothing else.
 const interrupts = new Set();
 const alsoDoesSomethingElse = new Set();
+// Dispels need no subtraction: a spell that dispels is a dispel whatever else
+// it does, and Revival healing the party while it cleanses is still a cleanse.
+const dispels = new Set();
 let rows = 0;
 for (const line of csv.split('\n')) {
   if (line === '' || rows++ === 0) continue;
@@ -264,6 +312,7 @@ for (const line of csv.split('\n')) {
 
   const effect = Number(fields[effectAt]);
   if (effect === 0) continue;
+  if (DISPEL_EFFECTS.has(effect)) dispels.add(id);
   if (effect === EFFECT_INTERRUPT_CAST) interrupts.add(id);
   else alsoDoesSomethingElse.add(id);
   if (
@@ -292,6 +341,33 @@ console.log(
 for (const { kind, flag: bit } of dedupe(KINDS)) {
   console.log(`  ${kind.padEnd(10)} ${ids.filter((id) => (flags.get(id) & bit) !== 0).length}`);
 }
+
+const categoriesHeader = categoriesCsv.slice(0, categoriesCsv.indexOf('\n')).split(',');
+const categoryColumns = {
+  spell: categoriesHeader.indexOf('SpellID'),
+  dispelType: categoriesHeader.indexOf('DispelType'),
+};
+if (categoryColumns.spell < 0 || categoryColumns.dispelType < 0) {
+  console.error(`SpellCategories.csv has no SpellID/DispelType column. Columns: ${categoriesHeader.join(', ')}`);
+  process.exit(1);
+}
+// A spell can have one row per difficulty. Any row saying enrage makes it one:
+// the dispel type does not vary by difficulty in practice, and a soothe that
+// removed it settles the question for that log either way.
+const enrages = new Set();
+let categoryRows = 0;
+for (const line of categoriesCsv.split('\n')) {
+  if (line === '' || categoryRows++ === 0) continue;
+  const fields = line.split(',');
+  if (Number(fields[categoryColumns.dispelType]) !== DISPEL_TYPE_ENRAGE) continue;
+  const id = Number(fields[categoryColumns.spell]);
+  if (Number.isFinite(id) && id !== 0) enrages.add(id);
+}
+const dispelIds = [...dispels].sort((a, b) => a - b);
+const enrageIds = [...enrages].sort((a, b) => a - b);
+console.log(
+  `${dispelIds.length} dispels; ${categoryRows - 1} category rows → ${enrageIds.length} enrage auras`,
+);
 for (const { kind, flag: bit } of dedupe(CONTROLS)) {
   console.log(`  ${kind.padEnd(10)} ${controlIds.filter((id) => (controlFlags.get(id) & bit) !== 0).length}`);
 }
@@ -301,6 +377,7 @@ const written = [
   [outMarkers, renderMarkers(inert, build)],
   [outInterrupts, renderInterrupts(stoppers, interrupts.size, dedicated.length, build)],
   [outControl, renderControl(controlIds, controlFlags, build)],
+  [outDispels, renderDispels(dispelIds, enrageIds, build)],
 ];
 if (checkOnly) {
   const stale = written.filter(([path, source]) => {
@@ -336,19 +413,19 @@ async function liveBuild() {
 }
 
 /**
- * The table, cached by build. Re-running against the same patch should not
+ * A table, cached by build. Re-running against the same patch should not
  * re-download 57MB, and the cache is in the OS temp dir rather than the repo
  * because it is Blizzard's data and does not belong in a commit.
  */
-async function download(version) {
+async function download(table, version) {
   const dir = join(tmpdir(), 'mplus-db2');
   mkdirSync(dir, { recursive: true });
-  const cached = join(dir, `SpellEffect-${version}.csv`);
+  const cached = join(dir, `${table}-${version}.csv`);
   if (existsSync(cached)) {
     console.log(`using cached ${cached}`);
     return readFileSync(cached, 'utf8');
   }
-  const url = `https://wago.tools/db2/SpellEffect/csv?build=${version}`;
+  const url = `https://wago.tools/db2/${table}/csv?build=${version}`;
   console.log(`downloading ${url} — this takes a minute`);
   const response = await fetch(url);
   if (!response.ok) throw new Error(`${url}: ${response.status}`);
@@ -757,6 +834,109 @@ export function isCrowdControl(spellId: number): boolean {
 export function controlCount(): number {
   table ??= decode();
   return table.size;
+}
+`;
+}
+
+/**
+ * The dispel tables as a module.
+ *
+ * Two Sets in one file, because they answer the two halves of one question
+ * and are only ever asked together: whether a SPELL_DISPEL line was a dispel
+ * at all, and if it took a buff off an enemy, whether that buff was an enrage.
+ */
+function renderDispels(dispelIds, enrageIds, version) {
+  const encode = (ids) => {
+    let previous = 0;
+    return ids
+      .map((id) => {
+        const delta = id - previous;
+        previous = id;
+        return delta.toString(36);
+      })
+      .join('.');
+  };
+  return `/**
+ * Which spells are dispels, and which auras are enrages.
+ *
+ * GENERATED — do not edit. Rebuild with \`node scripts/spell-effects.mjs\`.
+ * Built from SpellEffect.db2 and SpellCategories.db2, retail build ${version},
+ * via wago.tools.
+ *
+ * The log names every dispel outright — SPELL_DISPEL and SPELL_STOLEN carry
+ * the dispel, the aura it removed, and whether that aura was a BUFF or a
+ * DEBUFF — so what these tables add is not detection but judgement, twice.
+ *
+ * DISPELS is every spell carrying SPELL_EFFECT_DISPEL (38) or
+ * STEAL_BENEFICIAL_BUFF (126). It is needed because the log uses SPELL_DISPEL
+ * for more than dispels: Cat Form, Disengage, Tiger's Lust and Demonic Circle
+ * all log it when they shrug off a root, and none of them carries the effect.
+ * On eight real evenings those were a fifth of every "dispel" a party member
+ * cast on their own party.
+ *
+ * ENRAGES is every aura whose dispel type is Enrage (9), which is the line
+ * between a soothe and a purge. It has to be the aura rather than the button:
+ * Tranquilizing Shot removes magic and enrage alike, and only what it took
+ * says which it was.
+ *
+ * ${dispelIds.length} dispels and ${enrageIds.length} enrages. Only ids are stored: no names, no
+ * descriptions, no art.
+ */
+
+const DISPELS =
+  '${chunk(encode(dispelIds))}';
+
+const ENRAGES =
+  '${chunk(encode(enrageIds))}';
+
+/**
+ * Built on the first lookup rather than at import: most of the app never asks,
+ * and the decode is wasted work in a worker thread that only parses.
+ */
+let dispels: Set<number> | null = null;
+let enrages: Set<number> | null = null;
+
+function decode(text: string): Set<number> {
+  const built = new Set<number>();
+  let id = 0;
+  for (const delta of text.split('.')) {
+    id += parseInt(delta, 36);
+    built.add(id);
+  }
+  return built;
+}
+
+/**
+ * Whether this spell removes auras by dispelling them.
+ *
+ * False for a root-breaker that the log reports as SPELL_DISPEL, and for every
+ * id the table has never heard of — so a dispel added in a patch newer than
+ * this file goes uncounted rather than a shapeshift being counted as one.
+ */
+export function isDispel(spellId: number): boolean {
+  dispels ??= decode(DISPELS);
+  return dispels.has(spellId);
+}
+
+/**
+ * Whether this aura is an enrage, so that removing it was a soothe.
+ *
+ * Asked of the aura that came off, never of the dispel that took it.
+ */
+export function isEnrage(auraId: number): boolean {
+  enrages ??= decode(ENRAGES);
+  return enrages.has(auraId);
+}
+
+/** How many spells each table knows. Exported for the test, which asserts neither is empty. */
+export function dispelCount(): number {
+  dispels ??= decode(DISPELS);
+  return dispels.size;
+}
+
+export function enrageCount(): number {
+  enrages ??= decode(ENRAGES);
+  return enrages.size;
 }
 `;
 }

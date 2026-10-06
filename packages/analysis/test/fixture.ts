@@ -343,6 +343,30 @@ export function interrupt(
   return `${at(seconds)}  SPELL_INTERRUPT,${src},"${srcName}",${srcFlags},0x0,${dst},"${dstName}",${dstFlags},0x0,${spellId},"${spellName}",0x1,${castSpellId},"${castSpellName}",0x20`;
 }
 
+/**
+ * An aura removed by a dispel, which names two spells: the dispel and what it
+ * took. The auraType trails the pair and says which side the aura was on — a
+ * BUFF off an enemy is a purge or a soothe, a DEBUFF off the party a cleanse.
+ */
+export function dispel(
+  seconds: number,
+  src: string,
+  srcName: string,
+  dst: string,
+  dstName: string,
+  spellId: number,
+  spellName: string,
+  auraId: number,
+  auraName: string,
+  opts: { buff?: boolean; stolen?: boolean; srcFlags?: string; dstFlags?: string } = {},
+): string {
+  const event = opts.stolen === true ? 'SPELL_STOLEN' : 'SPELL_DISPEL';
+  const srcFlags = opts.srcFlags ?? '0x511';
+  const dstFlags = opts.dstFlags ?? (opts.buff === true ? '0xa48' : '0x511');
+  const auraType = opts.buff === true ? 'BUFF' : 'DEBUFF';
+  return `${at(seconds)}  ${event},${src},"${srcName}",${srcFlags},0x0,${dst},"${dstName}",${dstFlags},0x0,${spellId},"${spellName}",0x8,${auraId},"${auraName}",0x40,${auraType}`;
+}
+
 const TRASH_A = creature(1001, 1);
 const TRASH_B = creature(1001, 2);
 const LATER_A = creature(1002, 3);
@@ -532,6 +556,8 @@ export const LINES: string[] = [
   // arrives on a SPELL_ABSORBED line of its own.
   missed(76.2, DPS, 'Dee', BOSS, 'Big Bad', 100, 'Nuke'),
   missed(76.4, DPS, 'Dee', BOSS, 'Big Bad', 100, 'Nuke', 'ABSORB'),
+  // The imp dispelling its owner: a pet's dispel is its owner's.
+  dispel(76.45, PET, 'Imp', DPS, 'Dee', 89808, 'Singe Magic', 7001, 'Scorch', { srcFlags: '0x1111' }),
   // A debuff on the boss, applied once and removed 18s later, dealing damage
   // in between. Uptime comes from those two lines and from nothing else: the
   // damage says the ability did something, not how long it was up.
@@ -607,6 +633,36 @@ export const LINES: string[] = [
   // Thirty seconds after it went on, the sheep comes off on its own. The
   // straggler is never killed, so nothing but the removal ends this one.
   aura(90.1, HEALER, 'Heals', DRAGGED, 'Straggler', 28271, 'Polymorph', false),
+
+  // Dispels, all inside the boss fight and after the tank's death, so none of
+  // them is anywhere near a death recap — the imp's comes earlier, while it is
+  // alive. Of these, six count and three must not.
+  dispel(81, HEALER, 'Heals', DPS, 'Dee', 4987, 'Cleanse', 7002, 'Hex Curse'),
+  // One Revival, two auras off two players in the same millisecond.
+  dispel(82, HEALER, 'Heals', HEALER, 'Heals', 115310, 'Revival', 7003, 'Venom'),
+  dispel(82, HEALER, 'Heals', DPS, 'Dee', 115310, 'Revival', 7003, 'Venom'),
+  // Two Purges a global apart are two presses, not one.
+  dispel(83, DPS, 'Dee', BOSS, 'Big Bad', 370, 'Purge', 7004, 'Dark Ward', { buff: true }),
+  dispel(84.2, DPS, 'Dee', BOSS, 'Big Bad', 370, 'Purge', 7004, 'Dark Ward', { buff: true }),
+  // An enrage off the boss is a soothe, whichever button took it.
+  dispel(85, DPS, 'Dee', BOSS, 'Big Bad', 2908, 'Soothe', 18499, 'Berserker Rage', { buff: true }),
+  dispel(86, DPS, 'Dee', BOSS, 'Big Bad', 30449, 'Spellsteal', 7005, 'Arcane Shell', {
+    buff: true,
+    stolen: true,
+  }),
+  // Cat Form shrugging off a root, which the log calls a dispel.
+  dispel(87, DPS, 'Dee', DPS, 'Dee', 768, 'Cat Form', 7006, 'Grasping Vines'),
+  // The boss purging a player is not one of the party's dispels.
+  dispel(88, BOSS, 'Big Bad', TANK, 'Tank', 370, 'Purge', 7007, 'Holy Glow', {
+    buff: true,
+    srcFlags: '0xa48',
+    dstFlags: '0x511',
+  }),
+  // A Mass Dispel catching a friend's buff is not a purge.
+  dispel(89, HEALER, 'Heals', DPS, 'Dee', 32592, 'Mass Dispel', 7008, 'Power Infusion', {
+    buff: true,
+    dstFlags: '0x511',
+  }),
 
   died(94.9, BOSS, 'Big Bad', '0xa48'),
 

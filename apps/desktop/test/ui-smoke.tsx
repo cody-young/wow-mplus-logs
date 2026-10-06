@@ -9,9 +9,11 @@
  */
 import { renderToString } from 'react-dom/server';
 
+import { AvoidablePanel } from '../src/renderer/components/AvoidablePanel.js';
 import { BreakdownTable } from '../src/renderer/components/BreakdownTable.js';
 import { DeathTimeline } from '../src/renderer/components/DeathTimeline.js';
 import { ControlPanel } from '../src/renderer/components/ControlPanel.js';
+import { DispelsPanel } from '../src/renderer/components/DispelsPanel.js';
 import { DeathsPanel } from '../src/renderer/components/DeathsPanel.js';
 import { DungeonIcon } from '../src/renderer/components/DungeonIcon.js';
 import { EnemyRoster, RosterTable } from '../src/renderer/components/EnemyRoster.js';
@@ -20,6 +22,14 @@ import { RunRow, partyOf } from '../src/renderer/components/RunRow.js';
 import { SegmentTimeline } from '../src/renderer/components/SegmentTimeline.js';
 import { SpecIcon } from '../src/renderer/components/SpecIcon.js';
 import { UpdateFooter } from '../src/renderer/components/UpdateFooter.js';
+import {
+  shareAvoidable,
+  shareBreakdown,
+  shareControl,
+  shareDeaths,
+  shareDispels,
+  shareInterrupts,
+} from '../src/renderer/share.js';
 import { SPECS } from '../src/renderer/specs.js';
 import type { RunAnalysis, RunForces, UpdateState, UpdateStatus } from '../src/shared.js';
 
@@ -96,6 +106,28 @@ export function render(analysis: RunAnalysis): Record<string, string> {
     control: renderToString(<ControlPanel control={analysis.control} />),
     // The application log, open for the same reason the press log above is.
     controlLog: renderToString(<ControlPanel control={analysis.control} defaultExpanded />),
+    dispels: renderToString(<DispelsPanel dispels={analysis.dispels} />),
+    // Every section's log open, for the same reason.
+    dispelLog: renderToString(<DispelsPanel dispels={analysis.dispels} defaultExpanded />),
+    avoidable: renderToString(<AvoidablePanel avoidable={analysis.avoidable} />),
+    // Every player's hits open, for the same reason.
+    avoidableLog: renderToString(<AvoidablePanel avoidable={analysis.avoidable} defaultExpanded />),
+    // The copy button's text for every tab, whole key, which is plain text
+    // rather than markup but fails the same ways: a crash on real data, a
+    // line too long for chat.
+    shareDamage: shareBreakdown(analysis.damage, 'done', { meta: analysis.meta, segment: null }),
+    shareTaken: shareBreakdown(analysis.taken, 'taken', { meta: analysis.meta, segment: null }),
+    shareHealing: shareBreakdown(analysis.healing, 'healing', { meta: analysis.meta, segment: null }),
+    shareInterrupts: shareInterrupts(analysis.interrupts, { meta: analysis.meta, segment: null }),
+    shareControl: shareControl(analysis.control, { meta: analysis.meta, segment: null }),
+    shareDispels: shareDispels(analysis.dispels, { meta: analysis.meta, segment: null }),
+    shareAvoidable: shareAvoidable(analysis.avoidable, { meta: analysis.meta, segment: null }),
+    shareDeaths: shareDeaths(analysis.deaths, { meta: analysis.meta, segment: null }),
+    // One pull's text, which names the pull in its heading.
+    shareSegment:
+      analysis.segments[0] === undefined || perSegment === undefined
+        ? ''
+        : shareBreakdown(perSegment.damage, 'done', { meta: analysis.meta, segment: analysis.segments[0] }),
     roster: widest === null ? '' : renderToString(<EnemyRoster segment={widest} forces={analysis.forces} />),
     rosterTable: widest === null ? '' : renderToString(<RosterTable segment={widest} forces={analysis.forces} />),
     // The same pull with no forces table at all — the case for anyone without
@@ -138,6 +170,14 @@ export function render(analysis: RunAnalysis): Record<string, string> {
     // A key where nobody pressed any control, which is an ordinary key and not
     // an error.
     emptyControl: renderToString(<ControlPanel control={{ applications: [], casts: 0 }} />),
+    // A key where nothing was dispelled, which is common: plenty of dungeons
+    // have nothing to purge and a party can avoid every debuff.
+    emptyDispels: renderToString(<DispelsPanel dispels={{ dispels: [], casts: 0 }} />),
+    // A clean key, and a key from a dungeon the list does not cover, which
+    // must not read as clean.
+    emptyAvoidable: renderToString(<AvoidablePanel avoidable={{ hits: [], covered: true }} />),
+    uncoveredAvoidable: renderToString(<AvoidablePanel avoidable={{ hits: [], covered: false }} />),
+    shareUncovered: shareAvoidable({ hits: [], covered: false }, { meta: analysis.meta, segment: null }),
     // Presses that stopped nothing whatsoever — the case where the panel's
     // headline number is zero and the breakdown is the whole content.
     allWhiffedInterrupts: renderToString(

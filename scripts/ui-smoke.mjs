@@ -592,6 +592,79 @@ if (controlled.length > 0) {
   console.log('  (nobody pressed any control; control view assertions skipped)');
 }
 
+// --- Dispels -----------------------------------------------------------------
+check('empty dispel view says so', views.emptyDispels.includes('No dispels'));
+const removed = analysis.dispels.dispels;
+if (removed.length > 0) {
+  check('dispel view names a player who dispelled something',
+    views.dispels.includes(removed[0].name.split('-')[0]));
+  // One aggregate section and one per kind, even when a kind is empty: the
+  // sections are the layout, not a list of what happened.
+  check('dispel view has the aggregate and all three kind sections',
+    countOf(views.dispels, 'class="dispel-section"') === 4,
+    `${countOf(views.dispels, 'class="dispel-section"')} sections`);
+  const stacked = new Set(removed.map((entry) => entry.actorIndex)).size;
+  check('the stacked chart has a row per player who dispelled',
+    countOf(views.dispels, 'class="stack"') === stacked,
+    `${countOf(views.dispels, 'class="stack"')} stacks for ${stacked} players`);
+  check('dispel view is collapsed by default (no removal log)',
+    !views.dispels.includes('interrupt-log'));
+  check('expanded dispel view lists every removal once, across the three sections',
+    countOf(views.dispelLog, 'class="spell"') === removed.length,
+    `${countOf(views.dispelLog, 'class="spell"')} rows for ${removed.length} removals`);
+  check('dispel casts never exceed removals',
+    analysis.dispels.casts <= removed.length,
+    `${analysis.dispels.casts} casts, ${removed.length} removals`);
+  check('dispel view renders with no icons available',
+    !views.dispelLog.includes('src=""') && !views.dispelLog.includes('src="undefined"'));
+  const kinds = { purge: 0, soothe: 0, cleanse: 0 };
+  for (const entry of removed) kinds[entry.kind]++;
+  console.log(
+    `  (dispels: ${removed.length} removed in ${analysis.dispels.casts} casts — ` +
+      `${kinds.purge} purges, ${kinds.soothe} soothes, ${kinds.cleanse} cleanses)`,
+  );
+} else {
+  console.log('  (nothing was dispelled; dispel view assertions skipped)');
+}
+
+// --- Avoidable damage ----------------------------------------------------------
+check('a clean key says so', views.emptyAvoidable.includes('No avoidable damage'));
+check('an uncovered dungeon does not read as clean',
+  views.uncoveredAvoidable.includes('Not on the list') && !views.uncoveredAvoidable.includes('No avoidable damage'));
+const stoodIn = analysis.avoidable.hits;
+if (!analysis.avoidable.covered) {
+  console.log('  (dungeon not on the avoidable list; avoidable view assertions skipped)');
+} else if (stoodIn.length > 0) {
+  const worst = new Map();
+  for (const hit of stoodIn) worst.set(hit.name, (worst.get(hit.name) ?? 0) + hit.amount);
+  const top = [...worst.entries()].sort((a, b) => b[1] - a[1])[0][0].split('-')[0];
+  check('avoidable view names the worst offender', views.avoidable.includes(top));
+  check('avoidable view is collapsed by default (no hit log)', !views.avoidable.includes('interrupt-log'));
+  check('expanded avoidable view lists every hit once',
+    countOf(views.avoidableLog, 'class="spell"') === stoodIn.length,
+    `${countOf(views.avoidableLog, 'class="spell"')} rows for ${stoodIn.length} hits`);
+  check('avoidable view renders with no icons available',
+    !views.avoidableLog.includes('src=""') && !views.avoidableLog.includes('src="undefined"'));
+  check('avoidable share text names the worst offender first',
+    views.shareAvoidable.split('\n')[1]?.startsWith(`1. ${top}`), views.shareAvoidable.split('\n')[1]);
+  console.log(`  (avoidable: ${stoodIn.length} hits across ${worst.size} players)`);
+} else {
+  console.log('  (nobody stood in anything; avoidable view assertions skipped)');
+}
+
+// --- Share text ----------------------------------------------------------------
+const shares = Object.entries(views).filter(([name, text]) => name.startsWith('share') && text !== '');
+for (const [name, text] of shares) {
+  const lines = text.split('\n');
+  const long = lines.find((line) => line.length > 255);
+  check(`${name} fits chat`, long === undefined, long);
+  check(`${name} is headed with the key`, lines[0].includes(analysis.meta.zoneName), lines[0]);
+  check(`${name} carries no markup`, !/[<>]/.test(text));
+}
+check('a pull\'s share text names the pull',
+  views.shareSegment === '' || views.shareSegment.split('\n')[0].includes(analysis.segments[0].label));
+check('uncovered share text says nothing was checked', views.shareUncovered.includes('not on the avoidable list'));
+
 // --- Icons -------------------------------------------------------------------
 // Every icon in the app resolves through the preload bridge, which does not
 // exist in a server render. So this is the offline case for all of them: the

@@ -15,11 +15,13 @@ import { createReadStream, statSync, watch, type FSWatcher } from 'node:fs';
 import { parentPort } from 'node:worker_threads';
 
 import {
+  avoidableReport,
   buildSegments,
   contextFor,
   crowdControlReport,
   damageReport,
   deathReports,
+  dispelReport,
   healingReport,
   interruptReport,
   type SegmentIndex,
@@ -85,6 +87,8 @@ function analyze(active: LogSession, run: Run, live: boolean): RunAnalysis {
     deaths: deathReports(context, segments),
     interrupts: interruptReport(context, segments),
     control: crowdControlReport(context, segments),
+    dispels: dispelReport(context, segments),
+    avoidable: avoidableReport(context, segments),
     bySegment,
     // Every field is a scalar now, so a shallow copy is a full one.
     forces: { ...segments.forces },
