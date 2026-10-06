@@ -664,6 +664,11 @@ for (const [name, text] of shares) {
 check('a pull\'s share text names the pull',
   views.shareSegment === '' || views.shareSegment.split('\n')[0].includes(analysis.segments[0].label));
 check('uncovered share text says nothing was checked', views.shareUncovered.includes('not on the avoidable list'));
+check('avoidable comparison is marked in development', views.avoidableCompare.includes('In development'));
+check('avoidable comparison shows every side',
+  analysis.avoidable.hits.length + analysis.avoidable.blizzard.length === 0 ||
+    (views.avoidableCompare.includes('Ours') && views.avoidableCompare.includes('Blizzard') &&
+      views.avoidableCompare.includes('Combined')));
 
 // --- Icons -------------------------------------------------------------------
 // Every icon in the app resolves through the preload bridge, which does not

@@ -27,6 +27,7 @@ import {
   type SegmentIndex,
   type SegmentOptions,
   avoidableReport,
+  combinedAvoidable,
   summarizeAvoidable,
 } from '../src/index.js';
 import { ACTORS, DPS, FORCES, HEALER, LINES, LOG_TEXT, PET, TANK, at, creature, hit, taken } from './fixture.js';
@@ -1267,4 +1268,22 @@ test('amounts are net of overkill, and a killing blow says so', () => {
 test('a dungeon the list does not cover says so instead of reading clean', () => {
   assert.equal(murderRow().covered, true);
   assert.equal(murderRow(500).covered, false);
+});
+
+test("Blizzard's flag is read on its own, with no dungeon gate and no tank rule", () => {
+  // Burning Steps carries the flag; Legion Strike and Demonic Rage do not.
+  for (const report of [murderRow(), murderRow(500)]) {
+    assert.deepEqual(
+      report.blizzard.map((entry) => entry.spellName),
+      ['Burning Steps', 'Burning Steps'],
+    );
+  }
+});
+
+test('combined is the flag plus what the list has that the flag misses', () => {
+  const combined = combinedAvoidable(murderRow());
+  assert.deepEqual(
+    combined.map((entry) => `${entry.spellName} on ${entry.name}`),
+    ['Burning Steps on Dee', 'Legion Strike on Heals', 'Burning Steps on Dee'],
+  );
 });

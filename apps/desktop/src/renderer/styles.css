@@ -747,6 +747,24 @@ table.roster-table { margin-top: 6px; }
 .avoid-table td.zero { color: var(--dim); }
 .avoid-fatal { color: var(--danger); }
 
+/* The in-development comparison against Blizzard's avoidable flag. */
+.dev-note {
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  padding: 8px 12px;
+  margin-bottom: 12px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.dev-note strong { color: var(--boss); }
+.compare-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.compare-grid .panel + .panel { margin-top: 0; }
+.compare-abilities td.zero { color: var(--dim); }
+.compare-who { color: var(--boss); }
+@media (max-width: 1100px) {
+  .compare-grid { grid-template-columns: 1fr; }
+}
+
 /* The copy button, at the far end of the tab bar on every tab. */
 .tabs .share {
   margin-left: auto;

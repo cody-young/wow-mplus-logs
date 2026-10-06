@@ -9,6 +9,7 @@
  */
 import { renderToString } from 'react-dom/server';
 
+import { AvoidableComparePanel } from '../src/renderer/components/AvoidableComparePanel.js';
 import { AvoidablePanel } from '../src/renderer/components/AvoidablePanel.js';
 import { BreakdownTable } from '../src/renderer/components/BreakdownTable.js';
 import { DeathTimeline } from '../src/renderer/components/DeathTimeline.js';
@@ -112,6 +113,7 @@ export function render(analysis: RunAnalysis): Record<string, string> {
     avoidable: renderToString(<AvoidablePanel avoidable={analysis.avoidable} />),
     // Every player's hits open, for the same reason.
     avoidableLog: renderToString(<AvoidablePanel avoidable={analysis.avoidable} defaultExpanded />),
+    avoidableCompare: renderToString(<AvoidableComparePanel avoidable={analysis.avoidable} />),
     // The copy button's text for every tab, whole key, which is plain text
     // rather than markup but fails the same ways: a crash on real data, a
     // line too long for chat.
@@ -175,9 +177,9 @@ export function render(analysis: RunAnalysis): Record<string, string> {
     emptyDispels: renderToString(<DispelsPanel dispels={{ dispels: [], casts: 0 }} />),
     // A clean key, and a key from a dungeon the list does not cover, which
     // must not read as clean.
-    emptyAvoidable: renderToString(<AvoidablePanel avoidable={{ hits: [], covered: true }} />),
-    uncoveredAvoidable: renderToString(<AvoidablePanel avoidable={{ hits: [], covered: false }} />),
-    shareUncovered: shareAvoidable({ hits: [], covered: false }, { meta: analysis.meta, segment: null }),
+    emptyAvoidable: renderToString(<AvoidablePanel avoidable={{ hits: [], covered: true, blizzard: [] }} />),
+    uncoveredAvoidable: renderToString(<AvoidablePanel avoidable={{ hits: [], covered: false, blizzard: [] }} />),
+    shareUncovered: shareAvoidable({ hits: [], covered: false, blizzard: [] }, { meta: analysis.meta, segment: null }),
     // Presses that stopped nothing whatsoever — the case where the panel's
     // headline number is zero and the breakdown is the whole content.
     allWhiffedInterrupts: renderToString(

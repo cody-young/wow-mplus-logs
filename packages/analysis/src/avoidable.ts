@@ -1,4 +1,4 @@
-import { avoidable, avoidableDungeons } from '@mplus/data';
+import { avoidable, avoidableDungeons, isBlizzardAvoidable } from '@mplus/data';
 
 import { actorName, spellName, type AnalysisContext } from './context.js';
 import { DAMAGE_CODES, effective } from './events.js';
@@ -9,8 +9,9 @@ import { segmentAt, type SegmentIndex } from './segments.js';
  *
  * Elitism Helper did this in game, and Midnight took the in-game combat log
  * away from addons, so the log file is where it lives now. The judgement of
- * what counts is `@mplus/data/avoidable` — a hand-kept list, because nothing
- * in the game's data can tell a puddle from a pulse. Everything here is
+ * what counts is `@mplus/data/avoidable` — a hand-kept list. Blizzard's own
+ * flag for the same thing is read alongside it into `blizzard`, for comparing
+ * the two while that flag is still a guess. Everything here is
  * mechanical: a damage line, from an enemy, onto a party member, carrying an
  * id on that list.
  *
@@ -49,6 +50,15 @@ export interface AvoidableReport {
    * clean run, which is the one thing the tab must never claim falsely.
    */
   covered: boolean;
+  /**
+   * The same party's hits on spells Blizzard's own data flags as avoidable —
+   * `isBlizzardAvoidable`, a bit in SpellMisc. In development: shown beside
+   * `hits` so the two can be compared, not instead of it.
+   *
+   * No dungeon gate, because the flag is on every dungeon's spells, and no
+   * tank rule, because the in-game meter is not known to have one.
+   */
+  blizzard: AvoidableHit[];
 }
 
 /**
@@ -64,15 +74,17 @@ export function avoidableReport(context: AnalysisContext, segments: SegmentIndex
   const { run } = context;
   const { store, actors } = run;
   const hits: AvoidableHit[] = [];
+  const blizzard: AvoidableHit[] = [];
 
   for (let row = 0; row < store.count; row++) {
     if (!DAMAGE_CODES.has(store.code[row]!)) continue;
     const spellId = store.spellId[row]!;
-    // Melee is spell 0 and never on the list; skip the lookup for the most
-    // common line in the log.
+    // Melee is spell 0 and never on either list; skip the lookups for the
+    // most common line in the log.
     if (spellId === 0) continue;
     const entry = avoidable(spellId);
-    if (entry === undefined) continue;
+    const flagged = isBlizzardAvoidable(spellId);
+    if (entry === undefined && !flagged) continue;
 
     // The player themself, not their pet: a pet standing in fire is the
     // pet's business, and it has no row in the party to file it under.
@@ -83,12 +95,12 @@ export function avoidableReport(context: AnalysisContext, segments: SegmentIndex
 
     const victim = actors.at(dst);
     const specId = victim?.specId ?? -1;
-    if (entry.tank === true && TANK_SPECS.has(specId)) continue;
+    const listed = entry !== undefined && !(entry.tank === true && TANK_SPECS.has(specId));
+    if (!listed && !flagged) continue;
 
-    const amount = effective(store.amount[row]!, store.waste[row]!);
     const ts = store.ts[row]!;
     const segmentId = segments.segmentOf(row);
-    hits.push({
+    const hit: AvoidableHit = {
       ts,
       actorIndex: dst,
       name: actorName(context, dst),
@@ -96,13 +108,30 @@ export function avoidableReport(context: AnalysisContext, segments: SegmentIndex
       spellId,
       spellName: spellName(context, spellId),
       sourceName: src >= 0 ? actorName(context, src) : '',
-      amount,
+      amount: effective(store.amount[row]!, store.waste[row]!),
       fatal: store.waste[row]! > 0,
       segmentId: segmentId >= 0 ? segmentId : segmentAt(segments, ts),
-    });
+    };
+    if (listed) hits.push(hit);
+    if (flagged) blizzard.push(hit);
   }
 
-  return { hits, covered: avoidableDungeons().has(run.meta.challengeModeId) };
+  return { hits, covered: avoidableDungeons().has(run.meta.challengeModeId), blizzard };
+}
+
+/**
+ * Blizzard's flag with the hand-kept list as a supplement: every flagged hit,
+ * plus the list's hits on spells the flag misses. In development, like
+ * `blizzard`.
+ *
+ * A flagged spell's hits are taken from `blizzard` alone, so a tank frontal
+ * the flag carries counts against the tank here even though the list exempts
+ * it.
+ */
+export function combinedAvoidable(report: AvoidableReport): AvoidableHit[] {
+  return [...report.blizzard, ...report.hits.filter((hit) => !isBlizzardAvoidable(hit.spellId))].sort(
+    (a, b) => a.ts - b.ts,
+  );
 }
 
 /** One avoidable ability, as one player took it. */

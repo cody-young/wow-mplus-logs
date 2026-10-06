@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { SegmentKind } from '@mplus/analysis';
 
+import { AvoidableComparePanel } from './components/AvoidableComparePanel.js';
 import { AvoidablePanel } from './components/AvoidablePanel.js';
 import { BreakdownTable } from './components/BreakdownTable.js';
 import { ControlPanel } from './components/ControlPanel.js';
@@ -16,6 +17,7 @@ import { UpdateFooter, useUpdates } from './components/UpdateFooter.js';
 import { clock, integer, percent, short } from './format.js';
 import {
   shareAvoidable,
+  shareAvoidableCompare,
   shareBreakdown,
   shareControl,
   shareDeaths,
@@ -33,6 +35,7 @@ type Tab =
   | 'control'
   | 'dispels'
   | 'avoidable'
+  | 'avoidable-compare'
   | 'deaths';
 
 export function App(): React.JSX.Element {
@@ -194,11 +197,12 @@ export function App(): React.JSX.Element {
    * And avoidable damage, one list of hits for the same reason.
    */
   const avoidable = useMemo(() => {
-    if (run === null) return { hits: [], covered: false };
+    if (run === null) return { hits: [], covered: false, blizzard: [] };
     if (selectedSegment === null) return run.avoidable;
     return {
       hits: run.avoidable.hits.filter((hit) => hit.segmentId === selectedSegment),
       covered: run.avoidable.covered,
+      blizzard: run.avoidable.blizzard.filter((hit) => hit.segmentId === selectedSegment),
     };
   }, [run, selectedSegment]);
 
@@ -226,6 +230,8 @@ export function App(): React.JSX.Element {
         return shareDispels(dispels, scope);
       case 'avoidable':
         return shareAvoidable(avoidable, scope);
+      case 'avoidable-compare':
+        return shareAvoidableCompare(avoidable, scope);
       case 'deaths':
         return shareDeaths(deaths, scope);
     }
@@ -389,6 +395,7 @@ export function App(): React.JSX.Element {
                     'avoidable',
                     `Superiority Assister${avoidable.hits.length > 0 ? ` (${avoidable.hits.length})` : ''}`,
                   ],
+                  ['avoidable-compare', 'Avoidable vs Blizzard*'],
                   ['deaths', `Deaths${deaths.length > 0 ? ` (${deaths.length})` : ''}`],
                 ] as Array<[Tab, string]>
               ).map(([key, label]) => (
@@ -448,6 +455,11 @@ export function App(): React.JSX.Element {
                 <DispelsPanel key={`${run.runId}:${selectedSegment ?? 'all'}`} dispels={dispels} />
               ) : tab === 'avoidable' ? (
                 <AvoidablePanel
+                  key={`${run.runId}:${selectedSegment ?? 'all'}`}
+                  avoidable={avoidable}
+                />
+              ) : tab === 'avoidable-compare' ? (
+                <AvoidableComparePanel
                   key={`${run.runId}:${selectedSegment ?? 'all'}`}
                   avoidable={avoidable}
                 />
