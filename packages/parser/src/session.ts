@@ -1,5 +1,5 @@
 import type { ActorTable } from './actors.js';
-import { CombatLogParser, type ChallengeEndInfo, type ChallengeStartInfo, type CombatantInfo, type EncounterInfo, type LogVersionInfo, type ParserOptions } from './parser.js';
+import { CombatLogParser, type ChallengeEndInfo, type ChallengeStartInfo, type CombatantInfo, type EncounterInfo, type LogVersionInfo, type MapChangeInfo, type ParserOptions } from './parser.js';
 import { EventStore } from './store.js';
 
 /**
@@ -29,6 +29,21 @@ export interface EncounterWindow {
   /** Null if the key ended mid-fight. */
   endTs: number | null;
   success: boolean | null;
+}
+
+/**
+ * One uiMap a run was played on, and the world rectangle the game draws it over.
+ *
+ * Positions in the store carry a uiMapId, and this is what places them on that
+ * map's image: `(x - minX) / (maxX - minX)` and the same for y.
+ */
+export interface MapBounds {
+  uiMapId: number;
+  name: string;
+  minX: number;
+  maxX: number;
+  minY: number;
+  maxY: number;
 }
 
 export interface RunMeta {
@@ -79,6 +94,19 @@ export interface RunMeta {
    * it shows the absent player with zeros in every column.
    */
   party: number[];
+  /**
+   * Every uiMap the logging player entered during the run, in the order first
+   * entered, with its bounds from MAP_CHANGE.
+   *
+   * Seeded with the map the player was standing on at CHALLENGE_MODE_START,
+   * because the game logs that MAP_CHANGE on zoning in, minutes before the key
+   * is started — and it is the map the first pulls happen on.
+   *
+   * Only the logging player's maps. A party member who walks onto a floor the
+   * logger never visits leaves positions with a uiMapId that has no entry
+   * here, so a consumer must tolerate a missing one.
+   */
+  maps: MapBounds[];
 }
 
 export interface Run {
@@ -118,6 +146,8 @@ export class LogSession {
   private readonly progressInterval: number;
   private readonly retain: boolean;
   private eventsSinceProgress = 0;
+  /** The latest MAP_CHANGE, run or no run, to seed the next run's maps. */
+  private lastMap: MapBounds | null = null;
 
   constructor(options: SessionOptions = {}) {
     const { hooks = {}, progressInterval = 2000, retainCompletedRuns = true, ...parserOptions } = options;
@@ -132,6 +162,7 @@ export class LogSession {
         onChallengeEnd: (info) => this.endRun(info),
         onEncounterStart: (info) => this.openEncounter(info),
         onEncounterEnd: (info) => this.closeEncounter(info),
+        onMapChange: (info) => this.enterMap(info),
         onCombatantInfo: (info) => {
           this.recordCombatant(info);
           this.hooks.onCombatantInfo?.(info);
@@ -204,6 +235,7 @@ export class LogSession {
         elapsedMs: null,
         encounters: [],
         party: [],
+        maps: this.lastMap === null ? [] : [{ ...this.lastMap }],
       },
       store,
       actors: this.parser.actors,
@@ -271,6 +303,15 @@ export class LogSession {
     const run = this.current;
     if (run === null) return;
     if (!run.meta.party.includes(info.actor.index)) run.meta.party.push(info.actor.index);
+  }
+
+  private enterMap(info: MapChangeInfo): void {
+    const { ts: _ts, ...bounds } = info;
+    this.lastMap = bounds;
+    const run = this.current;
+    if (run === null) return;
+    // Keyed by id: the party crosses back and forth between floors all key.
+    if (!run.meta.maps.some((map) => map.uiMapId === bounds.uiMapId)) run.meta.maps.push({ ...bounds });
   }
 
   private openEncounter(info: EncounterInfo): void {

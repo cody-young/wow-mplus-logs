@@ -29,8 +29,12 @@ import {
   avoidableReport,
   combinedAvoidable,
   summarizeAvoidable,
+  TrackKind,
+  mapPoint,
+  positionAt,
+  positionTracks,
 } from '../src/index.js';
-import { ACTORS, DPS, FORCES, HEALER, LINES, LOG_TEXT, PET, TANK, at, creature, hit, taken } from './fixture.js';
+import { ACTORS, DPS, FORCES, HEALER, LINES, LOG_TEXT, PET, TANK, at, creature, died, hit, taken } from './fixture.js';
 
 function load(options: SegmentOptions = {}): {
   session: LogSession;
@@ -1286,4 +1290,81 @@ test('combined is the flag plus what the list has that the flag misses', () => {
     combined.map((entry) => `${entry.spellName} on ${entry.name}`),
     ['Burning Steps on Dee', 'Legion Strike on Heals', 'Burning Steps on Dee'],
   );
+});
+
+/**
+ * A short key on one map: a tank walked from (10,10) to (40,40) while hitting
+ * a mob that started untouched at (50,60), and a second mob first seen already
+ * hurt. Every coordinate has a fraction, as the game always writes one: the
+ * parser finds positionX by its decimal point.
+ */
+function positionsRun() {
+  const ward = creature(2001, 1);
+  const hurt = creature(2002, 2);
+  const lines = [
+    `${at(-60)}  MAP_CHANGE,2291,"Test Hold",300.000000,0.000000,400.000000,0.000000`,
+    `${at(0)}  CHALLENGE_MODE_START,"Test Hold",2000,500,15,[10,9,147]`,
+    ...LINES.filter((line) => line.includes('COMBATANT_INFO')),
+    hit(1, TANK, 'Tank', ward, 'Ward', 0, { pos: { x: 50.5, y: 60.5 } }),
+    hit(1.1, TANK, 'Tank', ward, 'Ward', 100, { hp: 900, pos: { x: 49.5, y: 59.5 } }),
+    hit(1.3, TANK, 'Tank', ward, 'Ward', 100, { hp: 800, pos: { x: 45.5, y: 55.5 } }),
+    hit(2, DPS, 'Dee', hurt, 'Hurt', 100, { hp: 500, pos: { x: 70.5, y: 80.5 } }),
+    hit(3, DPS, 'Dee', hurt, 'Hurt', 100, { hp: 1000, pos: { x: 71.5, y: 81.5 } }),
+    taken(4, ward, 'Ward', TANK, 'Tank', 10, { pos: { x: 10.5, y: 10.5 } }),
+    taken(5, ward, 'Ward', TANK, 'Tank', 10, { pos: { x: 20.5, y: 20.5 } }),
+    taken(10, ward, 'Ward', TANK, 'Tank', 10, { pos: { x: 40.5, y: 40.5 } }),
+    died(11, ward, 'Ward', '0xa48'),
+    `${at(30)}  CHALLENGE_MODE_END,2000,1,15,30000,30`,
+  ];
+  const session = new LogSession({ assumedYear: 2026 });
+  session.pushText(lines.join('\n') + '\n');
+  session.end();
+  const run = session.runs[0]!;
+  const context = contextFor(session, run);
+  const report = positionTracks(context, buildSegments(context));
+  const track = (guid: string) => report.tracks.find((t) => t.actor === indexOf(run, guid))!;
+  return { report, ward: track(ward), hurt: track(hurt), tank: track(TANK) };
+}
+
+test('position tracks thin a busy unit to four samples a second', () => {
+  const { report, ward, tank } = positionsRun();
+  assert.equal(report.tracks[0]!.kind, TrackKind.PARTY, 'party first');
+  assert.equal(ward.kind, TrackKind.ENEMY);
+  assert.equal(ward.npcId, 2001);
+  assert.ok(ward.segmentId >= 0, 'an enemy carries the pull it was in');
+  // 1.1s is 100ms after the first sample and dropped; 1.3s is kept.
+  assert.deepEqual([...ward.ts], [1000, 1300]);
+  assert.deepEqual([...ward.hpPct], [100, 80]);
+  assert.deepEqual(ward.deaths, [11000]);
+  assert.deepEqual([...tank.uiMapId], [2291, 2291, 2291]);
+  assert.equal(tank.home, null, 'a player has no spawn point');
+  assert.deepEqual(report.maps.map((map) => map.uiMapId), [2291]);
+});
+
+test("an enemy's home is where it stood untouched, not where it was dragged", () => {
+  const { ward, hurt } = positionsRun();
+  assert.deepEqual(ward.home, { ts: 1000, x: 50.5, y: 60.5, uiMapId: 2291 });
+  // Never seen at full health before it was hit: the first sight will do.
+  // The later full-health sample is a heal, not a spawn.
+  assert.deepEqual(hurt.home, { ts: 2000, x: 70.5, y: 80.5, uiMapId: 2291 });
+});
+
+test('a replay interpolates across a short gap and holds across a long one', () => {
+  const { tank } = positionsRun();
+  assert.equal(positionAt(tank, 3000), null, 'not seen yet');
+  const mid = positionAt(tank, 4500)!;
+  assert.equal(mid.x, 15.5);
+  assert.equal(mid.y, 15.5);
+  // 5s to 10s is longer than the gap the tank may be glided across.
+  assert.equal(positionAt(tank, 7000)!.x, 20.5);
+  assert.equal(positionAt(tank, 60000)!.x, 40.5, 'the last sample holds');
+});
+
+test('a world position lands on its map image a quarter turn round', () => {
+  const { report } = positionsRun();
+  const bounds = report.maps[0]!;
+  // North (high X) is the top of the image; west (high Y) is the left.
+  assert.deepEqual(mapPoint(bounds, 300, 400), { u: 0, v: 0 });
+  assert.deepEqual(mapPoint(bounds, 0, 0), { u: 1, v: 1 });
+  assert.deepEqual(mapPoint(bounds, 150, 100), { u: 0.75, v: 0.5 });
 });

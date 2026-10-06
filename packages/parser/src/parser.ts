@@ -95,6 +95,24 @@ export interface CombatantInfo {
   raw: string;
 }
 
+/**
+ * A MAP_CHANGE: the logging player crossed onto another uiMap.
+ *
+ * The four bounds are the world-coordinate rectangle the game draws that map
+ * over, which is what turns a logged position into a point on the map image.
+ * The log writes each pair larger value first (`x0,x1,y0,y1` with x0 > x1);
+ * they are stored as min/max so nothing downstream has to know that.
+ */
+export interface MapChangeInfo {
+  ts: number;
+  uiMapId: number;
+  name: string;
+  minX: number;
+  maxX: number;
+  minY: number;
+  maxY: number;
+}
+
 export interface LogVersionInfo {
   version: number;
   advancedLogging: boolean;
@@ -108,6 +126,7 @@ export interface ParserHooks {
   onEncounterEnd?(info: EncounterInfo): void;
   onCombatantInfo?(info: CombatantInfo): void;
   onZoneChange?(ts: number, instanceId: number, zoneName: string): void;
+  onMapChange?(info: MapChangeInfo): void;
   onVersion?(info: LogVersionInfo): void;
   /** Fired once per distinct event name the parser does not recognize. */
   onUnknownEvent?(name: string, line: string): void;
@@ -373,10 +392,27 @@ export class CombatLogParser {
         else this.hooks.onEncounterEnd?.(info);
         return;
       }
-      case Ev.ZONE_CHANGE:
-      case Ev.MAP_CHANGE: {
+      case Ev.ZONE_CHANGE: {
         if (count < 2) return;
         this.hooks.onZoneChange?.(ts, fieldInt(line, offsets, 0), fieldStr(line, offsets, 1));
+        return;
+      }
+      case Ev.MAP_CHANGE: {
+        // Field 0 is a uiMapID, not an instance id: this is not a zone change.
+        if (count < 6) return;
+        const x0 = fieldFloat(line, offsets, 2);
+        const x1 = fieldFloat(line, offsets, 3);
+        const y0 = fieldFloat(line, offsets, 4);
+        const y1 = fieldFloat(line, offsets, 5);
+        this.hooks.onMapChange?.({
+          ts,
+          uiMapId: fieldInt(line, offsets, 0),
+          name: fieldStr(line, offsets, 1),
+          minX: Math.min(x0, x1),
+          maxX: Math.max(x0, x1),
+          minY: Math.min(y0, y1),
+          maxY: Math.max(y0, y1),
+        });
         return;
       }
       default:
@@ -506,6 +542,7 @@ export class CombatLogParser {
       store.hpMax[row] = fieldInt(line, offsets, advancedStart + AdvHead.HP_MAX, -1);
       store.posX[row] = fieldFloat(line, offsets, tail - AdvTail.POS_X);
       store.posY[row] = fieldFloat(line, offsets, tail - AdvTail.POS_Y);
+      store.uiMapId[row] = fieldInt(line, offsets, tail - AdvTail.UI_MAP_ID, 0);
     }
 
     switch (code) {

@@ -64,6 +64,8 @@ export function hit(
     /** ownerGUID in the target's advanced block, the way a pet names its master. */
     dstOwner?: string;
     crit?: boolean;
+    /** The target's world position. */
+    pos?: { x: number; y: number };
   } = {},
 ): string {
   const hp = opts.hp ?? 1000;
@@ -75,7 +77,7 @@ export function hit(
   const event = opts.support === undefined ? 'SPELL_DAMAGE' : 'SPELL_DAMAGE_SUPPORT';
   const tailField = opts.support ?? 'ST';
   const crit = opts.crit === true ? '1' : 'nil';
-  const block = adv(dst, hp, hpMax, opts.dstOwner ?? '0000000000000000');
+  const block = adv(dst, hp, hpMax, opts.dstOwner ?? '0000000000000000', opts.pos?.x, opts.pos?.y);
   return `${at(seconds)}  ${event},${src},"${srcName}",${srcFlags},0x0,${dst},"${dstName}",${dstFlags},0x0,${spellId},"${spellName}",0x8,${block},${amount},${amount},-1,8,0,0,0,${crit},nil,nil,${tailField}`;
 }
 
@@ -158,6 +160,8 @@ export function taken(
     spellName?: string;
     overkill?: number;
     crit?: boolean;
+    /** The victim's world position. */
+    pos?: { x: number; y: number };
   } = {},
 ): string {
   const hp = opts.hp ?? 500000;
@@ -166,7 +170,7 @@ export function taken(
   const spellName = opts.spellName ?? 'Cleave';
   const overkill = opts.overkill ?? -1;
   const crit = opts.crit === true ? '1' : 'nil';
-  return `${at(seconds)}  SPELL_DAMAGE,${src},"${srcName}",0xa48,0x0,${dst},"${dstName}",0x511,0x0,${spellId},"${spellName}",0x8,${adv(dst, hp, hpMax)},${amount},${amount},${overkill},8,0,0,0,${crit},nil,nil,ST`;
+  return `${at(seconds)}  SPELL_DAMAGE,${src},"${srcName}",0xa48,0x0,${dst},"${dstName}",0x511,0x0,${spellId},"${spellName}",0x8,${adv(dst, hp, hpMax, undefined, opts.pos?.x, opts.pos?.y)},${amount},${amount},${overkill},8,0,0,0,${crit},nil,nil,ST`;
 }
 
 export function heal(

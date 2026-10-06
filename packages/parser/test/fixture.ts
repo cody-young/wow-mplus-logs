@@ -43,6 +43,8 @@ const COMBATANT_TAIL = '[(12345,1)],[],[(207200,639,())],[(12345,610,(),(),())],
 
 export const LINES: string[] = [
   '9/30/2026 18:48:00.000-4  COMBAT_LOG_VERSION,22,ADVANCED_LOG_ENABLED,1,BUILD_VERSION,12.1.0,PROJECT_ID,1',
+  // Zoning in logs the map before the key starts; the run must still get it.
+  '9/30/2026 18:48:30.000-4  MAP_CHANGE,2357,"Ara-Kara, City of Echoes",1300.000000,1100.000000,900.000000,700.000000',
   // Zone name contains a comma inside quotes.
   '9/30/2026 18:49:00.000-4  CHALLENGE_MODE_START,"Ara-Kara, City of Echoes",2660,503,12,[10,9,147,148]',
   `9/30/2026 18:49:01.000-4  COMBATANT_INFO,${PLAYER},${COMBATANT_STATS},268,${COMBATANT_TAIL}`,
@@ -52,6 +54,9 @@ export const LINES: string[] = [
   `9/30/2026 18:50:24.500-4  SPELL_DAMAGE,${PLAYER},"${PLAYER_NAME}",0x511,0x0,${ENEMY},"Fungal Fiend",0xa48,0x0,323764,"Convoke the Spirits",0x8,${ADV_ENEMY},108642,48000,-1,8,0,0,0,1,nil,nil,AOE`,
   // Pet damage: the owner link lives only in the advanced block.
   `9/30/2026 18:50:25.000-4  SPELL_DAMAGE,${PET},"Spirit Wolf",0x1111,0x0,${ENEMY},"Fungal Fiend",0xa48,0x0,323765,"Bite",0x1,${ADV_PET},9000,9000,-1,1,0,0,0,nil,nil,nil,ST`,
+  // Down a floor and back: two maps, each listed once.
+  '9/30/2026 18:50:25.500-4  MAP_CHANGE,2358,"The Hollows",1250.500000,1150.500000,850.000000,750.000000',
+  '9/30/2026 18:50:25.600-4  MAP_CHANGE,2357,"Ara-Kara, City of Echoes",1300.000000,1100.000000,900.000000,700.000000',
   // Heal: amount, baseAmount, overhealing, absorbed, critical.
   `9/30/2026 18:50:26.000-4  SPELL_HEAL,${HEALER},"Healy-Ázshara",0x512,0x0,${PLAYER},"${PLAYER_NAME}",0x511,0x0,116670,"Vivify",0x8,${ADV_PLAYER},32000,30000,5000,0,1`,
   // Healer tops up another player's pet. The advanced block describes the pet

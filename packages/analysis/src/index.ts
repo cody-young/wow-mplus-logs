@@ -95,6 +95,16 @@ export {
   wasted,
 } from './events.js';
 export {
+  TrackKind,
+  mapPoint,
+  positionAt,
+  positionTracks,
+  type PositionOptions,
+  type PositionReport,
+  type PositionTrack,
+  type TrackPoint,
+} from './positions.js';
+export {
   SegmentKind,
   buildSegments,
   segmentAt,

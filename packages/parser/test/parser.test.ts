@@ -596,3 +596,31 @@ test('unparseable lines are counted, not thrown', () => {
   assert.equal(session.parser.linesRejected, 1);
   assert.equal(session.parser.unknownEvents, 1);
 });
+
+test('an advanced row keeps the uiMap its position is on', () => {
+  const run = onlyRun(parseAll(LOG_TEXT));
+  const swings = rows(run, Ev.SWING_DAMAGE);
+  assert.equal(run.store.uiMapId[swings[0]!], 2291);
+  assert.equal(run.store.posX[swings[0]!], Math.fround(1200.5), "the player's position");
+  assert.equal(run.store.posX[swings[1]!], Math.fround(1234.56), "the enemy's position");
+  // No advanced block, no map.
+  assert.equal(run.store.uiMapId[rows(run, Ev.SPELL_INTERRUPT)[0]!], 0);
+});
+
+test('a run lists each map it entered once, starting with the one it began on', () => {
+  const run = onlyRun(parseAll(LOG_TEXT));
+  assert.deepEqual(
+    run.meta.maps.map((map) => map.uiMapId),
+    [2357, 2358],
+    'the MAP_CHANGE before the START seeds the run; returning to it adds nothing',
+  );
+  // The log writes each pair larger first; the run stores min and max.
+  assert.deepEqual(run.meta.maps[1], {
+    uiMapId: 2358,
+    name: 'The Hollows',
+    minX: 1150.5,
+    maxX: 1250.5,
+    minY: 750,
+    maxY: 850,
+  });
+});

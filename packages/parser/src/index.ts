@@ -29,12 +29,14 @@ export {
   type CombatantInfo,
   type EncounterInfo,
   type LogVersionInfo,
+  type MapChangeInfo,
   type ParserHooks,
   type ParserOptions,
 } from './parser.js';
 export {
   LogSession,
   type EncounterWindow,
+  type MapBounds,
   type Run,
   type RunMeta,
   type SessionHooks,

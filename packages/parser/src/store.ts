@@ -3,7 +3,7 @@
  *
  * One object per event would be roughly 300 bytes and would put a million
  * short-lived objects through the GC for a single long key. Struct-of-arrays
- * gets the same data into ~54 bytes per event, lets analysis scan a run in a
+ * gets the same data into ~60 bytes per event, lets analysis scan a run in a
  * tight allocation-free loop, and — because the columns are already typed
  * arrays — doubles as the wire format for sharing a run later.
  *
@@ -46,9 +46,20 @@ export class EventStore {
   /** Destination health at the time of the event, from advanced logging. */
   hpCurrent: Int32Array;
   hpMax: Int32Array;
-  /** Destination position, used to cluster trash into pulls. */
+  /**
+   * World position of the advanced block's subject: the destination, or the
+   * source when the row carries EvFlag.INFO_IS_SOURCE. 0,0 without a block.
+   */
   posX: Float32Array;
   posY: Float32Array;
+  /**
+   * The uiMap that position is on, 0 without a block.
+   *
+   * Positions are only comparable within one uiMap: a dungeon with floors is
+   * several maps, each with its own coordinate frame on the minimap. Sixteen
+   * bits is ample — retail uiMapIDs are in the low thousands.
+   */
+  uiMapId: Uint16Array;
 
   /**
    * Augmentation Evoker attribution: row -> actor index of the supporter.
@@ -86,6 +97,7 @@ export class EventStore {
     this.hpMax = new Int32Array(capacity);
     this.posX = new Float32Array(capacity);
     this.posY = new Float32Array(capacity);
+    this.uiMapId = new Uint16Array(capacity);
   }
 
   /**
@@ -113,6 +125,7 @@ export class EventStore {
     this.hpMax[index] = -1;
     this.posX[index] = 0;
     this.posY[index] = 0;
+    this.uiMapId[index] = 0;
   }
 
   private grow(target: number): void {
@@ -131,6 +144,7 @@ export class EventStore {
     this.hpMax = growI32(this.hpMax, next);
     this.posX = growF32(this.posX, next);
     this.posY = growF32(this.posY, next);
+    this.uiMapId = growU16(this.uiMapId, next);
     this.capacity = next;
   }
 
@@ -155,6 +169,7 @@ export class EventStore {
     this.hpMax = this.hpMax.slice(0, n);
     this.posX = this.posX.slice(0, n);
     this.posY = this.posY.slice(0, n);
+    this.uiMapId = this.uiMapId.slice(0, n);
     this.capacity = n;
   }
 
@@ -175,6 +190,7 @@ export class EventStore {
       this.hpMax.byteLength +
       this.posX.byteLength +
       this.posY.byteLength +
+      this.uiMapId.byteLength +
       this.support.size * 8
     );
   }
