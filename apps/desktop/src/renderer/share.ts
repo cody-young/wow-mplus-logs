@@ -1,6 +1,5 @@
 import {
   SegmentKind,
-  combinedAvoidable,
   summarizeAvoidable,
   summarizeCrowdControl,
   summarizeDispels,
@@ -180,34 +179,6 @@ export function shareAvoidable(report: AvoidableReport, scope: ShareScope): stri
         index + 1,
         `${shortName(actor.name)} ${short(actor.amount)} (${actor.hits} ${actor.hits === 1 ? 'hit' : 'hits'}${died})`,
         actor.abilities.map((ability) => `${ability.name} ${short(ability.amount)}`),
-      ),
-    );
-  }
-  return join(lines);
-}
-
-/** In development: every side of the avoidable comparison, player by player. */
-export function shareAvoidableCompare(report: AvoidableReport, scope: ShareScope): string {
-  const ours = summarizeAvoidable(report.hits);
-  const theirs = summarizeAvoidable(report.blizzard);
-  const combined = summarizeAvoidable(combinedAvoidable(report));
-  const lines = [
-    heading('Avoidable, ours vs Blizzard', scope),
-    fit(
-      `Ours ${report.covered ? `${short(ours.amount)} (${ours.hits} hits)` : 'not on the list'}, ` +
-        `Blizzard ${short(theirs.amount)} (${theirs.hits} hits), ` +
-        `combined ${short(combined.amount)} (${combined.hits} hits)`,
-    ),
-  ];
-  const amountOf = (summary: typeof ours, index: number): number =>
-    summary.actors.find((actor) => actor.actorIndex === index)?.amount ?? 0;
-  // Combined holds every player either other side does, worst first.
-  for (const [rank, actor] of combined.actors.slice(0, LINES).entries()) {
-    lines.push(
-      ranked(
-        rank + 1,
-        `${shortName(actor.name)} ours ${short(amountOf(ours, actor.actorIndex))}, ` +
-          `Blizzard ${short(amountOf(theirs, actor.actorIndex))}, combined ${short(actor.amount)}`,
       ),
     );
   }

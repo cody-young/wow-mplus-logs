@@ -9,7 +9,6 @@
  */
 import { renderToString } from 'react-dom/server';
 
-import { AvoidableComparePanel } from '../src/renderer/components/AvoidableComparePanel.js';
 import { AvoidablePanel } from '../src/renderer/components/AvoidablePanel.js';
 import { BreakdownTable } from '../src/renderer/components/BreakdownTable.js';
 import { DeathTimeline } from '../src/renderer/components/DeathTimeline.js';
@@ -113,9 +112,8 @@ export function render(analysis: RunAnalysis): Record<string, string> {
     // Every section's log open, for the same reason.
     dispelLog: renderToString(<DispelsPanel dispels={analysis.dispels} defaultExpanded />),
     avoidable: renderToString(<AvoidablePanel avoidable={analysis.avoidable} />),
-    // Every player's hits open, for the same reason.
+    // Every player's hits open in every section, for the same reason.
     avoidableLog: renderToString(<AvoidablePanel avoidable={analysis.avoidable} defaultExpanded />),
-    avoidableCompare: renderToString(<AvoidableComparePanel avoidable={analysis.avoidable} />),
     // Only the chrome around the canvas: the canvas has no size until it is
     // mounted, so a string render draws nothing on it by design.
     map: renderToString(<MapPanel run={analysis} selectedSegment={null} onSelectSegment={() => {}} />),

@@ -748,7 +748,8 @@ table.roster-table { margin-top: 6px; }
 .avoid-table td.zero { color: var(--dim); }
 .avoid-fatal { color: var(--danger); }
 
-/* The in-development comparison against Blizzard's avoidable flag. */
+/* The in-development comparison against Blizzard's avoidable flag, atop the
+   Superiority Assister: its three sides' bars, then a section per side. */
 .dev-note {
   border: 1px dashed var(--border);
   border-radius: 6px;
@@ -760,8 +761,7 @@ table.roster-table { margin-top: 6px; }
 .dev-note strong { color: var(--boss); }
 .compare-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
 .compare-grid .panel + .panel { margin-top: 0; }
-.compare-abilities td.zero { color: var(--dim); }
-.compare-who { color: var(--boss); }
+.avoid-section { margin-top: 26px; }
 @media (max-width: 1100px) {
   .compare-grid { grid-template-columns: 1fr; }
 }

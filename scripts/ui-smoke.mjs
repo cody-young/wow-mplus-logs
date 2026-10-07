@@ -640,9 +640,15 @@ if (!analysis.avoidable.covered) {
   const top = [...worst.entries()].sort((a, b) => b[1] - a[1])[0][0].split('-')[0];
   check('avoidable view names the worst offender', views.avoidable.includes(top));
   check('avoidable view is collapsed by default (no hit log)', !views.avoidable.includes('interrupt-log'));
-  check('expanded avoidable view lists every hit once',
-    countOf(views.avoidableLog, 'class="spell"') === stoodIn.length,
-    `${countOf(views.avoidableLog, 'class="spell"')} rows for ${stoodIn.length} hits`);
+  // A section per side, each listing its own hits: ours, Blizzard's, and
+  // Blizzard's plus ours on spells the flag misses. A spell is flagged exactly
+  // when some hit of it is on Blizzard's side.
+  const flagged = new Set(analysis.avoidable.blizzard.map((hit) => hit.spellId));
+  const sideRows = stoodIn.length + analysis.avoidable.blizzard.length +
+    analysis.avoidable.blizzard.length + stoodIn.filter((hit) => !flagged.has(hit.spellId)).length;
+  check('expanded avoidable view lists every hit once per side',
+    countOf(views.avoidableLog, 'class="spell"') === sideRows,
+    `${countOf(views.avoidableLog, 'class="spell"')} rows for ${sideRows} hits across the three sides`);
   check('avoidable view renders with no icons available',
     !views.avoidableLog.includes('src=""') && !views.avoidableLog.includes('src="undefined"'));
   check('avoidable share text names the worst offender first',
@@ -694,11 +700,10 @@ check('route share text numbers every pull',
 check('a pull\'s share text names the pull',
   views.shareSegment === '' || views.shareSegment.split('\n')[0].includes(analysis.segments[0].label));
 check('uncovered share text says nothing was checked', views.shareUncovered.includes('not on the avoidable list'));
-check('avoidable comparison is marked in development', views.avoidableCompare.includes('In development'));
-check('avoidable comparison shows every side',
-  analysis.avoidable.hits.length + analysis.avoidable.blizzard.length === 0 ||
-    (views.avoidableCompare.includes('Ours') && views.avoidableCompare.includes('Blizzard') &&
-      views.avoidableCompare.includes('Combined')));
+check('avoidable view is marked in development', views.avoidable.includes('In development'));
+check('avoidable view has a section for every side',
+  ['Ours', 'Blizzard', 'Combined'].every((side) => views.avoidable.includes(side)) &&
+    countOf(views.avoidable, 'class="avoid-section"') === 3);
 
 // --- Icons -------------------------------------------------------------------
 // Every icon in the app resolves through the preload bridge, which does not
