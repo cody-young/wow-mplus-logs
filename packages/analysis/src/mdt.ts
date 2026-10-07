@@ -35,9 +35,10 @@ import { TrackKind, type PositionReport } from './positions.js';
  * A floor with none of these is marked `good: false`, and the map draws it in
  * the log's own coordinates instead.
  *
- * Once a floor is placed, its kills are matched pack by pack, since a pack
- * pulls whole: see `byPull`. That only decides which spawn each kill was; the
- * fit is made, and scored, from the kills that landed on their own.
+ * Once the floors are placed, their kills are matched pack by pack, since a
+ * pack pulls whole and every kill was some spawn: see `byPull`. That only
+ * decides which spawn each kill was; the fit is made, and scored, from the
+ * kills that landed on their own.
  */
 
 export interface MdtFloorFit {
@@ -101,16 +102,15 @@ export interface MdtPlacement {
   /** One per floor that had enough kills to fit, in uiMap order. */
   floors: MdtFloorFit[];
   /**
-   * Kills matched to a spawn on a good floor, at most one kill per spawn, and
-   * every MDT pack's kills from a single pull.
+   * Kills matched to a spawn on a good floor, one kill per spawn and one spawn
+   * per kill, and every MDT pack's kills from a single pull.
    *
-   * A kill dragged further than `MDT_MATCH_UNITS` from where MDT puts it, or
-   * on a floor fitted `byPacks` further than `PACK_MATCH_UNITS` or with no
-   * pack-mate beside it, is left out rather than given the nearest free spawn,
-   * which on a dense floor is as likely another pack's. The exception is a
-   * pack its pull matched some of: a pack pulls whole, so the pull's other
-   * kills of its creatures fill it out to `PULL_FILL_UNITS`. A pack that is
-   * still not whole after that is left out too.
+   * Each pull's kills are explained by whole packs where they can be, dragged
+   * up to `PULL_DRAG_YARDS` from their spawns, or `ANCHORED_DRAG_YARDS` for a
+   * pack the pull has a kill on a spawn of. What a pull has on a pack's spawns
+   * is placed even when the pack cannot be made whole. A kill none of that
+   * explains is left out rather than given the nearest free spawn, which on a
+   * dense floor is as likely another pack's.
    */
   matches: MdtMatch[];
 }
@@ -125,8 +125,17 @@ export const PACK_MATCH_UNITS = 25;
  * hit, which for the back of a pack can be a moment later.
  */
 const PACK_WINDOW_MS = 3000;
-/** How far a kill may land from a spawn of a pack its pull took, in MDT units. */
-export const PULL_FILL_UNITS = 40;
+/**
+ * How far a tank may drag a pack before the log first sees its mobs, in
+ * yards: a pull's kill may stand this far from the spawn of a pack it took.
+ * Gathering two or three packs onto a fourth drags them sixty yards or more.
+ */
+export const PULL_DRAG_YARDS = 60;
+/**
+ * The same for a pack the pull has a kill on the spawn of, which ties the
+ * pack to the pull: the rest of it died there, wherever the log first saw it.
+ */
+export const ANCHORED_DRAG_YARDS = 120;
 
 const MIN_OBSERVED = 6;
 /**
@@ -147,11 +156,13 @@ const MAX_SCALE = 6;
 
 interface Spawn {
   enemyIndex: number;
+  npcId: number;
   clone: MdtClone;
 }
 
 interface Observation {
   actor: number;
+  npcId: number;
   x: number;
   y: number;
   /** When the log first saw it, for telling which kills were pulled together. */
@@ -190,7 +201,7 @@ export function placeOnMdt(
   const spawnsByNpc = new Map<number, Spawn[]>();
   for (const enemy of dungeon.enemies) {
     const list = spawnsByNpc.get(enemy.npcId) ?? [];
-    for (const clone of enemy.clones) list.push({ enemyIndex: enemy.index, clone });
+    for (const clone of enemy.clones) list.push({ enemyIndex: enemy.index, npcId: enemy.npcId, clone });
     spawnsByNpc.set(enemy.npcId, list);
   }
 
@@ -211,14 +222,14 @@ export function placeOnMdt(
   }
 
   const floors: MdtFloorFit[] = [];
-  const matches: MdtMatch[] = [];
+  const placed: Placed[] = [];
   for (const [uiMapId, tracks] of [...byMap].sort((a, b) => a[0] - b[0])) {
     const observe = (sublevel: number): Observation[] => {
       const observations: Observation[] = [];
       for (const track of tracks) {
         const candidates = spawnsByNpc.get(track.npcId)!.filter((spawn) => spawn.clone.sublevel === sublevel);
         if (candidates.length > 0) {
-          observations.push({ actor: track.actor, x: track.home!.x, y: track.home!.y, ts: track.home!.ts, segment: track.segmentId, candidates });
+          observations.push({ actor: track.actor, npcId: track.npcId, x: track.home!.x, y: track.home!.y, ts: track.home!.ts, segment: track.segmentId, candidates });
         }
       }
       return observations;
@@ -305,23 +316,14 @@ export function placeOnMdt(
     }
     if (best === null) continue;
     floors.push(best.fit);
-    if (!best.fit.good) continue;
-    const { scale, offsetX, offsetY, sublevel } = best.fit;
-    const packSizes = new Map<number, number>();
-    for (const enemy of dungeon.enemies) {
-      for (const { sublevel: level, group } of enemy.clones) {
-        if (level === sublevel && group !== null) packSizes.set(group, (packSizes.get(group) ?? 0) + 1);
-      }
-    }
-    for (const pair of byPull({ s: scale, bx: offsetX, by: offsetY }, observe(sublevel), best.pairs, packSizes)) {
-      matches.push({
-        actor: pair.o.actor,
-        enemyIndex: pair.c.enemyIndex,
-        cloneIndex: pair.c.clone.index,
-        distance: pair.d,
-      });
-    }
+    if (best.fit.good) placed.push({ fit: best.fit, observations: observe(best.fit.sublevel), pairs: best.pairs });
   }
+  const matches = byPull(placed, [...spawnsByNpc.values()].flat()).map(({ o, c, d }) => ({
+    actor: o.actor,
+    enemyIndex: c.enemyIndex,
+    cloneIndex: c.clone.index,
+    distance: d,
+  }));
   return { dungeon, floors, matches };
 }
 
@@ -334,6 +336,13 @@ interface Pair {
 /** A floor's fit and the kills it matched. */
 interface Fitted {
   fit: MdtFloorFit;
+  pairs: Pair[];
+}
+
+/** A good floor, with its kills and the ones its fit matched. */
+interface Placed {
+  fit: MdtFloorFit;
+  observations: Observation[];
   pairs: Pair[];
 }
 
@@ -484,73 +493,218 @@ function assignByPack(t: Transform, observations: Observation[]): Pair[] {
 }
 
 /**
- * A fit's matches made whole pack by pack, as the game pulls them.
+ * Kills placed on spawns pack by pack, as the game pulls them.
  *
- * A pack pulls all at once, so its mobs die in one pull. Each pack goes to the
- * pull that matched the most of it, and a match from any other pull is
- * dropped. Then every mob of the pack is that pull's: its other kills of the
- * same creatures fill the pack's other spawns, out to `PULL_FILL_UNITS`. A
- * tank gathers a pack before the log sees most of it, so these are usually
- * just past `MDT_MATCH_UNITS`, and the pull is what says which spawn they are.
+ * A pack pulls all at once, so its mobs die in one pull, and every kill was
+ * some spawn: a pull's kills are explained by whole packs, each claimed by one
+ * pull with one kill per spawn. Within a pull it does not matter which kill
+ * stands for which spawn of a creature, since a route lists only the spawns.
  *
- * A pack that is still not whole is dropped: a pull cannot take part of a
- * pack, so its matches there were some other spawn's, or the log missed the
- * rest of it, and either way a half-pulled pack is not what happened.
- * `packSizes` counts each pack's spawns on the floor's sublevel.
+ * Whole packs are claimed one at a time, the one whose furthest kill is
+ * nearest first. A pack one of the fit's matches ties to a pull, the pull that matched the most
+ * of it, is claimed only by that pull, and those matches are kept for it, so a
+ * gathered pull cannot hand them to a neighbour. Any other pack is claimed by
+ * whichever pull's leftover kills fill it.
+ *
+ * A tank gathers packs before the log sees most of them, so a pack's kills
+ * may stand up to `PULL_DRAG_YARDS` from its spawns, or `ANCHORED_DRAG_YARDS`
+ * for a pack tied to the pull. A spawn MDT puts in no pack has no pack-mates
+ * to say which pull took it, and still needs a kill within `MDT_MATCH_UNITS`.
+ *
+ * A pack is whole when each of its spawns has a kill, counting only creatures
+ * that died somewhere in the run: some never die, such as a boss's adds that
+ * leave with it, and a pack waiting on them would never be placed. A pack its
+ * own pull cannot make whole still gets what that pull has on its spawns,
+ * once every whole pack is placed: those kills can be no other pack's. Any
+ * other pack no pull can make whole is left out.
+ *
+ * All good floors are matched at once, since floors drawn on one sublevel
+ * share its spawns.
  */
-function byPull(t: Transform, observations: Observation[], pairs: Pair[], packSizes: ReadonlyMap<number, number>): Pair[] {
-  const byPack = new Map<number, Map<number, { count: number; distance: number }>>();
-  for (const { o, c, d } of pairs) {
-    const group = c.clone.group;
-    if (group === null || o.segment < 0) continue;
-    let tally = byPack.get(group);
-    if (tally === undefined) byPack.set(group, (tally = new Map()));
-    const entry = tally.get(o.segment) ?? { count: 0, distance: 0 };
-    entry.count++;
-    entry.distance += d;
-    tally.set(o.segment, entry);
+function byPull(placed: readonly Placed[], spawns: readonly Spawn[]): Pair[] {
+  interface Kill {
+    o: Observation;
+    u: number;
+    v: number;
+    sublevel: number;
+    /** `PULL_DRAG_YARDS` in MDT units, under its floor's fit. */
+    reach: number;
   }
-  const owner = new Map<number, number>();
-  for (const [group, tally] of byPack) {
-    let best = -1;
-    let most = { count: 0, distance: Infinity };
-    for (const [segment, entry] of tally) {
-      if (entry.count > most.count || (entry.count === most.count && entry.distance < most.distance)) {
-        best = segment;
-        most = entry;
+  interface Unit {
+    key: string;
+    grouped: boolean;
+    /** Its spawns of creatures that died somewhere in the run, by creature. */
+    required: Map<number, Spawn[]>;
+  }
+
+  const kills: Kill[] = [];
+  const killed = new Set<number>();
+  for (const { fit, observations } of placed) {
+    for (const o of observations) {
+      const [u, v] = toMdt(fit, o.x, o.y);
+      kills.push({ o, u, v, sublevel: fit.sublevel, reach: PULL_DRAG_YARDS * fit.scale });
+      killed.add(o.npcId);
+    }
+  }
+  const bySegment = new Map<number, Kill[]>();
+  for (const kill of kills) {
+    const list = bySegment.get(kill.o.segment);
+    if (list === undefined) bySegment.set(kill.o.segment, [kill]);
+    else list.push(kill);
+  }
+
+  const sublevels = new Set(placed.map(({ fit }) => fit.sublevel));
+  const units = new Map<string, Unit>();
+  const unitOf = new Map<Spawn, Unit>();
+  for (const spawn of spawns) {
+    const { sublevel, group } = spawn.clone;
+    if (!sublevels.has(sublevel)) continue;
+    const key = group === null ? `${sublevel}:${spawn.enemyIndex}:${spawn.clone.index}` : `${sublevel}/${group}`;
+    let unit = units.get(key);
+    if (unit === undefined) units.set(key, (unit = { key, grouped: group !== null, required: new Map() }));
+    unitOf.set(spawn, unit);
+    if (!killed.has(spawn.npcId)) continue;
+    const list = unit.required.get(spawn.npcId);
+    if (list === undefined) unit.required.set(spawn.npcId, [spawn]);
+    else list.push(spawn);
+  }
+
+  // Each pack's pull: the one its fit's matches mostly came from.
+  const tallies = new Map<Unit, Map<number, { count: number; distance: number }>>();
+  const anchors: Array<{ actor: number; unit: Unit; segment: number }> = [];
+  for (const { pairs } of placed) {
+    for (const { o, c, d } of pairs) {
+      const unit = unitOf.get(c)!;
+      anchors.push({ actor: o.actor, unit, segment: o.segment });
+      let tally = tallies.get(unit);
+      if (tally === undefined) tallies.set(unit, (tally = new Map()));
+      const entry = tally.get(o.segment) ?? { count: 0, distance: 0 };
+      entry.count++;
+      entry.distance += d;
+      tally.set(o.segment, entry);
+    }
+  }
+  const owner = new Map<Unit, number>();
+  for (const [unit, tally] of tallies) {
+    let best = { segment: 0, count: 0, distance: Infinity };
+    for (const [segment, { count, distance }] of tally) {
+      if (count > best.count || (count === best.count && distance < best.distance)) best = { segment, count, distance };
+    }
+    owner.set(unit, best.segment);
+  }
+  /** A kill a pack's own pull matched to it, kept for that pack while it is unplaced. */
+  const reserved = new Map<number, Unit>();
+  for (const { actor, unit, segment } of anchors) if (owner.get(unit) === segment) reserved.set(actor, unit);
+  const release = (unit: Unit): void => {
+    for (const [actor, holder] of reserved) if (holder === unit) reserved.delete(actor);
+  };
+
+  const used = new Set<number>();
+  /**
+   * As many of the unit's spawns as can be, each given a different free kill
+   * of the pull no further than `reach` times a kill's `reach`.
+   */
+  const fill = (unit: Unit, segment: number, reach: number): Pair[] => {
+    const pool = bySegment.get(segment);
+    if (pool === undefined) return [];
+    const pairs: Pair[] = [];
+    for (const [npcId, wanted] of unit.required) {
+      const options = wanted.map((c) => {
+        const list: Pair[] = [];
+        for (const kill of pool) {
+          if (kill.o.npcId !== npcId || kill.sublevel !== c.clone.sublevel || used.has(kill.o.actor)) continue;
+          const holder = reserved.get(kill.o.actor);
+          if (holder !== undefined && holder !== unit) continue;
+          const d = Math.hypot(c.clone.x - kill.u, c.clone.y - kill.v);
+          if (d < (unit.grouped ? kill.reach * reach : MDT_MATCH_UNITS)) list.push({ o: kill.o, c, d });
+        }
+        return list.sort((a, b) => a.d - b.d);
+      });
+      pairs.push(...matchMost(options));
+    }
+    return pairs;
+  };
+  const size = (unit: Unit): number => [...unit.required.values()].reduce((sum, list) => sum + list.length, 0);
+  const worst = (pairs: Pair[]): number => pairs.reduce((most, pair) => Math.max(most, pair.d), 0);
+  const claim = (unit: Unit, pairs: Pair[]): void => {
+    pending.delete(unit);
+    release(unit);
+    for (const pair of pairs) used.add(pair.o.actor);
+    out.push(...pairs);
+  };
+
+  const pending = new Set([...units.values()].filter((unit) => unit.required.size > 0));
+  const out: Pair[] = [];
+  const anchoredReach = ANCHORED_DRAG_YARDS / PULL_DRAG_YARDS;
+  const home = new Map(owner);
+  // Whole packs, the one whose furthest kill is nearest first: a claim that
+  // has to reach far for one of its mobs goes after every claim that need not.
+  for (;;) {
+    let best: { unit: Unit; pairs: Pair[]; cost: number } | null = null;
+    for (const unit of pending) {
+      const own = owner.get(unit);
+      let segments: Iterable<number> = own === undefined ? bySegment.keys() : [own];
+      if (own !== undefined && fill(unit, own, anchoredReach).length < size(unit)) {
+        // Its own pull cannot make it whole, and only loses kills from here
+        // on. Its kills there stay its own: standing on its spawns, they are
+        // no other pack's either.
+        owner.delete(unit);
+        segments = bySegment.keys();
+      }
+      for (const segment of segments) {
+        const pairs = fill(unit, segment, owner.get(unit) === segment ? anchoredReach : 1);
+        if (pairs.length < size(unit)) continue;
+        const cost = worst(pairs);
+        if (best === null || cost < best.cost) best = { unit, pairs, cost };
       }
     }
-    owner.set(group, best);
+    if (best === null) break;
+    claim(best.unit, best.pairs);
   }
-  const ownedBy = (c: Spawn): number | undefined => (c.clone.group === null ? undefined : owner.get(c.clone.group));
-  const kept = pairs.filter((pair) => pair.c.clone.group === null || pair.o.segment < 0 || ownedBy(pair.c) === pair.o.segment);
-
-  const usedObservations = new Set(kept.map((pair) => pair.o));
-  const usedSpawns = new Set(kept.map((pair) => pair.c));
-  const edges: Pair[] = [];
-  for (const o of observations) {
-    if (usedObservations.has(o) || o.segment < 0) continue;
-    const u = t.bx - t.s * o.y;
-    const v = t.by + t.s * o.x;
-    for (const c of o.candidates) {
-      if (usedSpawns.has(c) || ownedBy(c) !== o.segment) continue;
-      const d = Math.hypot(c.clone.x - u, c.clone.y - v);
-      if (d < PULL_FILL_UNITS) edges.push({ o, c, d });
+  // Then what is left of the packs a pull has kills on the spawns of. The rest
+  // of such a pack died somewhere the log did not place it, or MDT draws the
+  // pack bigger than the game spawns it; either way the kills on its spawns
+  // are that pack's, and leaving them out loses them from the route.
+  for (;;) {
+    let best: { unit: Unit; pairs: Pair[]; cost: number } | null = null;
+    for (const unit of pending) {
+      const own = home.get(unit);
+      if (own === undefined) continue;
+      const pairs = fill(unit, own, 1);
+      if (!pairs.some((pair) => reserved.get(pair.o.actor) === unit)) continue;
+      const cost = worst(pairs);
+      if (best === null || cost < best.cost) best = { unit, pairs, cost };
     }
+    if (best === null) break;
+    claim(best.unit, best.pairs);
   }
-  edges.sort((a, b) => a.d - b.d);
-  for (const edge of edges) {
-    if (usedObservations.has(edge.o) || usedSpawns.has(edge.c)) continue;
-    usedObservations.add(edge.o);
-    usedSpawns.add(edge.c);
-    kept.push(edge);
-  }
+  return out;
+}
 
-  const filled = new Map<number, number>();
-  for (const { c } of kept) {
-    if (c.clone.group !== null) filled.set(c.clone.group, (filled.get(c.clone.group) ?? 0) + 1);
-  }
-  return kept.filter(({ c }) => c.clone.group === null || filled.get(c.clone.group)! >= packSizes.get(c.clone.group)!);
+/**
+ * As many spawns as can be given a different kill, from each spawn's options
+ * nearest first. Augmenting paths, so a kill two spawns both want goes to the
+ * one with no other choice.
+ */
+function matchMost(options: Pair[][]): Pair[] {
+  const holder = new Map<number, number>();
+  const chosen: Array<Pair | undefined> = [];
+  const place = (spawn: number, seen: Set<number>): boolean => {
+    for (const pair of options[spawn]!) {
+      const actor = pair.o.actor;
+      if (seen.has(actor)) continue;
+      seen.add(actor);
+      const other = holder.get(actor);
+      if (other === undefined || place(other, seen)) {
+        holder.set(actor, spawn);
+        chosen[spawn] = pair;
+        return true;
+      }
+    }
+    return false;
+  };
+  for (let spawn = 0; spawn < options.length; spawn++) place(spawn, new Set());
+  return chosen.filter((pair) => pair !== undefined);
 }
 
 /** Least squares for scale and offset over matched pairs, the quarter turn held fixed. */

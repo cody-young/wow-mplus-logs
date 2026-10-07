@@ -97,7 +97,8 @@ export {
 export {
   MDT_MATCH_UNITS,
   PACK_MATCH_UNITS,
-  PULL_FILL_UNITS,
+  PULL_DRAG_YARDS,
+  ANCHORED_DRAG_YARDS,
   placeOnMdt,
   toMdt,
   type MdtFloorFit,

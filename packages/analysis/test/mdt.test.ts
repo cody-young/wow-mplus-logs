@@ -358,7 +358,7 @@ test("a pack is one pull's, so a kill from another pull that lands on it is drop
   );
 });
 
-test('a pack its pull did not take all of is not matched at all', () => {
+test('what a pull took of a pack is placed, even when the rest of it is missing', () => {
   const { packs } = packRun(0);
   const tracks: PositionTrack[] = [];
   for (let g = 0; g < 8; g++) {
@@ -371,13 +371,54 @@ test('a pack its pull did not take all of is not matched at all', () => {
     }
   }
 
+  // The two it has stand on their spawns, which nothing else can be.
   const placement = placeOnMdt(report(tracks), packs, []);
   assert.equal(placement.floors[0]!.good, true);
-  assert.equal(placement.matches.length, 21);
-  assert.equal(
-    placement.matches.some((match) => match.cloneIndex === 1),
-    false,
+  assert.equal(placement.matches.length, 23);
+  assert.deepEqual(
+    placement.matches.filter((match) => match.cloneIndex === 1).map((match) => match.enemyIndex).sort(),
+    [1, 2],
   );
+});
+
+test('a pack dragged into another pull is placed whole, and no kill twice', () => {
+  // Every pack pulled on its own, but the first pull gathers the second pack
+  // onto the first: its first mob is seen on its spawn, the other two only
+  // once they stand among the first pack, 85 MDT units from their own.
+  const { packs } = packRun(0);
+  const tracks: PositionTrack[] = [];
+  for (let g = 0; g < 8; g++) {
+    for (const enemy of packs.enemies) {
+      const dragged = g === 1 && enemy.index > 1;
+      const clone = enemy.clones[dragged ? 0 : g]!;
+      const { x, y } = worldOf(clone.x + (dragged ? 4 : 0), clone.y + (dragged ? 3 : 0));
+      tracks.push(kill(enemy.npcId, x + wobble(tracks.length), y, UI_MAP, 60_000 * (g + 1), g === 1 ? 0 : g));
+    }
+  }
+
+  const placement = placeOnMdt(report(tracks), packs, []);
+  assert.equal(placement.floors[0]!.good, true);
+  assert.equal(placement.matches.length, 24);
+  assert.equal(new Set(placement.matches.map((match) => match.actor)).size, 24);
+  assert.equal(new Set(placement.matches.map((match) => `${match.enemyIndex}:${match.cloneIndex}`)).size, 24);
+  const second = placement.matches.filter((match) => match.cloneIndex === 2);
+  assert.equal(second.length, 3);
+  for (const match of second) assert.equal(tracks.find((track) => track.actor === match.actor)!.segmentId, 0);
+});
+
+test('a pack waits only on the creatures that die', () => {
+  // A boss's adds that leave with it: in MDT's pack, never in the log.
+  const { packs, tracks } = packRun(0);
+  const adds = {
+    index: 4,
+    npcId: 3009,
+    name: 'Departing Add',
+    count: 0,
+    isBoss: false,
+    clones: [{ index: 1, x: 310, y: -210, sublevel: 1, group: 1 }],
+  };
+  const placement = placeOnMdt(report(tracks), { ...packs, enemies: [...packs.enemies, adds] }, []);
+  assert.equal(placement.matches.length, tracks.length);
 });
 
 test('a creature killed more often than MDT has spawns for is a summon, and left out', () => {
