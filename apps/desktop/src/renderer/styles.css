@@ -631,6 +631,16 @@ table.roster-table { margin-top: 6px; }
 .tip-body { display: flex; flex-direction: column; gap: 1px; }
 .tip .dim { color: var(--dim); font-weight: 400; }
 .tip-nums { color: var(--muted); font-variant-numeric: tabular-nums; }
+/* A spell's in-game description: prose, so it wraps where the rest of the tip
+   does not. max-content keeps it from squeezing to a sliver near the right edge. */
+.tip-desc {
+  white-space: pre-line;
+  width: max-content;
+  max-width: 44ch;
+  color: var(--muted);
+  line-height: 1.4;
+  margin-top: 2px;
+}
 /* Label-and-figure pairs, for a tip that carries a whole stat block. */
 .tip-rows {
   display: grid;

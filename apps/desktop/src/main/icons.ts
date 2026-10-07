@@ -19,6 +19,11 @@
  * look up: the class/spec icons, whose texture names are fixed game data the
  * renderer already holds. That path skips the tooltip hop entirely and is one
  * CDN request per icon, once per machine, ever.
+ *
+ * The same tooltip response also carries the spell's description, which the
+ * Superiority Assister shows on hover. It is kept from the call that already
+ * happens for the icon, in its own file beside the index, so spells looked up
+ * before descriptions were kept are asked once more and never again.
  */
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -27,6 +32,8 @@ import { app } from 'electron';
 
 /** Spell id -> icon name, or null for "asked, and there is no icon". */
 type Index = Record<string, string | null>;
+/** Spell id -> description as plain text, or null for "asked, and there is none". */
+type Descriptions = Record<string, string | null>;
 
 const TIMEOUT_MS = 6000;
 const CONCURRENCY = 4;
@@ -35,6 +42,8 @@ const UA = 'mplus-logs (local combat log viewer)';
 let dir = '';
 let index: Index | null = null;
 let indexDirty = false;
+let descriptions: Descriptions | null = null;
+let descriptionsDirty = false;
 /** Icon name -> data URL. The hot path, so disk is touched once per name. */
 const dataUrls = new Map<string, string>();
 const inflight = new Map<number, Promise<void>>();
@@ -92,6 +101,59 @@ async function saveIndex(): Promise<void> {
   }
 }
 
+async function loadDescriptions(): Promise<Descriptions> {
+  if (descriptions !== null) return descriptions;
+  try {
+    const raw = await readFile(join(await store(), 'descriptions.json'), 'utf8');
+    const parsed: unknown = JSON.parse(raw);
+    descriptions = typeof parsed === 'object' && parsed !== null ? (parsed as Descriptions) : {};
+  } catch {
+    descriptions = {};
+  }
+  return descriptions;
+}
+
+async function saveDescriptions(): Promise<void> {
+  if (!descriptionsDirty || descriptions === null) return;
+  descriptionsDirty = false;
+  try {
+    await writeFile(join(await store(), 'descriptions.json'), JSON.stringify(descriptions), 'utf8');
+  } catch {
+    // Same as the index: unwritten just means asked again next run.
+  }
+}
+
+const ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ' };
+
+/**
+ * The description out of a tooltip's HTML, as plain text.
+ *
+ * Wowhead puts it in the first `<div class="q">` of the tooltip. It is reduced
+ * to text here, in the main process, so the renderer only ever gets a string
+ * to print and never markup from a remote response to inject.
+ */
+export function describe(tooltip: unknown): string | null {
+  if (typeof tooltip !== 'string') return null;
+  const match = /<div class="q">([\s\S]*?)<\/div>/.exec(tooltip);
+  if (match === null) return null;
+  const text = match[1]!
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/<[^>]*>/g, '')
+    .replace(/&(#x?[0-9a-f]+|[a-z]+);/gi, (whole, code: string) => {
+      if (code.startsWith('#')) {
+        const point = code[1] === 'x' || code[1] === 'X' ? parseInt(code.slice(2), 16) : parseInt(code.slice(1), 10);
+        return Number.isInteger(point) && point > 0 && point <= 0x10ffff ? String.fromCodePoint(point) : whole;
+      }
+      return ENTITIES[code.toLowerCase()] ?? whole;
+    })
+    .replace(/[ \t]+/g, ' ')
+    .replace(/ *\n */g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+  return text === '' ? null : text.slice(0, 1000);
+}
+
 async function readCached(name: string): Promise<string | null> {
   const cached = dataUrls.get(name);
   if (cached !== undefined) return cached;
@@ -117,11 +179,13 @@ async function get(url: string, as: 'json' | 'bytes'): Promise<unknown> {
 /** Resolves one spell id all the way to a cached file, or records the miss. */
 async function fetchOne(spellId: number): Promise<void> {
   const map = await loadIndex();
-  const tooltip = await get(
+  const tooltip = (await get(
     `https://nether.wowhead.com/tooltip/spell/${spellId}?dataEnv=1&locale=0`,
     'json',
-  );
-  const name = safeName((tooltip as { icon?: unknown } | null)?.icon);
+  )) as { icon?: unknown; tooltip?: unknown } | null;
+  (await loadDescriptions())[String(spellId)] = describe(tooltip?.tooltip);
+  descriptionsDirty = true;
+  const name = safeName(tooltip?.icon);
   if (name === null) {
     // A real answer with no icon in it: remember the miss so it is never asked
     // again. Network errors deliberately do not get here.
@@ -151,15 +215,28 @@ export async function resolveIcons(spellIds: number[]): Promise<Record<number, s
   const wanted = [...new Set(spellIds)].filter((id) => Number.isInteger(id) && id > 0).slice(0, 400);
   const map = await loadIndex();
 
-  const missing = offline() ? [] : wanted.filter((id) => !(String(id) in map));
+  await fetchAll(offline() ? [] : wanted.filter((id) => !(String(id) in map)));
+
+  const out: Record<number, string> = {};
+  for (const id of wanted) {
+    const name = map[String(id)];
+    if (name === undefined || name === null) continue;
+    const url = await readCached(name);
+    if (url !== null) out[id] = url;
+  }
+  return out;
+}
+
+/** Runs `fetchOne` over the ids, four at a time, sharing jobs already in flight. */
+async function fetchAll(spellIds: readonly number[]): Promise<void> {
   // A chunked worklist rather than Promise.all over everything: a long key can
   // carry a couple of hundred unseen spells and firing those at once is both
   // rude and slower than four at a time.
   let next = 0;
   await Promise.all(
-    Array.from({ length: Math.min(CONCURRENCY, missing.length) }, async () => {
-      for (let i = next++; i < missing.length; i = next++) {
-        const id = missing[i]!;
+    Array.from({ length: Math.min(CONCURRENCY, spellIds.length) }, async () => {
+      for (let i = next++; i < spellIds.length; i = next++) {
+        const id = spellIds[i]!;
         let job = inflight.get(id);
         if (job === undefined) {
           job = fetchOne(id).catch(() => undefined);
@@ -171,13 +248,23 @@ export async function resolveIcons(spellIds: number[]): Promise<Record<number, s
     }),
   );
   await saveIndex();
+  await saveDescriptions();
+}
+
+/**
+ * Spell descriptions as plain text, keyed by spell id. Same contract as
+ * `resolveIcons`: ids with nothing behind them are omitted, and offline this
+ * is whatever is already on disk.
+ */
+export async function resolveDescriptions(spellIds: number[]): Promise<Record<number, string>> {
+  const wanted = [...new Set(spellIds)].filter((id) => Number.isInteger(id) && id > 0).slice(0, 400);
+  const known = await loadDescriptions();
+  await fetchAll(offline() ? [] : wanted.filter((id) => !(String(id) in known)));
 
   const out: Record<number, string> = {};
   for (const id of wanted) {
-    const name = map[String(id)];
-    if (name === undefined || name === null) continue;
-    const url = await readCached(name);
-    if (url !== null) out[id] = url;
+    const text = known[String(id)];
+    if (typeof text === 'string') out[id] = text;
   }
   return out;
 }

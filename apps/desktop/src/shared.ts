@@ -215,6 +215,12 @@ export interface DesktopApi {
    */
   resolveIcons(spellIds: number[]): Promise<Record<number, string>>;
   /**
+   * Spell descriptions as plain text, keyed by spell id, from the same
+   * tooltip lookup as the icons and with the same contract: missing ids are
+   * omitted, and it never rejects.
+   */
+  resolveDescriptions(spellIds: number[]): Promise<Record<number, string>>;
+  /**
    * The same, for art asked for by texture name rather than by spell id — the
    * spec icons, which are not spells and so have no id to look up. Keyed by
    * the name that was asked for, with unavailable names omitted.

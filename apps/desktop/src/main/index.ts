@@ -4,7 +4,7 @@ import { Worker } from 'node:worker_threads';
 import { BrowserWindow, app, clipboard, dialog, ipcMain, shell } from 'electron';
 
 import type { UpdateState, WorkerEvent, WorkerRequest } from '../shared.js';
-import { resolveIcons, resolveNamed } from './icons.js';
+import { resolveDescriptions, resolveIcons, resolveNamed } from './icons.js';
 import { findLatestLog, listLogs } from './logs.js';
 import { loadForces } from './forces.js';
 import { mdtTiles } from './mdt-tiles.js';
@@ -143,6 +143,10 @@ ipcMain.handle('mplus:watchLog', () => watchTarget());
 
 ipcMain.handle('mplus:icons', (_event, spellIds: number[]) =>
   resolveIcons(Array.isArray(spellIds) ? spellIds : []),
+);
+
+ipcMain.handle('mplus:spellDescriptions', (_event, spellIds: number[]) =>
+  resolveDescriptions(Array.isArray(spellIds) ? spellIds : []),
 );
 
 ipcMain.handle('mplus:namedIcons', (_event, names: string[]) =>

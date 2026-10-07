@@ -12,6 +12,10 @@
  * wants one, rather than five separate round trips for a five-player party.
  * Numbers and strings never collide as Map keys, so one cache serves both.
  *
+ * Spell descriptions ride along in a cache of their own — same ids as the
+ * icons, different values — and the same version counter, since they come
+ * from the same lookup in the main process.
+ *
  * Icons are optional by design. Without the bridge (the server-rendered smoke
  * test) or without network (MPLUS_OFFLINE=1, a plane, a dead CDN) this resolves
  * to nothing and every view still renders — nothing waits on an icon.
@@ -25,6 +29,9 @@ type Key = number | string;
 /** Spell id or icon name -> data URL, or null for "asked, and there is none". */
 const cache = new Map<Key, string | null>();
 const inflight = new Set<Key>();
+/** Spell id -> description, or null for "asked, and there is none". */
+const descriptionCache = new Map<number, string | null>();
+const descriptionInflight = new Set<number>();
 const subscribers = new Set<(version: number) => void>();
 let version = 0;
 
@@ -65,6 +72,24 @@ async function request(keys: readonly Key[], kind: 'spell' | 'named'): Promise<v
   }
 }
 
+/** Same as `request`, for descriptions. */
+async function requestDescriptions(ids: readonly number[]): Promise<void> {
+  const api = bridge();
+  const wanted = ids.filter((id) => !descriptionCache.has(id) && !descriptionInflight.has(id));
+  if (wanted.length === 0 || api?.resolveDescriptions === undefined) return;
+
+  for (const id of wanted) descriptionInflight.add(id);
+  try {
+    const found = await api.resolveDescriptions(wanted);
+    for (const id of wanted) descriptionCache.set(id, found[id] ?? null);
+  } catch {
+    // Uncached, to be asked again, for the same reason as a failed icon batch.
+  } finally {
+    for (const id of wanted) descriptionInflight.delete(id);
+    notify();
+  }
+}
+
 /** Repaints the caller whenever any batch resolves. */
 function useIconVersion(): void {
   const [, setVersion] = useState(version);
@@ -101,6 +126,27 @@ export function useSpellIcons(spellIds: readonly number[]): ReadonlyMap<number, 
   }, [key]);
 
   return resolved(ids);
+}
+
+/**
+ * The spells' descriptions, for the ids that have one. Like the icons, an id
+ * still resolving is just absent, and a view without them reads the same.
+ */
+export function useSpellDescriptions(spellIds: readonly number[]): ReadonlyMap<number, string> {
+  const ids = [...new Set(spellIds)].filter((id) => Number.isInteger(id) && id > 0).sort((a, b) => a - b);
+  const key = ids.join(',');
+  useIconVersion();
+
+  useEffect(() => {
+    void requestDescriptions(key === '' ? [] : key.split(',').map(Number));
+  }, [key]);
+
+  const out = new Map<number, string>();
+  for (const id of ids) {
+    const text = descriptionCache.get(id);
+    if (typeof text === 'string') out.set(id, text);
+  }
+  return out;
 }
 
 /**

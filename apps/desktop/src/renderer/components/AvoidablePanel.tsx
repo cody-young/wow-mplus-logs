@@ -8,9 +8,10 @@ import {
 } from '@mplus/analysis';
 
 import { clock, integer, short } from '../format.js';
-import { useSpellIcons } from '../icons.js';
+import { useSpellDescriptions, useSpellIcons } from '../icons.js';
 import { shortName, specOf } from '../specs.js';
 import { SpecIcon } from './SpecIcon.js';
+import { Tip, useTip, type TipState } from './Tip.js';
 import type { AvoidableReport } from '../../shared.js';
 
 /**
@@ -26,12 +27,18 @@ import type { AvoidableReport } from '../../shared.js';
  * glance. Below, each side gets the full report: players worst first, each
  * expandable into every hit, then what the party stood in. A player with
  * nothing on them is not listed at all, which here is the good outcome.
+ *
+ * Hovering a spell, in a player's hits or in what the party stood in, shows
+ * its in-game description, so a name like "Shadow Burst" says what it was.
  */
 
 /** Abilities past this in the party list are a tail of one-offs. */
 const ABILITY_LIMIT = 18;
 
 type Player = { actorIndex: number; name: string; specId: number };
+
+/** The spell under the pointer. */
+type SpellHover = { spellId: number; name: string };
 
 export function AvoidablePanel({
   avoidable,
@@ -48,12 +55,14 @@ export function AvoidablePanel({
   const ours = useMemo(() => summarizeAvoidable(avoidable.hits), [avoidable.hits]);
   const theirs = useMemo(() => summarizeAvoidable(avoidable.blizzard), [avoidable.blizzard]);
   const combined = useMemo(() => summarizeAvoidable(combinedHits), [combinedHits]);
-  const icons = useSpellIcons(
-    useMemo(
-      () => [...new Set([...avoidable.hits, ...avoidable.blizzard].map((hit) => hit.spellId))],
-      [avoidable.hits, avoidable.blizzard],
-    ),
+  const spellIds = useMemo(
+    () => [...new Set([...avoidable.hits, ...avoidable.blizzard].map((hit) => hit.spellId))],
+    [avoidable.hits, avoidable.blizzard],
   );
+  const icons = useSpellIcons(spellIds);
+  const descriptions = useSpellDescriptions(spellIds);
+  const tip = useTip<SpellHover>();
+  const hovered = tip.data === null ? undefined : descriptions.get(tip.data.spellId);
 
   // One order and one scale for every side, so a player's bars sit at the
   // same height and their lengths compare directly. The combined side has
@@ -101,7 +110,7 @@ export function AvoidablePanel({
   ];
 
   return (
-    <div className="breakdown-wrap">
+    <div className="breakdown-wrap" ref={tip.rootRef}>
       <div className="dev-note">
         <strong>* In development.</strong> Our hand-kept list beside Blizzard&apos;s own avoidable flag
         (SpellMisc attribute 15, bit 22), which is read as the flag behind the in-game meter&apos;s
@@ -136,10 +145,18 @@ export function AvoidablePanel({
             uncovered={method.uncovered}
             none={method.none}
             icons={icons}
+            tip={tip}
             defaultExpanded={defaultExpanded}
           />
         </section>
       ))}
+
+      {tip.data === null || hovered === undefined ? null : (
+        <Tip state={tip} icon={icons.get(tip.data.spellId)}>
+          <strong>{tip.data.name}</strong>
+          <span className="tip-desc">{hovered}</span>
+        </Tip>
+      )}
     </div>
   );
 }
@@ -218,6 +235,7 @@ function MethodSection({
   uncovered,
   none,
   icons,
+  tip,
   defaultExpanded,
 }: {
   title: string;
@@ -229,6 +247,7 @@ function MethodSection({
   /** What to say when this side counted nothing. */
   none: string;
   icons: ReadonlyMap<number, string>;
+  tip: TipState<SpellHover>;
   defaultExpanded: boolean;
 }): React.JSX.Element {
   const [expanded, setExpanded] = useState<Set<number>>(
@@ -354,7 +373,11 @@ function MethodSection({
                             {mine.map((hit, index) => (
                               <tr className="spell" key={`${hit.ts}:${hit.spellId}:${index}`}>
                                 <td className="left">{clock(hit.ts)}</td>
-                                <td className="left">
+                                <td
+                                  className="left"
+                                  onMouseEnter={tip.show({ spellId: hit.spellId, name: hit.spellName })}
+                                  onMouseLeave={tip.hide}
+                                >
                                   <span className="namecell">
                                     <SpellIcon url={icons.get(hit.spellId)} name={hit.spellName} />
                                     <span className="name">{hit.spellName}</span>
@@ -387,7 +410,12 @@ function MethodSection({
         </h3>
         <div className="hits">
           {summary.abilities.slice(0, ABILITY_LIMIT).map((ability) => (
-            <div className="hit" key={ability.name}>
+            <div
+              className="hit"
+              key={ability.name}
+              onMouseEnter={tip.show({ spellId: ability.spellId, name: ability.name })}
+              onMouseLeave={tip.hide}
+            >
               <span className="t">{short(ability.amount)}</span>
               <span className="namecell">
                 <SpellIcon url={icons.get(ability.spellId)} name={ability.name} />
@@ -413,7 +441,7 @@ function MethodSection({
 function SpellIcon({ url, name }: { url: string | undefined; name: string }): React.JSX.Element {
   return (
     <span className="spell-ico">
-      {url === undefined ? null : <img src={url} alt="" width={16} height={16} title={name} />}
+      {url === undefined ? null : <img src={url} alt="" width={16} height={16} />}
     </span>
   );
 }
