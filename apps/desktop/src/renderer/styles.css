@@ -788,6 +788,12 @@ table.roster-table { margin-top: 6px; }
 /* The floor the party is on, while following them. */
 .map-floor.party::before { content: '●'; color: var(--good); margin-right: 5px; font-size: 9px; vertical-align: 1px; }
 .map-follow { border-style: dashed; }
+.map-export {
+  background: var(--panel-raised); border: 1px solid var(--border); border-radius: 11px;
+  padding: 2px 10px; font-size: 12px; color: var(--muted);
+}
+.map-export:hover { color: var(--text); }
+.map-export.done { color: var(--good); border-color: var(--good); }
 .map-floor-name { font-size: 13px; color: var(--muted); }
 .map-legend { display: flex; flex-wrap: wrap; gap: 12px; font-size: 12px; color: var(--muted); }
 .map-legend-item { display: inline-flex; align-items: center; gap: 5px; }

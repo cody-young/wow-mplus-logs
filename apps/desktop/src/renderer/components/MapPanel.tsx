@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { SegmentKind, TrackKind, positionAt, toMdt } from '@mplus/analysis';
+import { SegmentKind, TrackKind, mdtExportString, mdtRoute, positionAt, routeUid, toMdt } from '@mplus/analysis';
 import { MDT_CANVAS, MDT_TILES } from '@mplus/data';
 
 import { clock, integer, percent } from '../format.js';
@@ -235,6 +235,7 @@ export function MapPanel({ run, selectedSegment, onSelectSegment }: Props): Reac
               MDT map
             </label>
           ) : null}
+          <MdtExportButton run={run} />
         </div>
       </div>
       {useMdt && run.mdt !== null && floor.fit === null ? (
@@ -298,6 +299,52 @@ export function MapPanel({ run, selectedSegment, onSelectSegment }: Props): Reac
         </select>
       </div>
     </div>
+  );
+}
+
+/**
+ * Copies the run's pulls as an MDT route string, for MDT's Import. Hidden
+ * when no kill landed on MDT's map, since there would be nothing to import.
+ */
+function MdtExportButton({ run }: { run: RunAnalysis }): React.JSX.Element | null {
+  const [state, setState] = useState<'idle' | 'done' | 'failed'>('idle');
+  const timer = useRef<number | undefined>(undefined);
+  useEffect(() => () => window.clearTimeout(timer.current), []);
+  const route = useMemo(() => {
+    if (run.mdt === null) return null;
+    const { meta } = run;
+    const date = new Date(meta.startMs).toISOString().slice(0, 10);
+    return mdtRoute(
+      run.mdt,
+      run.segments,
+      `+${meta.keystoneLevel} ${meta.zoneName} ${date}`,
+      meta.keystoneLevel,
+      routeUid(run.runId),
+    );
+  }, [run]);
+  if (route === null) return null;
+
+  const fought = run.segments.filter((segment) => segment.enemies.length > 0).length;
+  const placed = route.value.pulls.length;
+  const copy = (): void => {
+    window.clearTimeout(timer.current);
+    mdtExportString(route)
+      .then((text) => window.mplus.copyText(text))
+      .then(() => setState('done'))
+      .catch(() => setState('failed'))
+      .finally(() => {
+        timer.current = window.setTimeout(() => setState('idle'), 1600);
+      });
+  };
+  return (
+    <button
+      type="button"
+      className={`map-export${state === 'done' ? ' done' : ''}`}
+      title={`Copy this run's route for Mythic Dungeon Tools' Import: ${placed} of ${fought} pulls, with the kills placed on MDT's map. Kills the map could not place are left out.`}
+      onClick={copy}
+    >
+      {state === 'done' ? 'Copied' : state === 'failed' ? 'Export failed' : 'Export to MDT'}
+    </button>
   );
 }
 

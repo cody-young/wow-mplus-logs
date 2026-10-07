@@ -105,6 +105,7 @@ export {
   type MdtMatch,
   type MdtPlacement,
 } from './mdt.js';
+export { encodeCbor, mdtExportString, mdtRoute, routeUid, type MdtRoute } from './mdt-route.js';
 export {
   TrackKind,
   mapPoint,
