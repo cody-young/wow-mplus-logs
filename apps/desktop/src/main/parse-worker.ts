@@ -26,6 +26,7 @@ import {
   interruptReport,
   placeOnMdt,
   positionTracks,
+  whoPulled,
   type SegmentIndex,
 } from '@mplus/analysis';
 import { EMPTY_TABLE, forcesFor, type ForcesTable, type MdtDungeon } from '@mplus/data';
@@ -83,6 +84,13 @@ function analyze(active: LogSession, run: Run, live: boolean): RunAnalysis {
   };
   for (const index of run.meta.party) note(index);
   for (const segment of segments.segments) for (const enemy of segment.enemies) note(enemy);
+  const pull = whoPulled(context);
+  if (pull !== null) {
+    for (const contact of pull.contacts) [contact.actor, contact.via, contact.enemy].forEach(note);
+    for (const near of pull.nearest) [near.actor, near.enemy].forEach(note);
+    for (const summon of pull.summons) [summon.actor, summon.unit].forEach(note);
+    if (pull.redirect !== null) note(pull.redirect.onto);
+  }
 
   // The dungeon-only reports: a raid has no avoidable list and no MDT map, and
   // twenty players' tracks are the heaviest report there is, for a map tab a
@@ -105,6 +113,7 @@ function analyze(active: LogSession, run: Run, live: boolean): RunAnalysis {
     avoidable: key === null ? { hits: [], covered: false, blizzard: [] } : avoidableReport(context, segments),
     positions,
     mdt: mdtDungeon === undefined ? null : placeOnMdt(positions, mdtDungeon),
+    pull,
     bySegment,
     // Every field is a scalar now, so a shallow copy is a full one.
     forces: { ...segments.forces },

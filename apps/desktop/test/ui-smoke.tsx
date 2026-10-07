@@ -20,6 +20,7 @@ import { DungeonIcon } from '../src/renderer/components/DungeonIcon.js';
 import { EnemyRoster, RosterTable } from '../src/renderer/components/EnemyRoster.js';
 import { InterruptsPanel } from '../src/renderer/components/InterruptsPanel.js';
 import { MapPanel } from '../src/renderer/components/MapPanel.js';
+import { PullStat } from '../src/renderer/components/PullStat.js';
 import { RunRow, partyOf } from '../src/renderer/components/RunRow.js';
 import { SegmentTimeline } from '../src/renderer/components/SegmentTimeline.js';
 import { SpecIcon } from '../src/renderer/components/SpecIcon.js';
@@ -33,7 +34,7 @@ import {
   shareInterrupts,
   shareRoute,
 } from '../src/renderer/share.js';
-import { wipeCutoff } from '../src/renderer/format.js';
+import { pullSummary, wipeCutoff } from '../src/renderer/format.js';
 import { SPECS } from '../src/renderer/specs.js';
 import type { RunAnalysis, RunForces, UpdateState, UpdateStatus } from '../src/shared.js';
 
@@ -103,6 +104,7 @@ export function render(analysis: RunAnalysis): Record<string, string> {
     taken: renderToString(<BreakdownTable report={analysis.taken} mode="taken" />),
     healing: renderToString(<BreakdownTable report={analysis.healing} mode="healing" />),
     deaths: renderToString(<DeathsPanel deaths={analysis.deaths} />),
+    pull: analysis.pull === null ? '' : renderToString(<PullStat analysis={analysis} pull={analysis.pull} />),
     // As the app shows it, which on a raid wipe folds the deaths after the
     // raid was already going down.
     deathsAsShown: renderToString(
@@ -356,3 +358,6 @@ export { overrulesBlizzard };
 
 /** Re-exported so the assertions can work out where a wipe's deaths are folded. */
 export { wipeCutoff };
+
+/** Re-exported so the assertions can check the header says what the report found. */
+export { pullSummary };

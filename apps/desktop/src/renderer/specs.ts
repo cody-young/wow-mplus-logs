@@ -40,6 +40,7 @@ export const SPECS: Record<number, SpecInfo> = {
   252: { name: 'Unholy', className: 'Death Knight', color: C.deathKnight, role: 'dps', icon: 'spell_deathknight_unholypresence' },
   577: { name: 'Havoc', className: 'Demon Hunter', color: C.demonHunter, role: 'dps', icon: 'ability_demonhunter_specdps' },
   581: { name: 'Vengeance', className: 'Demon Hunter', color: C.demonHunter, role: 'tank', icon: 'ability_demonhunter_spectank' },
+  1480: { name: 'Devourer', className: 'Demon Hunter', color: C.demonHunter, role: 'dps', icon: 'classicon_demonhunter_void' },
   102: { name: 'Balance', className: 'Druid', color: C.druid, role: 'dps', icon: 'spell_nature_starfall' },
   103: { name: 'Feral', className: 'Druid', color: C.druid, role: 'dps', icon: 'ability_druid_catform' },
   104: { name: 'Guardian', className: 'Druid', color: C.druid, role: 'tank', icon: 'ability_racial_bearform' },

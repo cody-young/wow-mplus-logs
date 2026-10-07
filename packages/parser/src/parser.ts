@@ -127,7 +127,8 @@ export interface ParserHooks {
   onEncounterStart?(info: EncounterInfo): void;
   onEncounterEnd?(info: EncounterInfo): void;
   onCombatantInfo?(info: CombatantInfo): void;
-  onZoneChange?(ts: number, instanceId: number, zoneName: string): void;
+  /** `difficultyId` is 0 outside an instance, and when the line omits it. */
+  onZoneChange?(ts: number, instanceId: number, zoneName: string, difficultyId: number): void;
   onMapChange?(info: MapChangeInfo): void;
   onVersion?(info: LogVersionInfo): void;
   /** Fired once per distinct event name the parser does not recognize. */
@@ -398,7 +399,12 @@ export class CombatLogParser {
       }
       case Ev.ZONE_CHANGE: {
         if (count < 2) return;
-        this.hooks.onZoneChange?.(ts, fieldInt(line, offsets, 0), fieldStr(line, offsets, 1));
+        this.hooks.onZoneChange?.(
+          ts,
+          fieldInt(line, offsets, 0),
+          fieldStr(line, offsets, 1),
+          count > 2 ? fieldInt(line, offsets, 2) : 0,
+        );
         return;
       }
       case Ev.MAP_CHANGE: {

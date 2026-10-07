@@ -746,3 +746,46 @@ test('a death logged as unconscious is flagged as a Feign Death', () => {
   assert.notEqual(run.store.flags[died[0]!]! & EvFlag.FEIGNED, 0);
   assert.equal(run.store.flags[died[1]!]! & EvFlag.FEIGNED, 0);
 });
+
+test('a raid pull keeps the half-minute before it, apart from the fight', () => {
+  const boss = 'Creature-0-1234-2657-1234-215657-00004321';
+  const hit = (time: string, amount: number): string =>
+    `9/30/2026 ${time}-4  SPELL_DAMAGE,${PLAYER},"A",0x511,0x0,${boss},"Ulgrax",0xa48,0x0,1,"S",0x1,${amount},${amount},-1,1,0,0,0,nil,nil,nil`;
+  const session = new LogSession({ assumedYear: 2026 });
+  session.pushText(
+    [
+      '9/30/2026 20:00:00.000-4  ZONE_CHANGE,2657,"Nerub-ar Palace",16',
+      hit('20:01:00.000', 100),
+      hit('20:01:58.000', 200),
+      '9/30/2026 20:02:00.000-4  ENCOUNTER_START,2902,"Ulgrax the Devourer",16,20,2657',
+      hit('20:02:01.000', 500),
+      '9/30/2026 20:04:00.000-4  ENCOUNTER_END,2902,"Ulgrax the Devourer",16,20,0,120000',
+      '',
+    ].join('\n'),
+  );
+  session.end();
+  const run = onlyRun(session);
+  const prePull = run.prePull;
+  assert.ok(prePull !== null);
+  assert.equal(prePull.count, 1, 'the hit a minute before is out of range');
+  assert.equal(prePull.ts[0], -2000, 'on the pull\'s own clock');
+  assert.equal(prePull.amount[0], 200);
+  assert.deepEqual([...run.store.amount.slice(0, run.store.count)], [500], 'none of it in the fight');
+});
+
+test('a key has no pre-pull store, and nothing is buffered outside a raid', () => {
+  const session = new LogSession({ assumedYear: 2026 });
+  session.pushText(
+    [
+      '9/30/2026 17:59:00.000-4  ZONE_CHANGE,2660,"Ara-Kara, City of Echoes",8',
+      `9/30/2026 17:59:59.000-4  SPELL_DAMAGE,${PLAYER},"A",0x511,0x0,${ENEMY},"B",0xa48,0x0,1,"S",0x1,100,100,-1,1,0,0,0,nil,nil,nil`,
+      '9/30/2026 18:00:00.000-4  CHALLENGE_MODE_START,"Ara-Kara, City of Echoes",2660,503,12,[10]',
+      `9/30/2026 18:00:01.000-4  SPELL_DAMAGE,${PLAYER},"A",0x511,0x0,${ENEMY},"B",0xa48,0x0,1,"S",0x1,500,500,-1,1,0,0,0,nil,nil,nil`,
+      '9/30/2026 18:40:00.000-4  CHALLENGE_MODE_END,2660,1,12,1800000,180',
+      '',
+    ].join('\n'),
+  );
+  session.end();
+  assert.equal(onlyRun(session).prePull, null);
+  assert.equal(session.parser.target, null, 'idle time in a dungeon costs a timestamp parse, as before');
+});

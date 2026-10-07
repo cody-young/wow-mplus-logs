@@ -11,6 +11,7 @@ import { EnemyRoster } from './components/EnemyRoster.js';
 import { InterruptsPanel } from './components/InterruptsPanel.js';
 import { MapPanel } from './components/MapPanel.js';
 import { RunRow, memberTitle, partyOf } from './components/RunRow.js';
+import { PullStat } from './components/PullStat.js';
 import { SegmentTimeline } from './components/SegmentTimeline.js';
 import { SpecIcon } from './components/SpecIcon.js';
 import { UpdateFooter, useUpdates } from './components/UpdateFooter.js';
@@ -385,6 +386,7 @@ export function App(): React.JSX.Element {
                   {raid ? null : <span style={{ color: 'var(--dim)' }}> · {run.deaths.length * 5}s</span>}
                 </span>
               </div>
+              {run.pull === null ? null : <PullStat analysis={run} pull={run.pull} />}
               <div className="stat">
                 <span className="label">{raid ? `Raid · ${run.meta.party.length}` : 'Party'}</span>
                 <span className="value" style={{ display: 'flex', flexWrap: 'wrap', gap: raid ? 3 : 7 }}>

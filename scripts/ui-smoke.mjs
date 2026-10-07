@@ -65,7 +65,7 @@ const analysis = await new Promise((resolve, reject) => {
   worker.postMessage({ type: 'open', path: logPath, tail: false, forces, mdt });
 });
 
-const { render, partyOf, overrulesBlizzard, wipeCutoff } = await import(outFile);
+const { render, partyOf, overrulesBlizzard, wipeCutoff, pullSummary } = await import(outFile);
 rmSync(outFile, { force: true });
 const views = render(analysis);
 
@@ -101,12 +101,18 @@ for (const [name, html] of Object.entries(views)) {
 }
 console.log();
 
-const topPlayer = analysis.damage.actors[0].name.split('-')[0];
-const topSpell = analysis.damage.actors[0].spells[0].name;
-const firstSegmentLabel = analysis.segments[0].label;
+// A raid pull reset before anyone attacked has no damage at all.
+const top = analysis.damage.actors[0];
+const topPlayer = top?.name.split('-')[0];
+const topSpell = top?.spells[0]?.name;
+const firstSegmentLabel = analysis.segments[0]?.label ?? '';
 
-check('damage table names the top player', views.damage.includes(topPlayer));
-check('damage table is collapsed by default (no spell rows)', !views.damage.includes(topSpell));
+if (top !== undefined) {
+  check('damage table names the top player', views.damage.includes(topPlayer));
+  check('damage table is collapsed by default (no spell rows)', !views.damage.includes(topSpell));
+} else {
+  console.log('  (nobody did damage; damage table assertions skipped)');
+}
 // `class="block` alone would also catch the spans inside a block — the tally,
 // its share — so the class has to end here: `block"` or `block boss`.
 const blocks = (views.timeline.match(/class="block[ "]/g) ?? []).length;
@@ -146,7 +152,9 @@ console.log(`  (timeline rows in use: ${[...rows].sort((a, b) => a - b).join('px
 const spellBars = [...views.expandedDamage.matchAll(/class="bar"\s+style="width:\s*([\d.]+)%/g)]
   .map(([, width]) => Number(width));
 const expandedSpellRows = analysis.damage.actors.reduce((n, a) => n + Math.min(a.spells.length, 25), 0);
-check('expanded damage names the top ability', views.expandedDamage.includes(escapeHtml(topSpell)));
+if (topSpell !== undefined) {
+  check('expanded damage names the top ability', views.expandedDamage.includes(escapeHtml(topSpell)));
+}
 check('every ability row has a bar, on top of every player bar',
   spellBars.length === expandedSpellRows + analysis.damage.actors.length,
   `${spellBars.length} bars vs ${expandedSpellRows} ability + ${analysis.damage.actors.length} player rows`);
@@ -417,9 +425,15 @@ if (analysis.deaths.length > 0) {
       aura.endTs > death.ts - death.windowMs &&
       aura.startTs < death.ts,
   );
-  check('the defensives lane drops the buffs that do nothing about damage',
-    droppedBuffs.every((aura) => !views.deaths.includes(`aria-label="${escapeHtml(aura.spellName)},`)),
-    `${droppedBuffs.length} dropped: ${droppedBuffs.map((aura) => aura.spellName).join(', ')}`);
+  // By name, which two auras can share: Guardian of Ancient Kings is the
+  // defensive (86659) and also a buff of its own (393108). A name a shown
+  // defensive carries proves nothing about the dropped one.
+  const shownNames = new Set(visibleAuras.map((aura) => aura.spellName));
+  const leaked = droppedBuffs.filter(
+    (aura) => !shownNames.has(aura.spellName) && views.deaths.includes(`aria-label="${escapeHtml(aura.spellName)},`),
+  );
+  check('the defensives lane drops the buffs that do nothing about damage', leaked.length === 0,
+    `leaked: ${leaked.map((aura) => `${aura.spellName} ${aura.spellId}`).join(', ')}`);
   // The same, for the other lane: a note the player wrote on themselves —
   // Sated, Hypothermia, a spent gateway — is not a thing that happened to them.
   const droppedNotes = death.auras.filter(
@@ -688,6 +702,27 @@ if (cutoff !== null && cutoff < analysis.deaths.length) {
   console.log('  (no wipe fold on this pull)');
 }
 
+// --- Who pulled ----------------------------------------------------------------
+if (raid) {
+  const pull = analysis.pull;
+  check('a raid pull says who pulled it', pull !== null && views.pull !== '');
+  if (pull !== null) {
+    const summary = pullSummary(pull, analysis.names);
+    check('the pull stat leads with what it found', text(views.pull).startsWith(summary.label), text(views.pull));
+    if (summary.actor !== -1) {
+      const who = (analysis.names[summary.actor] ?? '?').split('-')[0];
+      check('the pull stat names the puller', text(views.pull).includes(escapeHtml(who)), text(views.pull));
+    }
+    check('every actor the pull report names has a name',
+      [...pull.contacts.flatMap((c) => [c.actor, c.enemy]), ...pull.nearest.map((n) => n.actor), ...pull.summons.map((s) => s.actor)]
+        .every((index) => analysis.names[index] !== undefined));
+    check('the first contact is the earliest', pull.first === null || pull.contacts.every((c) => c.ts >= pull.first.ts));
+    console.log(`  (pull: ${summary.label} ${summary.actor === -1 ? '' : analysis.names[summary.actor]} — ${summary.detail})`);
+  }
+} else {
+  check('a key has no who-pulled report', analysis.pull === null);
+}
+
 // --- Share text ----------------------------------------------------------------
 const shares = Object.entries(views).filter(([name, text]) => name.startsWith('share') && text !== '');
 for (const [name, text] of shares) {
@@ -740,7 +775,7 @@ check('avoidable view has a section for every side',
 // exist in a server render. So this is the offline case for all of them: the
 // boxes must be there, sized and coloured, with no <img> and no broken src.
 const specCount = countOf(views.specIcons, 'class="spec-ico"');
-check('every spec renders an icon box', specCount === 39, `${specCount} boxes for 39 specs`);
+check('every spec renders an icon box', specCount === 40, `${specCount} boxes for 40 specs`);
 check('spec icon boxes are sized and coloured without art',
   !views.specIcons.includes('<img') &&
     countOf(views.specIcons, 'width:16px') === specCount &&

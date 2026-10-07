@@ -114,6 +114,10 @@ button.primary:hover:not(:disabled) { background: #325894; }
 .stat { display: flex; flex-direction: column; gap: 1px; }
 .stat .label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--dim); }
 .stat .value { font-variant-numeric: tabular-nums; font-size: 14px; }
+.pull-stat { cursor: help; }
+.pull-stat .value { display: flex; align-items: center; gap: 4px; }
+.pull-detail { color: var(--dim); }
+.pull-caveat { font-size: 11px; color: var(--dim); font-style: italic; }
 
 .tabs { display: flex; gap: 2px; padding: 0 18px; border-bottom: 1px solid var(--border); }
 .tab {

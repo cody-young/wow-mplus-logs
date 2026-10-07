@@ -18,7 +18,22 @@ import { EventStore } from './store.js';
  * for the duration. Outside a run the target is null, so irrelevant events
  * cost a timestamp parse and nothing else — which is what keeps opening a
  * multi-gigabyte log cheap.
+ *
+ * The one exception is the time between pulls in a raid. ENCOUNTER_START
+ * fires when the boss is hit, which is after whoever pulled it pressed the
+ * button: a tank's Heroic Throw is cast most of a second before it lands. So
+ * in a raid zone the idle events go to a short rolling buffer, and each pull
+ * takes the last PRE_PULL_MS of it as its `prePull` store.
  */
+
+/**
+ * How much of the time before a raid pull is kept with it.
+ *
+ * Thirty seconds rather than a few, because the question is often not who hit
+ * first but whether they meant to: a Misdirection onto the tank is cast well
+ * ahead of the pull and lasts thirty seconds.
+ */
+export const PRE_PULL_MS = 30_000;
 
 /**
  * Difficulty ids that make an encounter outside a key a raid pull.
@@ -154,6 +169,16 @@ export type RunMeta = KeyRunMeta | RaidPullMeta;
 export interface Run {
   meta: RunMeta;
   store: EventStore;
+  /**
+   * A raid pull's last PRE_PULL_MS before its ENCOUNTER_START, on the same
+   * clock as `store`, so every row is at a negative ts. Null for a key, and for
+   * a pull the log never saw the run-up to — it began in the raid without a
+   * ZONE_CHANGE. Empty when the run-up was seen and nothing happened in it.
+   *
+   * Separate from `store` so that nothing before the pull can leak into a
+   * rate, a death recap or a damage total.
+   */
+  prePull: EventStore | null;
   /** Shared across runs: actor identity is stable within a log file. */
   actors: ActorTable;
 }
@@ -197,7 +222,14 @@ export class LogSession {
   /** The latest MAP_CHANGE, run or no run, to seed the next run's maps. */
   private lastMap: MapBounds | null = null;
   /** The latest ZONE_CHANGE, to name a raid pull: ENCOUNTER_START carries no zone name. */
-  private lastZone: { instanceId: number; name: string } | null = null;
+  private lastZone: { instanceId: number; name: string; difficultyId: number } | null = null;
+  /**
+   * The rolling pre-pull buffer: idle events in a raid zone, written to `lobby`
+   * until it spans PRE_PULL_MS, then the two swap. Together they always hold at
+   * least the last PRE_PULL_MS. Null outside a raid zone.
+   */
+  private lobby: EventStore | null = null;
+  private lobbyPrevious: EventStore | null = null;
   /** Pulls seen so far per boss and difficulty, to number the next. */
   private readonly pulls = new Map<string, number>();
 
@@ -216,9 +248,7 @@ export class LogSession {
         onEncounterStart: (info) => this.openEncounter(info),
         onEncounterEnd: (info) => this.closeEncounter(info),
         onMapChange: (info) => this.enterMap(info),
-        onZoneChange: (_ts, instanceId, name) => {
-          this.lastZone = { instanceId, name };
-        },
+        onZoneChange: (ts, instanceId, name, difficultyId) => this.enterZone(ts, instanceId, name, difficultyId),
         onCombatantInfo: (info) => {
           this.recordCombatant(info);
           this.hooks.onCombatantInfo?.(info);
@@ -231,18 +261,81 @@ export class LogSession {
 
   push(chunk: Uint8Array): void {
     this.parser.push(chunk);
-    this.maybeReportProgress();
+    this.afterChunk();
   }
 
   pushText(text: string): void {
     this.parser.pushText(text);
-    this.maybeReportProgress();
+    this.afterChunk();
   }
 
   /** Flushes a trailing partial line. Not for use while tailing. */
   end(): void {
     this.parser.end();
+    this.afterChunk();
+  }
+
+  private afterChunk(): void {
+    this.rotateLobby();
     this.maybeReportProgress();
+  }
+
+  /**
+   * Swaps the pre-pull buffers once the one being written spans PRE_PULL_MS.
+   *
+   * Checked per chunk rather than per event, which lets the buffer run a chunk
+   * past its span — a few hundred lines — and saves a branch on every line of
+   * every log. The pull trims to the span anyway.
+   */
+  private rotateLobby(): void {
+    const lobby = this.lobby;
+    if (lobby === null || lobby.count === 0 || this.parser.target !== lobby) return;
+    const last = lobby.ts[lobby.count - 1]!;
+    if (last - lobby.ts[0]! < PRE_PULL_MS) return;
+    const next = this.lobbyPrevious ?? new EventStore(1 << 12);
+    next.reset(lobby.baseMs + last);
+    this.lobbyPrevious = lobby;
+    this.lobby = next;
+    this.parser.target = next;
+  }
+
+  /**
+   * Copies the buffered events from the PRE_PULL_MS before `startMs` into a
+   * store of their own on the pull's clock, and empties the buffer.
+   */
+  private takePrePull(startMs: number): EventStore | null {
+    if (this.lobby === null) return null;
+    const out = new EventStore(1 << 12);
+    out.baseMs = startMs;
+    for (const source of [this.lobbyPrevious, this.lobby]) {
+      if (source === null) continue;
+      const from = source.seek(startMs - PRE_PULL_MS - source.baseMs);
+      for (let row = from; row < source.count; row++) out.copyRow(source, row);
+    }
+    this.lobbyPrevious?.reset(startMs);
+    this.lobby.reset(startMs);
+    // Empty is an answer — nothing happened — where null would say the log
+    // never saw this stretch.
+    out.compact();
+    return out;
+  }
+
+  /** Where idle events go: the pre-pull buffer in a raid zone, else nowhere. */
+  private idleTarget(): EventStore | null {
+    return this.lobby;
+  }
+
+  private enterZone(ts: number, instanceId: number, name: string, difficultyId: number): void {
+    this.lastZone = { instanceId, name, difficultyId };
+    const raid = this.raids && isRaidDifficulty(difficultyId);
+    if (raid && this.lobby === null) {
+      this.lobby = new EventStore(1 << 12);
+      this.lobby.baseMs = ts;
+    } else if (!raid) {
+      this.lobby = null;
+      this.lobbyPrevious = null;
+    }
+    if (this.current === null) this.parser.target = this.idleTarget();
   }
 
   private maybeReportProgress(): void {
@@ -310,6 +403,7 @@ export class LogSession {
     // the wrong place.
     const zone = this.lastZone !== null && this.lastZone.instanceId === info.instanceId ? this.lastZone.name : '';
 
+    const prePull = this.takePrePull(info.ts);
     this.open({
       kind: 'raid',
       id: `${info.instanceId}-${info.encounterId}-${info.ts}`,
@@ -329,19 +423,20 @@ export class LogSession {
       ],
       party: [],
       maps: this.seedMaps(),
-    });
+    }, prePull);
   }
 
   private seedMaps(): MapBounds[] {
     return this.lastMap === null ? [] : [{ ...this.lastMap }];
   }
 
-  private open(meta: RunMeta): void {
+  private open(meta: RunMeta, prePull: EventStore | null = null): void {
     const store = new EventStore();
     store.baseMs = meta.startMs;
     const run: Run = {
       meta,
       store,
+      prePull,
       actors: this.parser.actors,
     };
     this.current = run;
@@ -386,7 +481,7 @@ export class LogSession {
 
     run.store.compact();
     this.current = null;
-    this.parser.target = null;
+    this.parser.target = this.idleTarget();
     this.hooks.onRunEnd?.(run);
 
     if (!this.retain) {
@@ -401,7 +496,7 @@ export class LogSession {
     const index = this.runs.indexOf(run);
     if (index >= 0) this.runs.splice(index, 1);
     this.current = null;
-    this.parser.target = null;
+    this.parser.target = this.idleTarget();
   }
 
   /**

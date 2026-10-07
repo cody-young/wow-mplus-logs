@@ -36,6 +36,7 @@ export {
 export {
   LogSession,
   isRaidDifficulty,
+  PRE_PULL_MS,
   type EncounterWindow,
   type KeyRunMeta,
   type MapBounds,

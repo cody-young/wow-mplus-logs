@@ -128,6 +128,42 @@ export class EventStore {
     this.uiMapId[index] = 0;
   }
 
+  /** Empties the store and keeps its columns, for a buffer that is refilled. */
+  reset(baseMs: number): void {
+    this.count = 0;
+    this.baseMs = baseMs;
+    this.support.clear();
+    this.extraActor.clear();
+  }
+
+  /**
+   * Appends a copy of another store's row, rebased onto this store's clock.
+   * Rows must be appended in time order, as the parser does.
+   */
+  copyRow(source: EventStore, row: number): number {
+    const index = this.reserve();
+    this.ts[index] = source.baseMs + source.ts[row]! - this.baseMs;
+    this.code[index] = source.code[row]!;
+    this.flags[index] = source.flags[row]!;
+    this.srcActor[index] = source.srcActor[row]!;
+    this.dstActor[index] = source.dstActor[row]!;
+    this.spellId[index] = source.spellId[row]!;
+    this.extraSpellId[index] = source.extraSpellId[row]!;
+    this.amount[index] = source.amount[row]!;
+    this.waste[index] = source.waste[row]!;
+    this.absorbed[index] = source.absorbed[row]!;
+    this.hpCurrent[index] = source.hpCurrent[row]!;
+    this.hpMax[index] = source.hpMax[row]!;
+    this.posX[index] = source.posX[row]!;
+    this.posY[index] = source.posY[row]!;
+    this.uiMapId[index] = source.uiMapId[row]!;
+    const supporter = source.support.get(row);
+    if (supporter !== undefined) this.support.set(index, supporter);
+    const extra = source.extraActor.get(row);
+    if (extra !== undefined) this.extraActor.set(index, extra);
+    return index;
+  }
+
   private grow(target: number): void {
     const next = Math.max(target, DEFAULT_CAPACITY);
     this.ts = growI32(this.ts, next);

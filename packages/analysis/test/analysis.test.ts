@@ -33,6 +33,8 @@ import {
   mapPoint,
   positionAt,
   positionTracks,
+  whoPulled,
+  type PullReport,
 } from '../src/index.js';
 import { ACTORS, DPS, FORCES, HEALER, LINES, LOG_TEXT, PET, TANK, at, aura, creature, died, hit, taken } from './fixture.js';
 
@@ -1478,4 +1480,85 @@ test('a death counts who was dead at once, net of battle res and Reincarnation',
     raidWipe().map((death) => death.deadAtOnce),
     [1, 2, 2, 2],
   );
+});
+
+/**
+ * A raid pull at 60s, in a raid zone so the minute before it is buffered, with
+ * whatever happened around it. The boss stands at (130, 200); the party at
+ * (100, 200) unless a line says otherwise.
+ */
+function raidPull(lines: string[]): PullReport | null {
+  const STATS = '0,1,1,1,1,1,0,0,1,1,1,0,0,1,1,1,0,1,1,1,1,1,1,1';
+  const TAIL = '[(1,1)],[],[],[],[],1,0,0,0';
+  const session = new LogSession({ assumedYear: 2026 });
+  session.pushText(
+    [
+      `${at(0)}  ZONE_CHANGE,2657,"Nerub-ar Palace",16`,
+      ...lines.filter((line) => line < at(60)),
+      `${at(60)}  ENCOUNTER_START,2902,"Ulgrax the Devourer",16,20,2657`,
+      `${at(60)}  COMBATANT_INFO,${TANK},${STATS},250,${TAIL}`,
+      `${at(60)}  COMBATANT_INFO,${HEALER},${STATS},264,${TAIL}`,
+      `${at(60)}  COMBATANT_INFO,${DPS},${STATS},258,${TAIL}`,
+      ...lines.filter((line) => line >= at(60)),
+      hit(64, TANK, 'Tank', BOSS, 'Ulgrax', 100, { pos: { x: 130, y: 200 } }),
+      `${at(90)}  ENCOUNTER_END,2902,"Ulgrax the Devourer",16,20,0,30000`,
+      '',
+    ].join('\n'),
+  );
+  session.end();
+  assert.equal(session.runs.length, 1, 'one pull');
+  return whoPulled(contextFor(session, session.runs[0]!));
+}
+
+const BOSS = creature(215657, 1);
+
+const cast = (seconds: number, guid: string, name: string, spellId: number, spellName: string): string =>
+  `${at(seconds)}  SPELL_CAST_SUCCESS,${guid},"${name}",0x511,0x0,${BOSS},"Ulgrax",0xa48,0x0,${spellId},"${spellName}",0x20`;
+
+test('who pulled is whoever landed first, with the cast that sent it', () => {
+  const pull = raidPull([
+    // Hunter's Mark goes on early and does not pull.
+    `${at(59.5)}  SPELL_AURA_APPLIED,${HEALER},"Heals",0x511,0x0,${BOSS},"Ulgrax",0xa48,0x0,257284,"Hunter's Mark",0x8,DEBUFF`,
+    cast(58.8, DPS, 'Dee', 8092, 'Mind Blast'),
+    hit(60.02, DPS, 'Dee', BOSS, 'Ulgrax', 100, { spellId: 8092, spellName: 'Mind Blast', pos: { x: 130, y: 200 } }),
+    hit(60.4, TANK, 'Tank', BOSS, 'Ulgrax', 100, { pos: { x: 130, y: 200 } }),
+  ])!;
+  assert.equal(pull.first?.spellName, 'Mind Blast');
+  assert.equal(pull.first?.ts, 20);
+  assert.equal(pull.first?.castTs, -1200, 'the button was pressed 1.2s before the pull');
+  assert.equal(pull.confidence, 'clear', 'the tank landed 380ms later');
+  assert.equal(pull.tank, false);
+  assert.deepEqual(pull.contacts.map((contact) => contact.spellName), ['Mind Blast', 'Nuke']);
+});
+
+test('two players landing in the same instant is too close to call', () => {
+  const pull = raidPull([
+    hit(60.01, TANK, 'Tank', BOSS, 'Ulgrax', 100, { pos: { x: 130, y: 200 } }),
+    hit(60.1, DPS, 'Dee', BOSS, 'Ulgrax', 100, { pos: { x: 130, y: 200 } }),
+  ])!;
+  assert.equal(pull.confidence, 'close');
+  assert.equal(pull.tank, true);
+});
+
+test('a pull nothing touched names what was summoned just before it', () => {
+  const totem = creature(225409, 9);
+  const pull = raidPull([
+    `${at(58.2)}  SPELL_SUMMON,${HEALER},"Heals",0x511,0x0,${totem},"Surging Totem",0xa28,0x0,444995,"Surging Totem",0x8`,
+    // Someone's first hit, seconds after the boss had already pulled.
+    hit(63, DPS, 'Dee', BOSS, 'Ulgrax', 100, { pos: { x: 130, y: 200 } }),
+  ])!;
+  assert.equal(pull.first, null, 'a hit 3s after the START is not what pulled');
+  assert.equal(pull.confidence, 'unclear');
+  assert.equal(pull.summons.length, 1);
+  assert.equal(pull.summons[0]!.spellName, 'Surging Totem');
+  assert.equal(pull.summons[0]!.ts, -1800);
+  assert.equal(pull.summons[0]!.placed, true);
+  assert.equal(pull.contacts[0]?.ts, 3000, 'still listed, as who got there first');
+});
+
+test('a key gets no who-pulled report', () => {
+  const session = new LogSession({ assumedYear: 2026 });
+  session.pushText(LOG_TEXT);
+  session.end();
+  assert.equal(whoPulled(contextFor(session, session.runs[0]!)), null);
 });

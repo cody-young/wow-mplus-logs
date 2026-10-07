@@ -25,6 +25,7 @@ import type {
   MdtPlacement,
   PositionReport,
   PositionTrack,
+  PullReport,
   RunForces,
   Segment,
 } from '@mplus/analysis';
@@ -50,6 +51,7 @@ export type {
   MdtPlacement,
   PositionReport,
   PositionTrack,
+  PullReport,
   RunForces,
   Segment,
   RunMeta,
@@ -121,6 +123,11 @@ export interface RunAnalysis {
    * floor. Null when MDT is not installed or has no map of this dungeon.
    */
   mdt: MdtPlacement | null;
+  /**
+   * Who pulled the boss, for a raid pull; null for a key. Every actor it names
+   * is in `names`.
+   */
+  pull: PullReport | null;
   bySegment: Record<number, SegmentReports>;
   /**
    * Enemy forces for the run. `known: false` when no table covered the
