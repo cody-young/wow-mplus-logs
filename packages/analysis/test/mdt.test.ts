@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import type { MdtDungeon } from '@mplus/data';
+import type { MdtDungeon, MdtFloorTransform } from '@mplus/data';
 
 import { TrackKind, placeOnMdt, toMdt, type PositionReport, type PositionTrack } from '../src/index.js';
 
@@ -18,7 +18,8 @@ const TRUTH = { scale: 0.8, offsetX: 420, offsetY: -310 };
 const UI_MAP = 2433;
 
 const DUNGEON: MdtDungeon = {
-  challengeModeId: 588,
+  // No real dungeon's id, so the shipped table has nothing for it.
+  challengeModeId: 9999,
   dungeonIndex: 164,
   name: 'Test Hold',
   teleportSpellId: 0,
@@ -41,20 +42,20 @@ function worldOf(u: number, v: number): { x: number; y: number } {
 }
 
 let nextActor = 100;
-function kill(npcId: number, x: number, y: number, uiMapId = UI_MAP): PositionTrack {
+function kill(npcId: number, x: number, y: number, uiMapId = UI_MAP, ts = 1000, segmentId = 0): PositionTrack {
   return {
     actor: nextActor++,
     kind: TrackKind.ENEMY,
     name: String(npcId),
     npcId,
-    segmentId: 0,
+    segmentId,
     deaths: [5000],
-    ts: Int32Array.of(1000),
+    ts: Int32Array.of(ts),
     x: Float32Array.of(x),
     y: Float32Array.of(y),
     uiMapId: Uint16Array.of(uiMapId),
     hpPct: Uint8Array.of(100),
-    home: { ts: 1000, x, y, uiMapId },
+    home: { ts, x, y, uiMapId },
   };
 }
 
@@ -113,7 +114,7 @@ test('a floor with too few kills is not fitted at all', () => {
     const { x, y } = worldOf(clone.x, clone.y);
     return kill(1000, x, y, 2434);
   });
-  assert.deepEqual(placeOnMdt(report(tracks), DUNGEON).floors, []);
+  assert.deepEqual(placeOnMdt(report(tracks), DUNGEON, []).floors, []);
 });
 
 test('a floor whose kills match nothing is fitted but not trusted', () => {
@@ -127,10 +128,12 @@ test('a floor whose kills match nothing is fitted but not trusted', () => {
   assert.deepEqual(placement.matches, []);
 });
 
-test('a floor that fits two ways equally well is not trusted', () => {
-  // One creature on a regular lattice, killed in the middle of it: shifting
-  // the whole run one spawn over matches every kill just as well, and nothing
-  // in the run says which is right.
+/**
+ * One creature on a regular lattice, killed in the middle of it: shifting the
+ * whole run one spawn over matches every kill just as well, and nothing in the
+ * run says which is right.
+ */
+function latticeRun(): { lattice: MdtDungeon; tracks: PositionTrack[] } {
   const lattice: MdtDungeon = {
     ...DUNGEON,
     enemies: [
@@ -156,9 +159,225 @@ test('a floor that fits two ways equally well is not trusted', () => {
       const { x, y } = worldOf(clone.x, clone.y);
       return kill(2000, x + wobble(i), y + wobble(i + 3));
     });
-  const fit = placeOnMdt(report(tracks), lattice).floors[0]!;
+  return { lattice, tracks };
+}
+
+/** The true transform as a shipped table row. */
+const SHIPPED: MdtFloorTransform = { challengeModeId: DUNGEON.challengeModeId, uiMapId: UI_MAP, sublevel: 1, ...TRUTH };
+
+test('a floor that fits two ways equally well is not trusted', () => {
+  const { lattice, tracks } = latticeRun();
+  const fit = placeOnMdt(report(tracks), lattice, []).floors[0]!;
   assert.ok(fit.rival >= fit.matched * 0.85, `${fit.matched} against ${fit.rival}`);
   assert.equal(fit.good, false);
+  assert.equal(fit.fromTable, false);
+});
+
+test('a floor that fits two ways is settled by the shipped fit the run agrees with', () => {
+  const { lattice, tracks } = latticeRun();
+  const placement = placeOnMdt(report(tracks), lattice, [SHIPPED]);
+  const fit = placement.floors[0]!;
+  assert.equal(fit.good, true);
+  assert.equal(fit.fromTable, true);
+  assert.equal(fit.scale, TRUTH.scale);
+  assert.equal(fit.matched, tracks.length);
+  assert.equal(placement.matches.length, tracks.length);
+});
+
+test('a shipped fit the run contradicts is not used', () => {
+  // As if MDT had redrawn the floor since the table was made: the shipped
+  // fit lands the run's kills on nothing.
+  const { lattice, tracks } = latticeRun();
+  const stale = { ...SHIPPED, offsetX: SHIPPED.offsetX + 200 };
+  const fit = placeOnMdt(report(tracks), lattice, [stale]).floors[0]!;
+  assert.equal(fit.good, false);
+  assert.equal(fit.fromTable, false);
+});
+
+test("a run's own good fit is kept over the shipped one", () => {
+  // The kills of the first test, which fit well on their own.
+  const tracks: PositionTrack[] = [];
+  for (const enemy of DUNGEON.enemies) {
+    for (const clone of enemy.clones.slice(0, 6)) {
+      const { x, y } = worldOf(clone.x, clone.y);
+      tracks.push(kill(enemy.npcId, x + wobble(tracks.length), y + wobble(tracks.length + 7)));
+    }
+  }
+  const nudged = { ...SHIPPED, offsetX: SHIPPED.offsetX + 3 };
+  const fit = placeOnMdt(report(tracks), DUNGEON, [nudged]).floors[0]!;
+  assert.equal(fit.good, true);
+  assert.equal(fit.fromTable, false);
+});
+
+test('a floor with too few kills to fit is placed by the shipped fit', () => {
+  const tracks = DUNGEON.enemies[0]!.clones.slice(0, 4).map((clone, i) => {
+    const { x, y } = worldOf(clone.x, clone.y);
+    return kill(1000, x + wobble(i), y + wobble(i + 2));
+  });
+  const fit = placeOnMdt(report(tracks), DUNGEON, [SHIPPED]).floors[0]!;
+  assert.equal(fit.good, true);
+  assert.equal(fit.fromTable, true);
+  assert.equal(fit.observed, 4);
+});
+
+/**
+ * Nine packs of three, each a creature of its own at the pack's corners. Five
+ * are pulled one at a time, a minute apart: the first mob stands on its spawn
+ * and the other two are first seen a few seconds later, having run toward it
+ * past the match radius.
+ */
+function packRun(gapMs: number): { packs: MdtDungeon; tracks: PositionTrack[] } {
+  const corners = [
+    [300, -200],
+    [380, -230],
+    [330, -320],
+    [450, -280],
+    [400, -380],
+    [520, -210],
+    [260, -400],
+    [500, -420],
+    [600, -330],
+  ];
+  const packs: MdtDungeon = {
+    ...DUNGEON,
+    enemies: [0, 1, 2].map((n) => ({
+      index: n + 1,
+      npcId: 3000 + n,
+      name: `Pack Member ${n}`,
+      count: 1,
+      isBoss: false,
+      clones: corners.map(([u, v], g) => ({
+        index: g + 1,
+        x: u! + (n === 1 ? 8 : 0),
+        y: v! + (n === 2 ? 8 : 0),
+        sublevel: 1,
+        group: g + 1,
+      })),
+    })),
+  };
+  const tracks: PositionTrack[] = [];
+  for (let g = 0; g < 5; g++) {
+    for (const enemy of packs.enemies) {
+      const clone = enemy.clones[g]!;
+      const n = enemy.index - 1;
+      // 16 MDT units off for the two that ran, each its own way.
+      const angle = g * 1.3 + n * 2.1;
+      const off = n === 0 ? 0 : 16;
+      const { x, y } = worldOf(clone.x + off * Math.cos(angle), clone.y + off * Math.sin(angle));
+      tracks.push(kill(enemy.npcId, x + wobble(tracks.length), y, UI_MAP, 60_000 * (g + 1) + n * gapMs, g));
+    }
+  }
+  return { packs, tracks };
+}
+
+test('near misses the pull backs up settle a floor the plain fit cannot', () => {
+  const { packs, tracks } = packRun(800);
+  const placement = placeOnMdt(report(tracks), packs, []);
+  const fit = placement.floors[0]!;
+  assert.equal(fit.good, true, `${fit.matched} of ${fit.observed} against ${fit.rival}`);
+  assert.equal(fit.byPacks, true);
+  assert.equal(fit.matched, tracks.length);
+  assert.ok(Math.abs(fit.scale - TRUTH.scale) < 0.03, `scale ${fit.scale}`);
+  // Every kill on its own pack's spawn.
+  for (const match of placement.matches) {
+    const g = Math.floor(tracks.findIndex((track) => track.actor === match.actor) / 3) + 1;
+    assert.equal(match.cloneIndex, g);
+  }
+});
+
+test('near misses pulled apart from their pack are not backed up', () => {
+  // The same kills, but each mob of a pack first seen ten seconds after the last.
+  const { packs, tracks } = packRun(10_000);
+  const fit = placeOnMdt(report(tracks), packs, []).floors[0]!;
+  assert.equal(fit.good, false, `${fit.matched} of ${fit.observed} against ${fit.rival}`);
+});
+
+test('a pack one of whose mobs a pull took is filled from the rest of that pull', () => {
+  // Every pack pulled on its own: two mobs on their spawns, the third gathered
+  // 20 MDT units off, past the match radius.
+  const { packs } = packRun(0);
+  const tracks: PositionTrack[] = [];
+  for (let g = 0; g < 8; g++) {
+    for (const enemy of packs.enemies) {
+      const clone = enemy.clones[g]!;
+      const off = enemy.index === 3 ? 20 : 0;
+      const { x, y } = worldOf(clone.x + off, clone.y - wobble(g));
+      tracks.push(kill(enemy.npcId, x + wobble(tracks.length), y, UI_MAP, 60_000 * (g + 1), g));
+    }
+  }
+  // A mob of the third pull's creature, killed in it but standing as close to
+  // the ninth pack's spawn as the gathered ones stand to their own. The ninth
+  // pack was never pulled, so it is no one's to fill.
+  const ninth = packs.enemies[2]!.clones[8]!;
+  const { x, y } = worldOf(ninth.x + 20, ninth.y);
+  const stray = kill(3002, x, y, UI_MAP, 180_000, 2);
+  tracks.push(stray);
+
+  const placement = placeOnMdt(report(tracks), packs, []);
+  const fit = placement.floors[0]!;
+  assert.equal(fit.good, true, `${fit.matched} of ${fit.observed} against ${fit.rival}`);
+  assert.equal(fit.byPacks, false);
+  assert.equal(placement.matches.length, 24);
+  for (const match of placement.matches) {
+    const g = tracks.find((track) => track.actor === match.actor)!.segmentId;
+    assert.equal(match.cloneIndex, g + 1);
+  }
+  assert.equal(
+    placement.matches.some((match) => match.actor === stray.actor),
+    false,
+  );
+});
+
+test("a pack is one pull's, so a kill from another pull that lands on it is dropped", () => {
+  const { packs } = packRun(0);
+  const tracks: PositionTrack[] = [];
+  for (let g = 0; g < 8; g++) {
+    for (const enemy of packs.enemies) {
+      const clone = enemy.clones[g]!;
+      // The first pack's third mob a few steps off its spawn.
+      const off = g === 0 && enemy.index === 3 ? 6 : 0;
+      const { x, y } = worldOf(clone.x + off, clone.y);
+      tracks.push(kill(enemy.npcId, x + wobble(tracks.length), y - wobble(tracks.length + 3), UI_MAP, 60_000 * (g + 1), g));
+    }
+  }
+  // A mob of that creature from the third pull, standing right on the first
+  // pack's spawn for it: closer than the first pull's own, but the rest of the
+  // pack died in the first pull, so the spawn is the first pull's.
+  const first = packs.enemies[2]!.clones[0]!;
+  const { x, y } = worldOf(first.x, first.y);
+  const late = kill(3002, x, y, UI_MAP, 200_000, 2);
+  tracks.push(late);
+
+  const placement = placeOnMdt(report(tracks), packs, []);
+  assert.equal(placement.floors[0]!.good, true);
+  const owner = placement.matches.find((match) => match.enemyIndex === 3 && match.cloneIndex === 1);
+  assert.equal(tracks.find((track) => track.actor === owner?.actor)?.segmentId, 0);
+  assert.equal(
+    placement.matches.some((match) => match.actor === late.actor),
+    false,
+  );
+});
+
+test('a pack its pull did not take all of is not matched at all', () => {
+  const { packs } = packRun(0);
+  const tracks: PositionTrack[] = [];
+  for (let g = 0; g < 8; g++) {
+    for (const enemy of packs.enemies) {
+      // The first pull has no kill of the first pack's third mob.
+      if (g === 0 && enemy.index === 3) continue;
+      const clone = enemy.clones[g]!;
+      const { x, y } = worldOf(clone.x, clone.y);
+      tracks.push(kill(enemy.npcId, x + wobble(tracks.length), y - wobble(tracks.length + 3), UI_MAP, 60_000 * (g + 1), g));
+    }
+  }
+
+  const placement = placeOnMdt(report(tracks), packs, []);
+  assert.equal(placement.floors[0]!.good, true);
+  assert.equal(placement.matches.length, 21);
+  assert.equal(
+    placement.matches.some((match) => match.cloneIndex === 1),
+    false,
+  );
 });
 
 test('a creature killed more often than MDT has spawns for is a summon, and left out', () => {

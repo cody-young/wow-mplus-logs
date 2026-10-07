@@ -96,6 +96,8 @@ export {
 } from './events.js';
 export {
   MDT_MATCH_UNITS,
+  PACK_MATCH_UNITS,
+  PULL_FILL_UNITS,
   placeOnMdt,
   toMdt,
   type MdtFloorFit,

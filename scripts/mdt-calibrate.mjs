@@ -33,8 +33,13 @@
  *                                  [--dungeon <name substring>] <log>...
  *
  * --mdt defaults to the addon beside the first log's WoW install.
+ *
+ * --write <file> also writes the pooled fits as `packages/data/src/mdt-floors.ts`
+ * (or wherever <file> says): the table the app falls back on when a run's own
+ * fit is ambiguous. Pass it one season's logs, since a redrawn map would
+ * pollute the pool, and only floors seen in three or more keys are written.
  */
-import { createReadStream, existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { createReadStream, existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { createInterface } from 'node:readline';
 
@@ -44,15 +49,17 @@ const args = process.argv.slice(2);
 let mdtDir = null;
 let only = null;
 let verbose = false;
+let writeTo = null;
 const logs = [];
 for (let i = 0; i < args.length; i++) {
   if (args[i] === '--mdt') mdtDir = args[++i];
   else if (args[i] === '--dungeon') only = args[++i].toLowerCase();
   else if (args[i] === '--verbose') verbose = true;
+  else if (args[i] === '--write') writeTo = args[++i];
   else logs.push(args[i]);
 }
 if (logs.length === 0) {
-  console.error('usage: node scripts/mdt-calibrate.mjs [--mdt <dir>] [--dungeon <name>] <log>...');
+  console.error('usage: node scripts/mdt-calibrate.mjs [--mdt <dir>] [--dungeon <name>] [--write <file>] <log>...');
   process.exit(2);
 }
 mdtDir ??= join(dirname(logs[0]), '..', 'Interface', 'AddOns', 'MythicDungeonTools');
@@ -546,6 +553,12 @@ for (const key of allKeys) {
   }
 }
 
+/** A floor goes in the shipped table only when this many keys pooled into it… */
+const MIN_TABLE_KEYS = 3;
+/** …and the pooled fit landed this share of their kills on a spawn. */
+const MIN_TABLE_SHARE = 0.4;
+const table = [];
+
 console.log('\n================ across keys ================');
 console.log('per uiMap: spread of per-key fits, then one pooled fit scored on each key');
 for (const [k, runs] of [...perMap].sort()) {
@@ -556,7 +569,13 @@ for (const [k, runs] of [...perMap].sort()) {
   const bxs = good.map((r) => r.fit.t.bx).sort((a, b) => a - b);
   const bys = good.map((r) => r.fit.t.by).sort((a, b) => a - b);
   const subs = [...new Set(runs.map((r) => r.sublevel))].join(',');
-  const pooled = fit(runs.flatMap((r) => r.obs), 7);
+  // Pooled over the keys that agree on the floor's sublevel: obs matched
+  // against two sublevels' spawns at once would fit neither.
+  const tally = new Map();
+  for (const r of runs) tally.set(r.sublevel, (tally.get(r.sublevel) ?? 0) + 1);
+  const sublevel = [...tally].sort((a, b) => b[1] - a[1])[0][0];
+  const agreeing = runs.filter((r) => r.sublevel === sublevel);
+  const pooled = fit(agreeing.flatMap((r) => r.obs), 7);
   console.log(
     `\n${name} uiMap ${uiMap} (sub ${subs}): ${runs.length} keys, ${good.length} good` +
       (good.length
@@ -564,6 +583,9 @@ for (const [k, runs] of [...perMap].sort()) {
         : ''),
   );
   if (!pooled) continue;
+  if (agreeing.length >= MIN_TABLE_KEYS && pooled.inliers >= pooled.n * MIN_TABLE_SHARE) {
+    table.push({ cm, name, uiMap, sublevel, t: pooled.t, keys: agreeing.length, inliers: pooled.inliers, n: pooled.n });
+  }
   console.log(
     `  pooled: s ${pooled.t.s.toFixed(4)} b (${f1(pooled.t.bx)}, ${f1(pooled.t.by)}), ` +
       `${pooled.inliers}/${pooled.n} (${pct(pooled.inliers, pooled.n)}), median ${f1(pooled.median)}, free rot ${f1(pooled.rot)}`,
@@ -575,4 +597,66 @@ for (const [k, runs] of [...perMap].sort()) {
         `pooled ${sc.inliers}/${sc.n} med ${f1(sc.median)}`,
     );
   }
+}
+
+if (writeTo !== null) {
+  writeFileSync(writeTo, floorTable(table));
+  console.log(`\nwrote ${table.length} floors to ${writeTo}`);
+}
+
+/** The generated `mdt-floors.ts`: one pooled fit per floor, and nothing of MDT's own. */
+function floorTable(rows) {
+  const toc = readdirSync(mdtDir).find((name) => name.endsWith('.toc'));
+  const version = toc ? /^## Version:\s*(.+)$/m.exec(readFileSync(join(mdtDir, toc), 'utf8'))?.[1]?.trim() : null;
+  const keys = new Set(allKeys.map((k) => `${k.log}:${k.cm}:${k.level}:${k.seen.size}`)).size;
+  rows.sort((a, b) => a.cm - b.cm || a.uiMap - b.uiMap);
+  const lines = rows.map(
+    (r) =>
+      `  { challengeModeId: ${r.cm}, uiMapId: ${r.uiMap}, sublevel: ${r.sublevel}, ` +
+      `scale: ${r.t.s.toFixed(4)}, offsetX: ${r.t.bx.toFixed(1)}, offsetY: ${r.t.by.toFixed(1)} }, ` +
+      `// ${r.name}, ${r.keys} keys, ${r.inliers}/${r.n} kills on a spawn`,
+  );
+  return `/**
+ * Where Mythic Dungeon Tools draws each dungeon floor, fitted from real keys.
+ *
+ * GENERATED — do not edit. Rebuild with
+ * \`node scripts/mdt-calibrate.mjs --write packages/data/src/mdt-floors.ts <logs>\`.
+ * Fitted against MDT ${version ?? '(unknown version)'} from ${keys} keys.
+ *
+ * One transform per floor, in the form \`placeOnMdt\` fits for itself:
+ *
+ *   MDT x = offsetX − scale·y,   MDT y = offsetY + scale·x
+ *
+ * A run fits each floor on its own, and that is usually right, but a floor
+ * whose kills are a few packs can fit two ways almost equally well, and one
+ * run cannot say which. These are the same fit pooled over many keys, which
+ * can. The analysis uses one only when the run's own fit is not trusted, and
+ * only when the run's kills agree with it, so a floor MDT has since redrawn
+ * goes back to being drawn from the log rather than drawn wrong.
+ *
+ * Three numbers per floor, derived from combat logs: no MDT spawns, names or
+ * art. Those are still read from the user's own install. Floors seen in fewer
+ * than ${MIN_TABLE_KEYS} keys, or whose pooled fit put under ${MIN_TABLE_SHARE * 100}% of kills on a spawn,
+ * are left out.
+ */
+
+export interface MdtFloorTransform {
+  challengeModeId: number;
+  uiMapId: number;
+  /** The MDT sublevel the floor is drawn on. */
+  sublevel: number;
+  scale: number;
+  offsetX: number;
+  offsetY: number;
+}
+
+const FLOORS: readonly MdtFloorTransform[] = [
+${lines.join('\n')}
+];
+
+/** The shipped fits for one dungeon's floors; empty for a dungeon not in the table. */
+export function mdtFloorsFor(challengeModeId: number): MdtFloorTransform[] {
+  return FLOORS.filter((floor) => floor.challengeModeId === challengeModeId);
+}
+`;
 }
