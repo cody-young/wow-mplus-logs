@@ -94,7 +94,7 @@ export function AvoidablePanel({
       title: 'Combined — flag plus list',
       hits: combinedHits,
       summary: combined,
-      note: "Blizzard's side, plus hits from our list on spells the flag misses. Flagged spells follow Blizzard's rules; list-only spells follow ours.",
+      note: "Blizzard's side, plus hits from our list on spells the flag misses. Flagged spells follow Blizzard's rules; list-only spells follow ours, and so do the few flagged spells our list overrules, such as Infest's DoT.",
       uncovered: false,
       none: 'Nobody took a hit under the flag or on the list.',
     },

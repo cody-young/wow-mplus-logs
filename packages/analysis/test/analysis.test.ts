@@ -34,7 +34,7 @@ import {
   positionAt,
   positionTracks,
 } from '../src/index.js';
-import { ACTORS, DPS, FORCES, HEALER, LINES, LOG_TEXT, PET, TANK, at, creature, died, hit, taken } from './fixture.js';
+import { ACTORS, DPS, FORCES, HEALER, LINES, LOG_TEXT, PET, TANK, at, aura, creature, died, hit, taken } from './fixture.js';
 
 function load(options: SegmentOptions = {}): {
   session: LogSession;
@@ -1289,6 +1289,64 @@ test('combined is the flag plus what the list has that the flag misses', () => {
   assert.deepEqual(
     combined.map((entry) => `${entry.spellName} on ${entry.name}`),
     ['Burning Steps on Dee', 'Legion Strike on Heals', 'Burning Steps on Dee'],
+  );
+});
+
+/**
+ * Altar of Fangs' Infest: a DoT on everyone, and a burst around each player as
+ * theirs runs out. The burst on its own bearer is unavoidable; landing on
+ * anyone else, it is not. Gaps between removal and burst are the real ones.
+ */
+function infest() {
+  const serpent = creature(261573, 50);
+  const off = (seconds: number, dst: string, name: string) =>
+    aura(seconds, serpent, 'Ascendant Serpent', dst, name, 1308865, 'Infest', false, { srcFlags: '0xa48', dstFlags: '0x511' });
+  const tick = (seconds: number, dst: string, name: string) =>
+    taken(seconds, serpent, 'Ascendant Serpent', dst, name, 1000, { spellId: 1309382, spellName: 'Infest' });
+  const burst = (seconds: number, dst: string, name: string) =>
+    taken(seconds, serpent, 'Ascendant Serpent', dst, name, 5000, { spellId: 1309398, spellName: 'Infest' });
+  const lines = [
+    LINES[0]!,
+    `${at(0)}  CHALLENGE_MODE_START,"Altar of Fangs",2000,588,12,[10,9,147]`,
+    ...LINES.filter((line) => line.includes('COMBATANT_INFO')),
+    tick(10, DPS, 'Dee'),
+    tick(10, HEALER, 'Heals'),
+    // The tank's runs out and bursts on the tank, and on Dee beside them.
+    off(15, TANK, 'Tank'),
+    burst(15, TANK, 'Tank'),
+    burst(15, DPS, 'Dee'),
+    // Dee's own, 14ms late.
+    off(15.1, DPS, 'Dee'),
+    burst(15.114, DPS, 'Dee'),
+    // The healer's own, and later a stray one when theirs is long gone.
+    off(15.3, HEALER, 'Heals'),
+    burst(15.3, HEALER, 'Heals'),
+    burst(16, HEALER, 'Heals'),
+    `${at(30)}  CHALLENGE_MODE_END,2000,1,12,30000,30`,
+  ];
+  const session = new LogSession({ assumedYear: 2026 });
+  session.pushText(lines.join('\n') + '\n');
+  session.end();
+  const run = session.runs[0]!;
+  const context = contextFor(session, run);
+  return avoidableReport(context, buildSegments(context));
+}
+
+test("Infest's burst counts on everyone but the player whose debuff it was", () => {
+  const { hits } = infest();
+  assert.deepEqual(
+    hits.map((entry) => `${entry.spellId} on ${entry.name.split('-')[0]}`),
+    ['1309398 on Dee', '1309398 on Heals'],
+  );
+});
+
+test("combined drops Infest's DoT, which Blizzard flags and the list overrules", () => {
+  const report = infest();
+  assert.equal(report.blizzard.filter((entry) => entry.spellId === 1309382).length, 2);
+  const combined = combinedAvoidable(report);
+  assert.deepEqual(
+    combined.map((entry) => `${entry.spellId} on ${entry.name.split('-')[0]}`),
+    ['1309398 on Dee', '1309398 on Heals'],
   );
 });
 

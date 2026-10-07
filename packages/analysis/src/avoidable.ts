@@ -1,4 +1,5 @@
-import { avoidable, avoidableDungeons, isBlizzardAvoidable } from '@mplus/data';
+import { avoidable, avoidableDungeons, isBlizzardAvoidable, overrulesBlizzard, ownAuras } from '@mplus/data';
+import { Ev } from '@mplus/parser';
 
 import { actorName, spellName, type AnalysisContext } from './context.js';
 import { DAMAGE_CODES, effective } from './events.js';
@@ -70,14 +71,34 @@ export interface AvoidableReport {
  */
 const TANK_SPECS: ReadonlySet<number> = new Set([250, 581, 104, 268, 66, 73]);
 
+/**
+ * How long after a debuff comes off its own burst can land on its bearer.
+ *
+ * Across 12 keys of Infest, 139 of 160 bursts on their own bearer were logged
+ * within 1ms of the removal and the rest within 20ms. A burst landing on
+ * someone whose debuff was still up arrived 63ms or more before it came off.
+ * A neighbour's burst inside this window reads as the victim's own: the count
+ * can miss one, never blame the wrong player.
+ */
+const OWN_BURST_MS = 50;
+
 export function avoidableReport(context: AnalysisContext, segments: SegmentIndex): AvoidableReport {
   const { run } = context;
   const { store, actors } = run;
   const hits: AvoidableHit[] = [];
   const blizzard: AvoidableHit[] = [];
+  const watched = ownAuras();
+  /** When each player's watched aura last came off, keyed `actor:aura`. */
+  const cameOff = new Map<string, number>();
 
   for (let row = 0; row < store.count; row++) {
-    if (!DAMAGE_CODES.has(store.code[row]!)) continue;
+    const code = store.code[row]!;
+    if (code === Ev.SPELL_AURA_REMOVED) {
+      const aura = store.spellId[row]!;
+      if (watched.has(aura)) cameOff.set(`${store.dstActor[row]!}:${aura}`, store.ts[row]!);
+      continue;
+    }
+    if (!DAMAGE_CODES.has(code)) continue;
     const spellId = store.spellId[row]!;
     // Melee is spell 0 and never on either list; skip the lookups for the
     // most common line in the log.
@@ -95,10 +116,13 @@ export function avoidableReport(context: AnalysisContext, segments: SegmentIndex
 
     const victim = actors.at(dst);
     const specId = victim?.specId ?? -1;
-    const listed = entry !== undefined && !(entry.tank === true && TANK_SPECS.has(specId));
+    const ts = store.ts[row]!;
+    // A burst on the player whose own debuff just came off is theirs to take.
+    const off = entry?.unlessOwn === undefined ? undefined : cameOff.get(`${dst}:${entry.unlessOwn}`);
+    const own = off !== undefined && ts - off <= OWN_BURST_MS;
+    const listed = entry !== undefined && !(entry.tank === true && TANK_SPECS.has(specId)) && !own;
     if (!listed && !flagged) continue;
 
-    const ts = store.ts[row]!;
     const segmentId = segments.segmentOf(row);
     const hit: AvoidableHit = {
       ts,
@@ -122,14 +146,19 @@ export function avoidableReport(context: AnalysisContext, segments: SegmentIndex
 /**
  * Blizzard's flag with the hand-kept list as a supplement: every flagged hit,
  * plus the list's hits on spells the flag misses. In development, like
- * `blizzard`.
+ * `blizzard`. Where the list overrules the flag — Infest's DoT — the list's
+ * judgement stands.
  *
  * A flagged spell's hits are taken from `blizzard` alone, so a tank frontal
  * the flag carries counts against the tank here even though the list exempts
  * it.
  */
 export function combinedAvoidable(report: AvoidableReport): AvoidableHit[] {
-  return [...report.blizzard, ...report.hits.filter((hit) => !isBlizzardAvoidable(hit.spellId))].sort(
+  const flagRules = (spellId: number): boolean => isBlizzardAvoidable(spellId) && !overrulesBlizzard(spellId);
+  return [
+    ...report.blizzard.filter((hit) => flagRules(hit.spellId)),
+    ...report.hits.filter((hit) => !flagRules(hit.spellId)),
+  ].sort(
     (a, b) => a.ts - b.ts,
   );
 }

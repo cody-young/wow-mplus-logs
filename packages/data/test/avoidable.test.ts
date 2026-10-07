@@ -1,7 +1,15 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { avoidable, avoidableDungeons, avoidableEntries, db2Dungeons } from '../src/index.js';
+import {
+  avoidable,
+  avoidableDungeons,
+  avoidableEntries,
+  blizzardOverrules,
+  db2Dungeons,
+  isBlizzardAvoidable,
+  ownAuras,
+} from '../src/index.js';
 
 /**
  * This table is kept by hand, so these tests hold the mistakes hands make:
@@ -40,6 +48,18 @@ test('a puddle counts and the slam that made it does not', () => {
 test('a tank frontal is marked as one, and a ground effect is not', () => {
   assert.equal(avoidable(473898)?.tank, true, 'Legion Strike');
   assert.notEqual(avoidable(1215985)?.tank, true, 'Fel Beam');
+});
+
+test("an overrule names a spell Blizzard actually flags, and one the list leaves out", () => {
+  for (const [id, why] of blizzardOverrules()) {
+    assert.ok(isBlizzardAvoidable(id), `${id} is not flagged, so overruling it does nothing: ${why}`);
+    assert.equal(avoidable(id), undefined, `${id} is overruled and listed at once`);
+  }
+});
+
+test("a burst's own debuff is an aura, not a damage id on the list", () => {
+  assert.deepEqual([...ownAuras()], [1308865]);
+  for (const aura of ownAuras()) assert.equal(avoidable(aura), undefined);
 });
 
 test('every entry says why', () => {

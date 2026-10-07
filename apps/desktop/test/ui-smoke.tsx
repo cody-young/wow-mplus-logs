@@ -7,6 +7,7 @@
  * segments one millisecond long. Rendering to a string in Node catches every
  * crash and lets the output be asserted on.
  */
+import { overrulesBlizzard } from '@mplus/data';
 import { renderToString } from 'react-dom/server';
 
 import { AvoidablePanel } from '../src/renderer/components/AvoidablePanel.js';
@@ -340,3 +341,6 @@ export function render(analysis: RunAnalysis): Record<string, string> {
 
 /** Re-exported so the assertions can compute the same party the row renders. */
 export { partyOf };
+
+/** Re-exported so the assertions can tell which flagged spells the combined side takes from the list. */
+export { overrulesBlizzard };

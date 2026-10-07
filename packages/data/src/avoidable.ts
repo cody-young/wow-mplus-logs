@@ -38,12 +38,15 @@
  *     its Defiled Detonations are in
  *   - anything centred on the player it targets: a DoT's splash, a leap onto
  *     you, a bomb that goes off where you are. The target cannot avoid it, and
- *     the log cannot tell the target from a bystander
+ *     the log cannot tell the target from a bystander — unless the burst is
+ *     logged on the moment the target's own debuff comes off, which is what
+ *     `unlessOwn` is for
  *   - soaks, which are meant to be taken
  *   - any id that hit every non-tank about equally in every logged key — in
- *     the keys behind this list Cosmic Crash, Poison Splash and Infest did, so
- *     whatever the tooltip promises, in practice nobody dodges them. Calling a
- *     player out for damage nobody avoids is worse than missing a fail
+ *     the keys behind this list Cosmic Crash, Poison Splash and Infest's DoT
+ *     did, so whatever the tooltip promises, in practice nobody dodges them.
+ *     Calling a player out for damage nobody avoids is worse than missing a
+ *     fail
  *
  * `tank` marks a frontal aimed at the tank. The tank takes it by design; anyone
  * else in it did not have to be. That is Elitism Helper's SpellsNoTank.
@@ -59,6 +62,12 @@ export interface AvoidableSpell {
   name: string;
   /** Aimed at the tank by design, so only counted against everyone else. */
   tank?: boolean;
+  /**
+   * A debuff whose burst this is. Everyone takes the burst of their own, so a
+   * hit counts only when the victim's own copy of this aura did not just come
+   * off — that is, when they stood in somebody else's.
+   */
+  unlessOwn?: number;
   /** What the player did wrong, for whoever edits this next. */
   why: string;
 }
@@ -86,8 +95,14 @@ const DUNGEONS: readonly Dungeon[] = [
       { id: 1294958, name: 'Noxious Spray', tank: true, why: 'Ascendant Serpent tank frontal' },
       { id: 1301230, name: 'Bloodletting', why: "Zul'jan's blood puddles" },
       { id: 1301114, name: 'Axegrinder', why: "Zul'jan's spinning axes" },
-      // Out: Triple Shot's splash (around the debuffed player), Infest (hit
-      // everyone evenly), Toxic Surge (the pulse; the lines have no id of their
+      {
+        id: 1309398,
+        name: 'Infest',
+        unlessOwn: 1308865,
+        why: "Ascendant Serpent: another player's Infest bursting on you. Your own is unavoidable; across 12 keys 22 of 175 bursts hit a second player",
+      },
+      // Out: Triple Shot's splash (around the debuffed player), Infest 1309382
+      // (the DoT itself, on all five at once), Toxic Surge (the pulse; the lines have no id of their
       // own), Boneslicer (aimed at its target), Ravenous Stomp 1307894 (the
       // quake on everyone).
     ],
@@ -312,6 +327,32 @@ function table(): Map<number, AvoidableSpell & { challengeModeId: number }> {
  */
 export function avoidable(spellId: number): AvoidableSpell | undefined {
   return table().get(spellId);
+}
+
+/**
+ * Ids Blizzard's flag carries that are not avoidable, checked against logs.
+ *
+ * `blizzard-avoidable.ts` is generated, so it is overruled here rather than
+ * edited. Only the combined view reads this; Blizzard's own side stays as the
+ * data has it, since that side is there to be compared with the in-game meter.
+ */
+const BLIZZARD_WRONG: ReadonlyMap<number, string> = new Map([
+  [1309382, "Infest's DoT ticks, on all five players at once. The burst after it, 1309398, is the part to dodge"],
+]);
+
+/** Whether this list overrules Blizzard's avoidable flag on the id. */
+export function overrulesBlizzard(spellId: number): boolean {
+  return BLIZZARD_WRONG.has(spellId);
+}
+
+/** The overruled ids with their reasons. Exported for the test. */
+export function blizzardOverrules(): ReadonlyMap<number, string> {
+  return BLIZZARD_WRONG;
+}
+
+/** The auras an entry's `unlessOwn` names, for the analysis to watch come off. */
+export function ownAuras(): ReadonlySet<number> {
+  return new Set(avoidableEntries().flatMap((entry) => (entry.unlessOwn === undefined ? [] : [entry.unlessOwn])));
 }
 
 /** The dungeons this covers, for the view to say when a key is not one of them. */

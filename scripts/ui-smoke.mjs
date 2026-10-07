@@ -65,7 +65,7 @@ const analysis = await new Promise((resolve, reject) => {
   worker.postMessage({ type: 'open', path: logPath, tail: false, forces, mdt });
 });
 
-const { render, partyOf } = await import(outFile);
+const { render, partyOf, overrulesBlizzard } = await import(outFile);
 rmSync(outFile, { force: true });
 const views = render(analysis);
 
@@ -641,11 +641,13 @@ if (!analysis.avoidable.covered) {
   check('avoidable view names the worst offender', views.avoidable.includes(top));
   check('avoidable view is collapsed by default (no hit log)', !views.avoidable.includes('interrupt-log'));
   // A section per side, each listing its own hits: ours, Blizzard's, and
-  // Blizzard's plus ours on spells the flag misses. A spell is flagged exactly
-  // when some hit of it is on Blizzard's side.
+  // Blizzard's plus ours on spells the flag misses or our list overrules. A
+  // spell is flagged exactly when some hit of it is on Blizzard's side.
   const flagged = new Set(analysis.avoidable.blizzard.map((hit) => hit.spellId));
-  const sideRows = stoodIn.length + analysis.avoidable.blizzard.length +
-    analysis.avoidable.blizzard.length + stoodIn.filter((hit) => !flagged.has(hit.spellId)).length;
+  const flagRules = (spellId) => flagged.has(spellId) && !overrulesBlizzard(spellId);
+  const combinedRows = analysis.avoidable.blizzard.filter((hit) => flagRules(hit.spellId)).length +
+    stoodIn.filter((hit) => !flagRules(hit.spellId)).length;
+  const sideRows = stoodIn.length + analysis.avoidable.blizzard.length + combinedRows;
   check('expanded avoidable view lists every hit once per side',
     countOf(views.avoidableLog, 'class="spell"') === sideRows,
     `${countOf(views.avoidableLog, 'class="spell"')} rows for ${sideRows} hits across the three sides`);

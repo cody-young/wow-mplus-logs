@@ -46,6 +46,9 @@ export {
   avoidable,
   avoidableDungeons,
   avoidableEntries,
+  blizzardOverrules,
+  overrulesBlizzard,
+  ownAuras,
   type AvoidableSpell,
 } from './avoidable.js';
 export { blizzardAvoidableCount, isBlizzardAvoidable } from './blizzard-avoidable.js';
