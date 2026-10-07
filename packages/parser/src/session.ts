@@ -9,11 +9,31 @@ import { EventStore } from './store.js';
  * time in town. CHALLENGE_MODE_START and CHALLENGE_MODE_END bracket each key
  * exactly, so unlike trash-pull detection this part needs no heuristics.
  *
+ * A raid has no key around it, so there each boss pull is its own run, from
+ * ENCOUNTER_START to ENCOUNTER_END. A pull is the unit a raid is reviewed in —
+ * a wipe is read on its own, never pooled with the kill that followed — and
+ * that keeps every rate's denominator the fight, as Warcraft Logs has it.
+ *
  * Each run gets its own event store, and the parser's target is swapped to it
- * for the duration. Outside a run the target is null, so dungeon-irrelevant
- * events cost a timestamp parse and nothing else — which is what keeps opening
- * a multi-gigabyte log cheap.
+ * for the duration. Outside a run the target is null, so irrelevant events
+ * cost a timestamp parse and nothing else — which is what keeps opening a
+ * multi-gigabyte log cheap.
  */
+
+/**
+ * Difficulty ids that make an encounter outside a key a raid pull.
+ *
+ * Dungeon bosses outside a key send ENCOUNTER_START too — normal, heroic and
+ * mythic 0 — and are left alone. A list rather than `groupSize > 5`, because
+ * a raid can be pulled with five people in it, and a list is what the game
+ * defines: Normal/Heroic/Mythic (14-16), LFR (17), Story (220), Timewalking
+ * (33, 151), and the legacy 10/25-player, 40-player and old LFR ids.
+ */
+const RAID_DIFFICULTIES: ReadonlySet<number> = new Set([3, 4, 5, 6, 7, 9, 14, 15, 16, 17, 33, 151, 220]);
+
+export function isRaidDifficulty(difficultyId: number): boolean {
+  return RAID_DIFFICULTIES.has(difficultyId);
+}
 
 /**
  * A boss fight's window inside a key.
@@ -46,32 +66,20 @@ export interface MapBounds {
   maxY: number;
 }
 
-export interface RunMeta {
+/** What every run carries, key or raid pull. */
+interface RunMetaBase {
   /** Stable within a session: instance id plus start time. */
   id: string;
   zoneName: string;
   instanceId: number;
-  challengeModeId: number;
-  keystoneLevel: number;
-  affixes: number[];
-  /** Wall-clock ms of CHALLENGE_MODE_START. */
+  /** Wall-clock ms of the opening START. */
   startMs: number;
-  /** Wall-clock ms of CHALLENGE_MODE_END, null while in progress. */
+  /** Wall-clock ms of the closing END, null while in progress. */
   endMs: number | null;
-  /** Null while in progress. */
+  /** Timed, or killed. Null while in progress. */
   success: boolean | null;
   /**
-   * The game's own clock: what the keystone timer showed at the end.
-   *
-   * Authoritative for whether the key was timed, and wrong as the denominator
-   * of a rate. It counts the +15s charged for each death, so a key with seven
-   * deaths reports 97s that no damage could have been dealt in. Use
-   * `elapsedMs` for anything per-second — see there.
-   */
-  totalTimeMs: number | null;
-  /**
-   * Wall-clock ms from CHALLENGE_MODE_START to CHALLENGE_MODE_END, null while
-   * in progress.
+   * Wall-clock ms from START to END, null while in progress.
    *
    * The denominator for every rate. Warcraft Logs divides by this, and the
    * difference is not small: on a +12 Den of Nalorakk the keystone clock read
@@ -80,9 +88,10 @@ export interface RunMeta {
    */
   elapsedMs: number | null;
   /**
-   * Boss windows inside the run, in order. Both ends are needed, not just
-   * kills: segmentation uses the window to decide whether a newly engaged
-   * enemy is a boss add or trash that was dragged in.
+   * Boss windows inside the run, in order; a raid pull has exactly one,
+   * starting at 0. Both ends are needed, not just kills: segmentation uses the
+   * window to decide whether a newly engaged enemy is a boss add or trash that
+   * was dragged in.
    */
   encounters: EncounterWindow[];
   /**
@@ -98,7 +107,7 @@ export interface RunMeta {
    * Every uiMap the logging player entered during the run, in the order first
    * entered, with its bounds from MAP_CHANGE.
    *
-   * Seeded with the map the player was standing on at CHALLENGE_MODE_START,
+   * Seeded with the map the player was standing on at the START,
    * because the game logs that MAP_CHANGE on zoning in, minutes before the key
    * is started — and it is the map the first pulls happen on.
    *
@@ -108,6 +117,39 @@ export interface RunMeta {
    */
   maps: MapBounds[];
 }
+
+export interface KeyRunMeta extends RunMetaBase {
+  kind: 'key';
+  challengeModeId: number;
+  keystoneLevel: number;
+  affixes: number[];
+  /**
+   * The game's own clock: what the keystone timer showed at the end.
+   *
+   * Authoritative for whether the key was timed, and wrong as the denominator
+   * of a rate. It counts the +15s charged for each death, so a key with seven
+   * deaths reports 97s that no damage could have been dealt in. Use
+   * `elapsedMs` for anything per-second — see there.
+   */
+  totalTimeMs: number | null;
+}
+
+/** One boss pull in a raid: a wipe or the kill. */
+export interface RaidPullMeta extends RunMetaBase {
+  kind: 'raid';
+  encounterId: number;
+  encounterName: string;
+  difficultyId: number;
+  groupSize: number;
+  /**
+   * Which attempt on this boss at this difficulty, from 1, counted across the
+   * session. Counts every pull the log shows, so a log started mid-night
+   * numbers from wherever it began.
+   */
+  pull: number;
+}
+
+export type RunMeta = KeyRunMeta | RaidPullMeta;
 
 export interface Run {
   meta: RunMeta;
@@ -135,6 +177,11 @@ export interface SessionOptions extends Omit<ParserOptions, 'hooks'> {
    * persists a snapshot instead, so a long evening does not accumulate.
    */
   retainCompletedRuns?: boolean;
+  /**
+   * Open a run for each raid boss pull. On by default; off, a raid costs what
+   * it did before raids were read at all — a timestamp parse per line.
+   */
+  raids?: boolean;
 }
 
 export class LogSession {
@@ -145,15 +192,21 @@ export class LogSession {
   private readonly hooks: SessionHooks;
   private readonly progressInterval: number;
   private readonly retain: boolean;
+  private readonly raids: boolean;
   private eventsSinceProgress = 0;
   /** The latest MAP_CHANGE, run or no run, to seed the next run's maps. */
   private lastMap: MapBounds | null = null;
+  /** The latest ZONE_CHANGE, to name a raid pull: ENCOUNTER_START carries no zone name. */
+  private lastZone: { instanceId: number; name: string } | null = null;
+  /** Pulls seen so far per boss and difficulty, to number the next. */
+  private readonly pulls = new Map<string, number>();
 
   constructor(options: SessionOptions = {}) {
-    const { hooks = {}, progressInterval = 2000, retainCompletedRuns = true, ...parserOptions } = options;
+    const { hooks = {}, progressInterval = 2000, retainCompletedRuns = true, raids = true, ...parserOptions } = options;
     this.hooks = hooks;
     this.progressInterval = progressInterval;
     this.retain = retainCompletedRuns;
+    this.raids = raids;
 
     this.parser = new CombatLogParser({
       ...parserOptions,
@@ -163,6 +216,9 @@ export class LogSession {
         onEncounterStart: (info) => this.openEncounter(info),
         onEncounterEnd: (info) => this.closeEncounter(info),
         onMapChange: (info) => this.enterMap(info),
+        onZoneChange: (_ts, instanceId, name) => {
+          this.lastZone = { instanceId, name };
+        },
         onCombatantInfo: (info) => {
           this.recordCombatant(info);
           this.hooks.onCombatantInfo?.(info);
@@ -218,25 +274,73 @@ export class LogSession {
       this.discardCurrent();
     }
 
+    this.open({
+      kind: 'key',
+      id: `${info.instanceId}-${info.ts}`,
+      zoneName: info.zoneName,
+      instanceId: info.instanceId,
+      challengeModeId: info.challengeModeId,
+      keystoneLevel: info.keystoneLevel,
+      affixes: info.affixes,
+      startMs: info.ts,
+      endMs: null,
+      success: null,
+      totalTimeMs: null,
+      elapsedMs: null,
+      encounters: [],
+      party: [],
+      maps: this.seedMaps(),
+    });
+  }
+
+  /**
+   * A raid boss engaged with no key open: the start of a pull.
+   *
+   * A pull still open when another begins lost its END — a disconnect, or the
+   * game closing the log mid-fight. It is dropped, as a key without its END
+   * is, rather than closed at a time the log never gave.
+   */
+  private startPull(info: EncounterInfo): void {
+    if (this.current !== null) this.discardCurrent();
+
+    const key = `${info.encounterId}/${info.difficultyId}`;
+    const pull = (this.pulls.get(key) ?? 0) + 1;
+    this.pulls.set(key, pull);
+    // A zone change for another instance is stale: name nothing rather than
+    // the wrong place.
+    const zone = this.lastZone !== null && this.lastZone.instanceId === info.instanceId ? this.lastZone.name : '';
+
+    this.open({
+      kind: 'raid',
+      id: `${info.instanceId}-${info.encounterId}-${info.ts}`,
+      zoneName: zone,
+      instanceId: info.instanceId,
+      encounterId: info.encounterId,
+      encounterName: info.name,
+      difficultyId: info.difficultyId,
+      groupSize: info.groupSize,
+      pull,
+      startMs: info.ts,
+      endMs: null,
+      success: null,
+      elapsedMs: null,
+      encounters: [
+        { encounterId: info.encounterId, name: info.name, difficultyId: info.difficultyId, startTs: 0, endTs: null, success: null },
+      ],
+      party: [],
+      maps: this.seedMaps(),
+    });
+  }
+
+  private seedMaps(): MapBounds[] {
+    return this.lastMap === null ? [] : [{ ...this.lastMap }];
+  }
+
+  private open(meta: RunMeta): void {
     const store = new EventStore();
-    store.baseMs = info.ts;
+    store.baseMs = meta.startMs;
     const run: Run = {
-      meta: {
-        id: `${info.instanceId}-${info.ts}`,
-        zoneName: info.zoneName,
-        instanceId: info.instanceId,
-        challengeModeId: info.challengeModeId,
-        keystoneLevel: info.keystoneLevel,
-        affixes: info.affixes,
-        startMs: info.ts,
-        endMs: null,
-        success: null,
-        totalTimeMs: null,
-        elapsedMs: null,
-        encounters: [],
-        party: [],
-        maps: this.lastMap === null ? [] : [{ ...this.lastMap }],
-      },
+      meta,
       store,
       actors: this.parser.actors,
     };
@@ -258,7 +362,7 @@ export class LogSession {
   private isReannouncement(info: ChallengeStartInfo): boolean {
     const open = this.current?.meta;
     return (
-      open !== undefined &&
+      open?.kind === 'key' &&
       open.instanceId === info.instanceId &&
       open.challengeModeId === info.challengeModeId &&
       open.keystoneLevel === info.keystoneLevel &&
@@ -268,12 +372,17 @@ export class LogSession {
 
   private endRun(info: ChallengeEndInfo): void {
     const run = this.current;
-    if (run === null) return;
-    run.meta.endMs = info.ts;
-    run.meta.success = info.success;
-    run.meta.elapsedMs = info.ts - run.meta.startMs;
-    run.meta.totalTimeMs = info.totalTimeMs > 0 ? info.totalTimeMs : run.meta.elapsedMs;
+    if (run === null || run.meta.kind !== 'key') return;
+    const elapsed = info.ts - run.meta.startMs;
+    run.meta.totalTimeMs = info.totalTimeMs > 0 ? info.totalTimeMs : elapsed;
     if (info.keystoneLevel > 0) run.meta.keystoneLevel = info.keystoneLevel;
+    this.finish(run, info.ts, info.success);
+  }
+
+  private finish(run: Run, ts: number, success: boolean): void {
+    run.meta.endMs = ts;
+    run.meta.success = success;
+    run.meta.elapsedMs = ts - run.meta.startMs;
 
     run.store.compact();
     this.current = null;
@@ -296,8 +405,9 @@ export class LogSession {
   }
 
   /**
-   * COMBATANT_INFO is emitted at the start of each key, so membership recorded
-   * while a run is open belongs to that run.
+   * COMBATANT_INFO is emitted at the start of each key, and right after each
+   * raid ENCOUNTER_START, so membership recorded while a run is open belongs
+   * to that run.
    */
   private recordCombatant(info: CombatantInfo): void {
     const run = this.current;
@@ -315,6 +425,10 @@ export class LogSession {
   }
 
   private openEncounter(info: EncounterInfo): void {
+    if (this.raids && isRaidDifficulty(info.difficultyId) && this.current?.meta.kind !== 'key') {
+      this.startPull(info);
+      return;
+    }
     const run = this.current;
     if (run === null) return;
     run.meta.encounters.push({
@@ -330,6 +444,15 @@ export class LogSession {
   private closeEncounter(info: EncounterInfo): void {
     const run = this.current;
     if (run === null) return;
+    if (run.meta.kind === 'raid') {
+      // An END for another boss is not this pull's, and closes nothing.
+      if (info.encounterId !== run.meta.encounterId) return;
+      const window = run.meta.encounters[0]!;
+      window.endTs = info.ts - run.meta.startMs;
+      window.success = info.success;
+      this.finish(run, info.ts, info.success);
+      return;
+    }
     // Match the most recent open window for this encounter; a wipe and a retry
     // produce two windows for the same boss.
     for (let i = run.meta.encounters.length - 1; i >= 0; i--) {

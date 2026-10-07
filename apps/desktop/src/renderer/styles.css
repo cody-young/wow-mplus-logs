@@ -386,6 +386,18 @@ table.roster-table { margin-top: 6px; }
 .death-item .where { display: block; color: var(--muted); font-size: 12px; margin-top: 3px; }
 .death-item .cause { display: block; font-size: 12px; color: var(--dim); margin-top: 3px; }
 .cascade { display: block; color: var(--danger); font-size: 11px; margin-top: 3px; }
+/* Quieter than a death, being the deaths nobody needs to read. */
+.death-tail {
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  padding: 7px 10px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.death-tail:hover { background: var(--panel-raised); color: var(--text); }
 
 .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 7px; padding: 14px; }
 .panel h3 { margin: 0 0 11px; font-size: 13px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--dim); }

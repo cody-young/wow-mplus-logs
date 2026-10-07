@@ -1,5 +1,5 @@
 /**
- * One key in the sidebar's list.
+ * One key, or one raid boss pull, in the sidebar's list.
  *
  * Its own component because it is the only place a run is summarised rather
  * than examined, and because that makes it renderable on its own: the key
@@ -11,7 +11,7 @@
  */
 import { SegmentKind } from '@mplus/analysis';
 
-import { clock, percent } from '../format.js';
+import { difficultyName, percent, runClock } from '../format.js';
 import { shortName, specOf } from '../specs.js';
 import type { RunAnalysis } from '../../shared.js';
 import { DungeonIcon } from './DungeonIcon.js';
@@ -62,8 +62,36 @@ export function RunRow({
 }): React.JSX.Element {
   const { meta } = analysis;
   const state = analysis.live ? 'inprogress' : meta.success ? 'timed' : 'depleted';
-  const party = partyOf(analysis);
 
+  if (meta.kind === 'raid') {
+    return (
+      <button type="button" className={`run${selected ? ' selected' : ''}`} onClick={onSelect}>
+        {/* Initials of the boss rather than the zone: every row of a raid
+            night shares the zone, and the boss is what tells them apart. */}
+        <DungeonIcon teleportSpellId={0} zoneName={meta.encounterName} />
+        <span className="run-body">
+          <span className="top">
+            <span className="level">
+              {difficultyName(meta.difficultyId)} · pull {meta.pull}
+            </span>
+            <span className={state} style={{ fontSize: 12 }}>
+              {analysis.live ? 'in progress' : meta.success ? 'kill' : 'wipe'}
+            </span>
+          </span>
+          <span className="zone">{meta.encounterName}</span>
+          <span className="meta">
+            <span>{runClock(meta)}</span>
+            <span>{analysis.deaths.length} deaths</span>
+            {/* A count rather than the spec icons a key row shows: twenty of
+                them do not fit the sidebar, and the roster is on the page. */}
+            <span>{meta.party.length} players</span>
+          </span>
+        </span>
+      </button>
+    );
+  }
+
+  const party = partyOf(analysis);
   return (
     <button type="button" className={`run${selected ? ' selected' : ''}`} onClick={onSelect}>
       <DungeonIcon teleportSpellId={analysis.forces.teleportSpellId} zoneName={meta.zoneName} />
@@ -76,7 +104,7 @@ export function RunRow({
         </span>
         <span className="zone">{meta.zoneName}</span>
         <span className="meta">
-          <span>{clock(meta.totalTimeMs ?? 0)}</span>
+          <span>{runClock(meta)}</span>
           <span>{analysis.deaths.length} deaths</span>
           <span>{analysis.segments.filter((s) => s.kind === SegmentKind.PULL).length} pulls</span>
           {analysis.forces.known ? (

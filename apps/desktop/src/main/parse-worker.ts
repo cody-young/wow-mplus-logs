@@ -29,7 +29,7 @@ import {
   type SegmentIndex,
 } from '@mplus/analysis';
 import { EMPTY_TABLE, forcesFor, type ForcesTable, type MdtDungeon } from '@mplus/data';
-import { LogSession, type Run } from '@mplus/parser';
+import { LogSession, type Run, type RunMeta } from '@mplus/parser';
 
 import type { RunAnalysis, SegmentReports, WorkerEvent, WorkerRequest } from '../shared.js';
 
@@ -58,10 +58,11 @@ let mdtDungeons = new Map<number, MdtDungeon>();
 
 function analyze(active: LogSession, run: Run, live: boolean): RunAnalysis {
   const context = contextFor(active, run);
+  const key = run.meta.kind === 'key' ? run.meta : null;
   // The challenge-mode id is the join key, not the instance id: it is the only
   // number that appears in both CHALLENGE_MODE_START and MDT's tables.
   const segments: SegmentIndex = buildSegments(context, {
-    forces: forcesFor(forcesTable, run.meta.challengeModeId),
+    forces: key === null ? null : forcesFor(forcesTable, key.challengeModeId),
   });
 
   const bySegment: Record<number, SegmentReports> = {};
@@ -83,8 +84,11 @@ function analyze(active: LogSession, run: Run, live: boolean): RunAnalysis {
   for (const index of run.meta.party) note(index);
   for (const segment of segments.segments) for (const enemy of segment.enemies) note(enemy);
 
-  const positions = positionTracks(context, segments);
-  const mdtDungeon = mdtDungeons.get(run.meta.challengeModeId);
+  // The dungeon-only reports: a raid has no avoidable list and no MDT map, and
+  // twenty players' tracks are the heaviest report there is, for a map tab a
+  // raid does not get.
+  const positions = key === null ? { maps: [], tracks: [] } : positionTracks(context, segments);
+  const mdtDungeon = key === null ? undefined : mdtDungeons.get(key.challengeModeId);
 
   return {
     runId: run.meta.id,
@@ -98,7 +102,7 @@ function analyze(active: LogSession, run: Run, live: boolean): RunAnalysis {
     interrupts: interruptReport(context, segments),
     control: crowdControlReport(context, segments),
     dispels: dispelReport(context, segments),
-    avoidable: avoidableReport(context, segments),
+    avoidable: key === null ? { hits: [], covered: false, blizzard: [] } : avoidableReport(context, segments),
     positions,
     mdt: mdtDungeon === undefined ? null : placeOnMdt(positions, mdtDungeon),
     bySegment,
@@ -109,14 +113,13 @@ function analyze(active: LogSession, run: Run, live: boolean): RunAnalysis {
 }
 
 /** RunMeta holds only plain values, but copy it so the worker's copy is not shared. */
-function structuredCloneable(meta: Run['meta']): Run['meta'] {
-  return {
-    ...meta,
-    affixes: [...meta.affixes],
+function structuredCloneable(meta: RunMeta): RunMeta {
+  const shared = {
     party: [...meta.party],
     encounters: meta.encounters.map((encounter) => ({ ...encounter })),
     maps: meta.maps.map((map) => ({ ...map })),
   };
+  return meta.kind === 'key' ? { ...meta, ...shared, affixes: [...meta.affixes] } : { ...meta, ...shared };
 }
 
 function emitProgress(linesSeen: number): void {
@@ -128,8 +131,12 @@ function emitProgress(linesSeen: number): void {
 }
 
 function makeSession(): LogSession {
+  runsEnded = 0;
   const active = new LogSession({
     progressInterval: 4000,
+    // Each run is analysed as it ends and its store let go. A raid night is
+    // a few hundred megabytes of stores, none of which is looked at again.
+    retainCompletedRuns: false,
     hooks: {
       onVersion: (info) => {
         // The game writes COMBAT_LOG_VERSION on every reload, so a single log
@@ -148,7 +155,10 @@ function makeSession(): LogSession {
           },
         });
       },
-      onRunEnd: (run) => post({ type: 'analysis', analysis: analyze(active, run, false) }),
+      onRunEnd: (run) => {
+        runsEnded++;
+        post({ type: 'analysis', analysis: analyze(active, run, false) });
+      },
       onRunProgress: (run) => {
         const now = Date.now();
         if (now - lastLiveAt < LIVE_THROTTLE_MS) return;
@@ -160,6 +170,8 @@ function makeSession(): LogSession {
   return active;
 }
 
+/** Runs finished in the current file: the session itself keeps none of them. */
+let runsEnded = 0;
 let currentPath = '';
 let lastVersionSeen = '';
 
@@ -223,7 +235,7 @@ port.on('message', (message: WorkerRequest) => {
       if (session.current !== null) {
         post({ type: 'analysis', analysis: analyze(session, session.current, true) });
       }
-      post({ type: 'done', runCount: session.runs.length });
+      post({ type: 'done', runCount: runsEnded + (session.current === null ? 0 : 1) });
 
       if (message.tail) {
         // fs.watch coalesces rapid appends, which is what we want: the game

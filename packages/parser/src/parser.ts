@@ -84,6 +84,8 @@ export interface EncounterInfo {
   name: string;
   difficultyId: number;
   groupSize: number;
+  /** The instance id, which only ENCOUNTER_START carries; 0 on an END. */
+  instanceId: number;
   success: boolean;
 }
 
@@ -386,6 +388,8 @@ export class CombatLogParser {
           name: fieldStr(line, offsets, 1),
           difficultyId: fieldInt(line, offsets, 2),
           groupSize: fieldInt(line, offsets, 3),
+          // START: ..., instanceId. END: ..., success, fightTime.
+          instanceId: code === Ev.ENCOUNTER_START && count > 4 ? fieldInt(line, offsets, 4) : 0,
           success: code === Ev.ENCOUNTER_END && count > 4 ? fieldBool(line, offsets, 4) : false,
         };
         if (code === Ev.ENCOUNTER_START) this.hooks.onEncounterStart?.(info);
@@ -682,6 +686,11 @@ export class CombatLogParser {
         // auraType, amount
         if (suffixStart + 1 < count) store.amount[row] = fieldFloat(line, offsets, suffixStart + 1);
         if (isBuffField(line, offsets, suffixStart, count)) flags |= EvFlag.BUFF;
+        break;
+      }
+      case Ev.UNIT_DIED: {
+        // unconsciousOnDeath — see EvFlag.FEIGNED.
+        if (suffixStart < count && fieldInt(line, offsets, suffixStart, 0) === 1) flags |= EvFlag.FEIGNED;
         break;
       }
       case Ev.SPELL_AURA_REMOVED:

@@ -311,8 +311,8 @@ function MdtExportButton({ run }: { run: RunAnalysis }): React.JSX.Element | nul
   const timer = useRef<number | undefined>(undefined);
   useEffect(() => () => window.clearTimeout(timer.current), []);
   const route = useMemo(() => {
-    if (run.mdt === null) return null;
     const { meta } = run;
+    if (run.mdt === null || meta.kind !== 'key') return null;
     const date = new Date(meta.startMs).toISOString().slice(0, 10);
     return mdtRoute(
       run.mdt,

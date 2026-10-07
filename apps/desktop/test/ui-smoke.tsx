@@ -33,6 +33,7 @@ import {
   shareInterrupts,
   shareRoute,
 } from '../src/renderer/share.js';
+import { wipeCutoff } from '../src/renderer/format.js';
 import { SPECS } from '../src/renderer/specs.js';
 import type { RunAnalysis, RunForces, UpdateState, UpdateStatus } from '../src/shared.js';
 
@@ -75,7 +76,10 @@ function updateView(status: UpdateStatus, capability: UpdateState['capability'] 
 }
 
 export function render(analysis: RunAnalysis): Record<string, string> {
-  const span = Math.max(analysis.meta.totalTimeMs ?? 0, ...analysis.segments.map((s) => s.endTs));
+  const span = Math.max(
+    (analysis.meta.kind === 'key' ? analysis.meta.totalTimeMs : analysis.meta.elapsedMs) ?? 0,
+    ...analysis.segments.map((s) => s.endTs),
+  );
   const firstSegment = analysis.segments[0]?.id ?? null;
   const perSegment = firstSegment === null ? undefined : analysis.bySegment[firstSegment];
   // The pull with the most kinds of enemy in it, which is where the roster has
@@ -99,6 +103,11 @@ export function render(analysis: RunAnalysis): Record<string, string> {
     taken: renderToString(<BreakdownTable report={analysis.taken} mode="taken" />),
     healing: renderToString(<BreakdownTable report={analysis.healing} mode="healing" />),
     deaths: renderToString(<DeathsPanel deaths={analysis.deaths} />),
+    // As the app shows it, which on a raid wipe folds the deaths after the
+    // raid was already going down.
+    deathsAsShown: renderToString(
+      <DeathsPanel deaths={analysis.deaths} wipeAfter={wipeCutoff(analysis.meta, analysis.deaths)} />,
+    ),
     interrupts: renderToString(<InterruptsPanel interrupts={analysis.interrupts} />),
     // The press log, which is the half of this view a string render cannot
     // click its way into. Expanded by hand for the same reason the damage
@@ -344,3 +353,6 @@ export { partyOf };
 
 /** Re-exported so the assertions can tell which flagged spells the combined side takes from the list. */
 export { overrulesBlizzard };
+
+/** Re-exported so the assertions can work out where a wipe's deaths are folded. */
+export { wipeCutoff };

@@ -65,7 +65,7 @@ const analysis = await new Promise((resolve, reject) => {
   worker.postMessage({ type: 'open', path: logPath, tail: false, forces, mdt });
 });
 
-const { render, partyOf, overrulesBlizzard } = await import(outFile);
+const { render, partyOf, overrulesBlizzard, wipeCutoff } = await import(outFile);
 rmSync(outFile, { force: true });
 const views = render(analysis);
 
@@ -89,7 +89,13 @@ function check(name, condition, detail) {
   }
 }
 
-console.log(`\n+${analysis.meta.keystoneLevel} ${analysis.meta.zoneName} — rendering ${Object.keys(views).length} views\n`);
+const raid = analysis.meta.kind === 'raid';
+/** What every share heading and the run row must name: the dungeon, or the boss. */
+const runName = raid ? analysis.meta.encounterName : analysis.meta.zoneName;
+const runLabel = raid
+  ? `${analysis.meta.encounterName} pull ${analysis.meta.pull} (${analysis.meta.success ? 'kill' : 'wipe'})`
+  : `+${analysis.meta.keystoneLevel} ${analysis.meta.zoneName}`;
+console.log(`\n${runLabel} — rendering ${Object.keys(views).length} views\n`);
 for (const [name, html] of Object.entries(views)) {
   console.log(`  ${name.padEnd(15)} ${String(html.length).padStart(7)} bytes`);
 }
@@ -488,9 +494,11 @@ if (analysis.deaths.length > 0) {
       !/class="dt-bar[^"]*"[^>]*title=/.test(views.deaths));
   // "absorbed 424K" does not say whether that was the healer, a defensive or a
   // trinket, which is the only reason to look at it.
+  // Only one the recap draws: the list reaches back through the whole
+  // scrollback, and the first view is the last `windowMs` of it.
+  const shownAbsorb = death.absorbsReceived.find((a) => a.amount > 0 && a.ts >= death.ts - death.windowMs);
   check('death recap names the shield behind an absorb',
-    death.absorbsReceived.length === 0 ||
-      views.deaths.includes(escapeHtml(death.absorbsReceived[0].spellName)),
+    shownAbsorb === undefined || views.deaths.includes(escapeHtml(shownAbsorb.spellName)),
     death.absorbsReceived.map((a) => `${a.spellName} ${a.amount}`).slice(0, 3).join(', '));
   // Icons resolve through the preload bridge, which does not exist in a server
   // render. Every view must survive that with no icon at all.
@@ -660,13 +668,33 @@ if (!analysis.avoidable.covered) {
   console.log('  (nobody stood in anything; avoidable view assertions skipped)');
 }
 
+// --- A raid wipe's deaths ------------------------------------------------------
+const cutoff = wipeCutoff(analysis.meta, analysis.deaths);
+if (cutoff !== null && cutoff < analysis.deaths.length) {
+  const folded = analysis.deaths.length - cutoff;
+  const listed = countOf(views.deathsAsShown, 'class="death-item');
+  check('a wipe lists the deaths up to a quarter of the raid down', listed === cutoff,
+    `${listed} listed, cut at ${cutoff}`);
+  check('a wipe folds the rest behind one line that counts them',
+    text(views.deathsAsShown).includes(`${folded} more deaths after the raid was wiping`));
+  const opened = analysis.deaths[cutoff - 1];
+  check('a wipe opens on the last death that mattered, not the last of the wipe',
+    views.deathsAsShown.indexOf('class="death-item selected"') === views.deathsAsShown.indexOf('class="death-item') &&
+      views.deathsAsShown.includes(escapeHtml(opened.name.split('-')[0])));
+  check('the wipe\'s share text leaves the fold out',
+    views.shareDeaths.includes(`${folded} more as the raid wiped`), views.shareDeaths);
+  console.log(`  (wipe: ${cutoff} of ${analysis.deaths.length} deaths listed, ${opened.name.split('-')[0]} last)`);
+} else if (raid) {
+  console.log('  (no wipe fold on this pull)');
+}
+
 // --- Share text ----------------------------------------------------------------
 const shares = Object.entries(views).filter(([name, text]) => name.startsWith('share') && text !== '');
 for (const [name, text] of shares) {
   const lines = text.split('\n');
   const long = lines.find((line) => line.length > 255);
   check(`${name} fits chat`, long === undefined, long);
-  check(`${name} is headed with the key`, lines[0].includes(analysis.meta.zoneName), lines[0]);
+  check(`${name} is headed with the ${raid ? 'pull' : 'key'}`, lines[0].includes(runName), lines[0]);
   check(`${name} carries no markup`, !/[<>]/.test(text));
 }
 // --- Map -----------------------------------------------------------------------
@@ -753,45 +781,56 @@ check('the dungeon icon names its dungeon for the hover',
 console.log(`  (dungeon icon: teleport spell ${analysis.forces.teleportSpellId || 'none — initials only'})`);
 
 // --- The key selector --------------------------------------------------------
-const party = partyOf(analysis);
-check('the key selector names the dungeon and the level',
-  views.runRow.includes(escapeHtml(analysis.meta.zoneName)) &&
-    // A server render separates adjacent text nodes with a comment, so the
-    // level reads `+<!-- -->21` in the markup and `+21` on screen.
-    text(views.runRow).includes(`+${analysis.meta.keystoneLevel}`),
-  text(views.runRow));
-check('the key selector shows one spec icon per party member',
-  countOf(views.runRow, 'class="spec-ico"') === party.length,
-  `${countOf(views.runRow, 'class="spec-ico"')} icons for a party of ${party.length}`);
-check('the key selector names every party member on their icon',
-  party.every((member) => views.runRow.includes(escapeHtml(member.name.split('-')[0]))),
-  party.map((m) => m.name).join(', '));
-// Tank first, then healer, then the dps — so the row reads the same for every
-// key regardless of who happened to do the most damage.
-const ROLES = { 250: 'tank', 581: 'tank', 104: 'tank', 268: 'tank', 66: 'tank', 73: 'tank',
-  105: 'healer', 1468: 'healer', 270: 'healer', 65: 'healer', 256: 'healer', 257: 'healer', 264: 'healer' };
-const order = party.map((m) => ROLES[m.specId] ?? 'dps');
-check('the party is ordered tank, healer, then dps',
-  order.every((role, i) => ['tank', 'healer', 'dps'].indexOf(role) >=
-    ['tank', 'healer', 'dps'].indexOf(order[i - 1] ?? 'tank')),
-  order.join(' → '));
-check('a finished key reports whether it timed', /class="(timed|depleted)"/.test(views.runRow));
-check('a live key says so instead of reporting a result',
-  views.runRowLive.includes('in progress') && !/class="(timed|depleted)"/.test(views.runRowLive));
-check('the key selector drops the count for a dungeon the table misses',
-  !views.runRowNoMdt.includes('count') && views.runRowNoMdt.includes('class="dungeon-initials"'),
-  views.runRowNoMdt);
-// The King's Rest case: 584 from the kills the log reports dead plus the 30 for
-// the Shadow of Zul, which is removed by script, against the 608 the dungeon
-// asks for. The ordinary just-over-100% a timed key gives, with no star.
-check('a count that reaches the requirement is stated flatly',
-  text(views.runRowObjective).includes('101.0% count') &&
-    !text(views.runRowObjective).includes('*'),
-  text(views.runRowObjective));
-check('a count nothing can account for is marked, not stated flatly',
-  text(views.runRowShort).includes('82.2%* count'),
-  text(views.runRowShort));
-console.log(`  (key selector party: ${party.map((m) => m.name.split('-')[0]).join(', ')})`);
+if (raid) {
+  const row = text(views.runRow);
+  check('the run row names the boss, the difficulty and the pull',
+    views.runRow.includes(escapeHtml(analysis.meta.encounterName)) && row.includes(`pull ${analysis.meta.pull}`), row);
+  check('the run row says kill or wipe', row.includes(analysis.meta.success ? 'kill' : 'wipe'), row);
+  check('the run row counts the raid instead of drawing it',
+    row.includes(`${analysis.meta.party.length} players`) && countOf(views.runRow, 'class="spec-ico"') === 0, row);
+  check('a live pull says so instead of reporting a result',
+    views.runRowLive.includes('in progress') && !/class="(timed|depleted)"/.test(views.runRowLive));
+} else {
+  const party = partyOf(analysis);
+  check('the key selector names the dungeon and the level',
+    views.runRow.includes(escapeHtml(analysis.meta.zoneName)) &&
+      // A server render separates adjacent text nodes with a comment, so the
+      // level reads `+<!-- -->21` in the markup and `+21` on screen.
+      text(views.runRow).includes(`+${analysis.meta.keystoneLevel}`),
+    text(views.runRow));
+  check('the key selector shows one spec icon per party member',
+    countOf(views.runRow, 'class="spec-ico"') === party.length,
+    `${countOf(views.runRow, 'class="spec-ico"')} icons for a party of ${party.length}`);
+  check('the key selector names every party member on their icon',
+    party.every((member) => views.runRow.includes(escapeHtml(member.name.split('-')[0]))),
+    party.map((m) => m.name).join(', '));
+  // Tank first, then healer, then the dps — so the row reads the same for every
+  // key regardless of who happened to do the most damage.
+  const ROLES = { 250: 'tank', 581: 'tank', 104: 'tank', 268: 'tank', 66: 'tank', 73: 'tank',
+    105: 'healer', 1468: 'healer', 270: 'healer', 65: 'healer', 256: 'healer', 257: 'healer', 264: 'healer' };
+  const order = party.map((m) => ROLES[m.specId] ?? 'dps');
+  check('the party is ordered tank, healer, then dps',
+    order.every((role, i) => ['tank', 'healer', 'dps'].indexOf(role) >=
+      ['tank', 'healer', 'dps'].indexOf(order[i - 1] ?? 'tank')),
+    order.join(' → '));
+  check('a finished key reports whether it timed', /class="(timed|depleted)"/.test(views.runRow));
+  check('a live key says so instead of reporting a result',
+    views.runRowLive.includes('in progress') && !/class="(timed|depleted)"/.test(views.runRowLive));
+  check('the key selector drops the count for a dungeon the table misses',
+    !views.runRowNoMdt.includes('count') && views.runRowNoMdt.includes('class="dungeon-initials"'),
+    views.runRowNoMdt);
+  // The King's Rest case: 584 from the kills the log reports dead plus the 30 for
+  // the Shadow of Zul, which is removed by script, against the 608 the dungeon
+  // asks for. The ordinary just-over-100% a timed key gives, with no star.
+  check('a count that reaches the requirement is stated flatly',
+    text(views.runRowObjective).includes('101.0% count') &&
+      !text(views.runRowObjective).includes('*'),
+    text(views.runRowObjective));
+  check('a count nothing can account for is marked, not stated flatly',
+    text(views.runRowShort).includes('82.2%* count'),
+    text(views.runRowShort));
+  console.log(`  (key selector party: ${party.map((m) => m.name.split('-')[0]).join(', ')})`);
+}
 
 /** Markup as the screen reads it: tags and React's text-node separators gone. */
 function text(html) {

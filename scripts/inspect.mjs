@@ -183,6 +183,16 @@ if (version && !version.advancedLogging) {
 
 console.log(`\nRuns found: ${session.runs.length}`);
 for (const run of session.runs) {
+  if (run.meta.kind === 'raid') {
+    const minutes = run.meta.elapsedMs ? (run.meta.elapsedMs / 60000).toFixed(1) : '?';
+    console.log(
+      `  ${run.meta.encounterName} (difficulty ${run.meta.difficultyId}) pull ${run.meta.pull}, ${run.meta.zoneName || '?'} — ` +
+        `${run.meta.success === null ? 'in progress' : run.meta.success ? 'kill' : 'wipe'}, ` +
+        `${minutes} min, ${fmt.format(run.store.count)} events, ${mb(run.store.byteLength())}, ` +
+        `${run.meta.party.length} players`,
+    );
+    continue;
+  }
   const minutes = run.meta.totalTimeMs ? (run.meta.totalTimeMs / 60000).toFixed(1) : '?';
   console.log(
     `  +${run.meta.keystoneLevel} ${run.meta.zoneName} — ` +

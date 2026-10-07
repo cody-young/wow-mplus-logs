@@ -6,7 +6,7 @@ import {
   summarizeInterrupts,
 } from '@mplus/analysis';
 
-import { clock, integer, percent, short } from './format.js';
+import { clock, integer, percent, runTitle, short, wipeCutoff } from './format.js';
 import { shortName } from './specs.js';
 import type {
   AvoidableReport,
@@ -15,8 +15,8 @@ import type {
   DeathReport,
   DispelReport,
   InterruptReport,
+  RunAnalysis,
   RunForces,
-  RunMeta,
   Segment,
 } from '../shared.js';
 
@@ -41,14 +41,13 @@ const LINES = 10;
 const CHAT_LIMIT = 255;
 
 export interface ShareScope {
-  meta: RunMeta;
+  meta: RunAnalysis['meta'];
   /** The pull or boss selected, or null for the whole key. */
   segment: Segment | null;
 }
 
 function heading(title: string, scope: ShareScope): string {
-  const key = `+${scope.meta.keystoneLevel} ${scope.meta.zoneName}`;
-  return fit(`${title} — ${key}${scope.segment === null ? '' : `, ${scope.segment.label}`}`);
+  return fit(`${title} — ${runTitle(scope.meta)}${scope.segment === null ? '' : `, ${scope.segment.label}`}`);
 }
 
 /** Trims a line to the chat limit at a word, marking the cut. */
@@ -151,8 +150,11 @@ export function shareDispels(report: DispelReport, scope: ShareScope): string {
 export function shareDeaths(deaths: readonly DeathReport[], scope: ShareScope): string {
   const lines = [heading(`Deaths (${deaths.length})`, scope)];
   if (deaths.length === 0) lines.push('Nobody died.');
+  // A wipe's last deaths would fill every line, so they are left off.
+  const cutoff = wipeCutoff(scope.meta, deaths);
+  const counted = cutoff === null ? deaths : deaths.slice(0, cutoff);
   // Newest first, like every list in the app.
-  for (const death of [...deaths].reverse().slice(0, LINES)) {
+  for (const death of [...counted].reverse().slice(0, LINES)) {
     const blow = death.killingBlow;
     const cause =
       blow === null
@@ -160,7 +162,8 @@ export function shareDeaths(deaths: readonly DeathReport[], scope: ShareScope): 
         : `${blow.spellName} ${short(blow.amount)}${blow.sourceName === '' ? '' : ` from ${blow.sourceName}`}`;
     lines.push(fit(`${clock(death.ts)} ${shortName(death.name)} — ${cause}`));
   }
-  if (deaths.length > LINES) lines.push(`…and ${deaths.length - LINES} earlier.`);
+  if (counted.length > LINES) lines.push(`…and ${counted.length - LINES} earlier.`);
+  if (counted.length < deaths.length) lines.push(`…and ${deaths.length - counted.length} more as the raid wiped.`);
   return join(lines);
 }
 

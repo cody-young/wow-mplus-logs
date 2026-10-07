@@ -14,7 +14,7 @@ import { RunRow, memberTitle, partyOf } from './components/RunRow.js';
 import { SegmentTimeline } from './components/SegmentTimeline.js';
 import { SpecIcon } from './components/SpecIcon.js';
 import { UpdateFooter, useUpdates } from './components/UpdateFooter.js';
-import { clock, integer, percent, short } from './format.js';
+import { difficultyName, integer, percent, runClock, short, wipeCutoff } from './format.js';
 import {
   shareAvoidable,
   shareBreakdown,
@@ -37,6 +37,9 @@ type Tab =
   | 'avoidable'
   | 'deaths'
   | 'map';
+
+/** Tabs built on dungeon data — the avoidable list, MDT's map — that a raid pull does not get. */
+const DUNGEON_TABS: ReadonlySet<Tab> = new Set(['avoidable', 'map']);
 
 export function App(): React.JSX.Element {
   const [summary, setSummary] = useState<LogSummary | null>(null);
@@ -133,6 +136,14 @@ export function App(): React.JSX.Element {
     [analyses, selectedRun],
   );
 
+  const raid = run?.meta.kind === 'raid';
+  /**
+   * The tab shown, which is the one picked unless this run lacks it. Kept apart
+   * from `tab` so that stepping through raid pulls from the Map tab returns to
+   * the map at the next key, instead of forgetting it was chosen.
+   */
+  const shown: Tab = raid && DUNGEON_TABS.has(tab) ? 'damage' : tab;
+
   const segment = useMemo(
     () => (run === null || selectedSegment === null ? null : run.segments.find((entry) => entry.id === selectedSegment) ?? null),
     [run, selectedSegment],
@@ -217,7 +228,7 @@ export function App(): React.JSX.Element {
   const shareText = (): string => {
     if (run === null || reports === null) return '';
     const scope = { meta: run.meta, segment };
-    switch (tab) {
+    switch (shown) {
       case 'damage':
         return shareBreakdown(reports.damage, 'done', scope);
       case 'taken':
@@ -274,7 +285,7 @@ export function App(): React.JSX.Element {
         <div className="runs">
           {analyses.length === 0 && !busy ? (
             <p style={{ color: 'var(--dim)', padding: '10px 9px', fontSize: 13, lineHeight: 1.5 }}>
-              No keys loaded yet.
+              Nothing loaded yet.
             </p>
           ) : null}
           {listed.map((analysis) => (
@@ -300,16 +311,26 @@ export function App(): React.JSX.Element {
         ) : (
           <>
             <header>
-              <h2>
-                +{run.meta.keystoneLevel} {run.meta.zoneName}
-              </h2>
+              {run.meta.kind === 'key' ? (
+                <h2>
+                  +{run.meta.keystoneLevel} {run.meta.zoneName}
+                </h2>
+              ) : (
+                <h2>
+                  {run.meta.encounterName}
+                  <span style={{ color: 'var(--dim)', fontWeight: 'normal' }}>
+                    {' '}
+                    {difficultyName(run.meta.difficultyId)} · pull {run.meta.pull}
+                  </span>
+                </h2>
+              )}
               {run.live ? <span className="live">live</span> : null}
               <div className="stat">
                 <span className="label">Time</span>
-                <span className="value">{clock(run.meta.totalTimeMs ?? 0)}</span>
+                <span className="value">{runClock(run.meta)}</span>
               </div>
               <div className="stat">
-                <span className="label">Party dps</span>
+                <span className="label">{raid ? 'Raid dps' : 'Party dps'}</span>
                 <span className="value">
                   {/* The report's own duration, which is elapsed time. The
                       keystone clock beside it is longer by the death penalty
@@ -317,57 +338,66 @@ export function App(): React.JSX.Element {
                   {short(run.damage.total / Math.max(run.damage.durationMs / 1000, 1))}
                 </span>
               </div>
-              <div className="stat">
-                <span className="label">Count</span>
-                <span
-                  className="value"
-                  title={
-                    run.forces.known
-                      ? `${integer(run.forces.counted)} of the ${integer(run.forces.required)} enemy` +
-                        ` forces this dungeon asks for — values from ${run.forces.source}.` +
-                        ' A dungeon holds more count than it requires, so a full route reads a' +
-                        ' little over 100%' +
-                        (run.forces.incomplete
-                          ? '. The game completed this key, so the count was met — these kills do' +
-                            ' not add up to it'
-                          : '')
-                      : 'Enemy forces are not in the combat log, and the criteria table has no' +
-                        ' entry for this dungeon.'
-                  }
-                >
-                  {run.forces.known ? (
-                    <>
-                      {integer(run.forces.counted)}
-                      <span style={{ color: 'var(--dim)' }}>
-                        {' '}
-                        / {integer(run.forces.required)} · {percent(run.forces.fraction)}
-                        {/* A completed key met its requirement, so a figure under
-                            100% is the table's error and not the party's. Marked
-                            here and explained in the banner below. */}
-                        {run.forces.incomplete ? '*' : ''}
-                      </span>
-                    </>
-                  ) : (
-                    <span style={{ color: 'var(--dim)' }}>—</span>
-                  )}
-                </span>
-              </div>
+              {raid ? null : (
+                <>
+                  <div className="stat">
+                    <span className="label">Count</span>
+                    <span
+                      className="value"
+                      title={
+                        run.forces.known
+                          ? `${integer(run.forces.counted)} of the ${integer(run.forces.required)} enemy` +
+                            ` forces this dungeon asks for — values from ${run.forces.source}.` +
+                            ' A dungeon holds more count than it requires, so a full route reads a' +
+                            ' little over 100%' +
+                            (run.forces.incomplete
+                              ? '. The game completed this key, so the count was met — these kills do' +
+                                ' not add up to it'
+                              : '')
+                          : 'Enemy forces are not in the combat log, and the criteria table has no' +
+                            ' entry for this dungeon.'
+                      }
+                    >
+                      {run.forces.known ? (
+                        <>
+                          {integer(run.forces.counted)}
+                          <span style={{ color: 'var(--dim)' }}>
+                            {' '}
+                            / {integer(run.forces.required)} · {percent(run.forces.fraction)}
+                            {/* A completed key met its requirement, so a figure under
+                                100% is the table's error and not the party's. Marked
+                                here and explained in the banner below. */}
+                            {run.forces.incomplete ? '*' : ''}
+                          </span>
+                        </>
+                      ) : (
+                        <span style={{ color: 'var(--dim)' }}>—</span>
+                      )}
+                    </span>
+                  </div>
+                </>
+              )}
               <div className="stat">
                 <span className="label">Deaths</span>
                 <span className="value">
                   {run.deaths.length}
-                  <span style={{ color: 'var(--dim)' }}> · {run.deaths.length * 5}s</span>
+                  {/* What the deaths cost on the keystone timer. A raid has no timer. */}
+                  {raid ? null : <span style={{ color: 'var(--dim)' }}> · {run.deaths.length * 5}s</span>}
                 </span>
               </div>
               <div className="stat">
-                <span className="label">Party</span>
-                <span className="value" style={{ display: 'flex', gap: 7 }}>
+                <span className="label">{raid ? `Raid · ${run.meta.party.length}` : 'Party'}</span>
+                <span className="value" style={{ display: 'flex', flexWrap: 'wrap', gap: raid ? 3 : 7 }}>
+                  {/* Twenty names do not fit a header, so a raid shows the icons
+                      and leaves the names to their hover. */}
                   {partyOf(run).map((member) => (
                     <span key={member.actorIndex} className="party-member">
                       <SpecIcon specId={member.specId} title={memberTitle(member)} />
-                      <span style={{ color: specOf(member.specId).color }}>
-                        {shortName(member.name)}
-                      </span>
+                      {raid ? null : (
+                        <span style={{ color: specOf(member.specId).color }}>
+                          {shortName(member.name)}
+                        </span>
+                      )}
                     </span>
                   ))}
                 </span>
@@ -396,16 +426,18 @@ export function App(): React.JSX.Element {
                   ['deaths', `Deaths${deaths.length > 0 ? ` (${deaths.length})` : ''}`],
                   ['map', 'Map'],
                 ] as Array<[Tab, string]>
-              ).map(([key, label]) => (
-                <button
-                  key={key}
-                  type="button"
-                  className={`tab${tab === key ? ' active' : ''}`}
-                  onClick={() => setTab(key)}
-                >
-                  {label}
-                </button>
-              ))}
+              )
+                .filter(([key]) => !(raid && DUNGEON_TABS.has(key)))
+                .map(([key, label]) => (
+                  <button
+                    key={key}
+                    type="button"
+                    className={`tab${shown === key ? ' active' : ''}`}
+                    onClick={() => setTab(key)}
+                  >
+                    {label}
+                  </button>
+                ))}
               <CopyButton text={shareText} />
             </nav>
 
@@ -430,43 +462,52 @@ export function App(): React.JSX.Element {
                 </div>
               ) : null}
 
-              <SegmentTimeline
-                segments={run.segments}
-                durationMs={Math.max(run.damage.durationMs, ...run.segments.map((s) => s.endTs))}
-                forces={run.forces}
-                selectedId={selectedSegment}
-                onSelect={setSelectedSegment}
-              />
+              {/* A raid pull is one fight, so there is nothing to pick between. */}
+              {raid ? null : (
+                <SegmentTimeline
+                  segments={run.segments}
+                  durationMs={Math.max(run.damage.durationMs, ...run.segments.map((s) => s.endTs))}
+                  forces={run.forces}
+                  selectedId={selectedSegment}
+                  onSelect={setSelectedSegment}
+                />
+              )}
 
               {segment !== null ? <EnemyRoster segment={segment} forces={run.forces} /> : null}
 
-              {tab === 'map' ? (
+              {shown === 'map' ? (
                 <MapPanel
                   key={run.runId}
                   run={run}
                   selectedSegment={selectedSegment}
                   onSelectSegment={setSelectedSegment}
                 />
-              ) : tab === 'deaths' ? (
-                <DeathsPanel key={`${run.runId}:${selectedSegment ?? 'all'}`} deaths={deaths} />
-              ) : tab === 'interrupts' ? (
+              ) : shown === 'deaths' ? (
+                <DeathsPanel
+                  key={`${run.runId}:${selectedSegment ?? 'all'}`}
+                  deaths={deaths}
+                  wipeAfter={wipeCutoff(run.meta, deaths)}
+                  clean={raid ? 'Nobody died this pull.' : 'Clean key.'}
+                  showWhere={!raid}
+                />
+              ) : shown === 'interrupts' ? (
                 <InterruptsPanel
                   key={`${run.runId}:${selectedSegment ?? 'all'}`}
                   interrupts={interrupts}
                 />
-              ) : tab === 'control' ? (
+              ) : shown === 'control' ? (
                 <ControlPanel key={`${run.runId}:${selectedSegment ?? 'all'}`} control={control} />
-              ) : tab === 'dispels' ? (
+              ) : shown === 'dispels' ? (
                 <DispelsPanel key={`${run.runId}:${selectedSegment ?? 'all'}`} dispels={dispels} />
-              ) : tab === 'avoidable' ? (
+              ) : shown === 'avoidable' ? (
                 <AvoidablePanel
                   key={`${run.runId}:${selectedSegment ?? 'all'}`}
                   avoidable={avoidable}
                 />
               ) : reports !== null ? (
                 <BreakdownTable
-                  report={tab === 'damage' ? reports.damage : tab === 'taken' ? reports.taken : reports.healing}
-                  mode={tab === 'damage' ? 'done' : tab === 'taken' ? 'taken' : 'healing'}
+                  report={shown === 'damage' ? reports.damage : shown === 'taken' ? reports.taken : reports.healing}
+                  mode={shown === 'damage' ? 'done' : shown === 'taken' ? 'taken' : 'healing'}
                 />
               ) : null}
             </div>
@@ -562,7 +603,8 @@ function Welcome({
           <>
             <h2>Open a combat log</h2>
             <p>
-              <strong>Open log…</strong> reads a saved <code>WoWCombatLog-*.txt</code> and lists every key in it.
+              <strong>Open log…</strong> reads a saved <code>WoWCombatLog-*.txt</code> and lists every key and
+              raid boss pull in it.
             </p>
             <p>
               <strong>Watch live</strong> finds your newest log and follows it as you play. If it cannot

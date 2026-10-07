@@ -87,5 +87,5 @@ const OFF_HAND = ' Off-Hand';
 export function elapsedMs(run: Run): number {
   if (run.meta.elapsedMs !== null) return run.meta.elapsedMs;
   const last = run.store.count > 0 ? run.store.ts[run.store.count - 1] : undefined;
-  return last ?? run.meta.totalTimeMs ?? 0;
+  return last ?? (run.meta.kind === 'key' ? run.meta.totalTimeMs : null) ?? 0;
 }

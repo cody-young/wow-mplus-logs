@@ -214,6 +214,16 @@ export interface DeathReport {
   y: number;
   /** Gap since the previous party death, or null for the first. */
   sincePreviousDeathMs: number | null;
+  /**
+   * How many of the group were dead at that moment, this death included.
+   *
+   * Not the death's place in the list. A raid brings people back — a battle
+   * res, a soulstone, a shaman's Reincarnation — and a wipe on a real Mythic
+   * pull had 23 deaths among 20 players. Counted by place, the fifth death
+   * read as a quarter of the raid down while three of the five were already
+   * back up and the raid was minutes from wiping.
+   */
+  deadAtOnce: number;
 }
 
 export interface DeathOptions {
@@ -224,6 +234,9 @@ export interface DeathOptions {
 }
 
 const DEFAULT_WINDOW_MS = 10_000;
+
+/** The spell a shaman casts to come back from Reincarnation. */
+const REINCARNATION = 21169;
 /**
  * Thirty seconds of capture behind a ten-second verdict.
  *
@@ -272,9 +285,25 @@ export function deathReports(
 
   const reports: DeathReport[] = [];
   let previousDeathTs: number | null = null;
+  /** Party members dead right now: in at a death, out at a sign they are back. */
+  const dead = new Set<number>();
 
   for (let row = 0; row < store.count; row++) {
-    if (store.code[row] !== Ev.UNIT_DIED) continue;
+    const code = store.code[row]!;
+    if (code === Ev.SPELL_RESURRECT) {
+      dead.delete(store.dstActor[row]!);
+      continue;
+    }
+    // Reincarnation is a shaman bringing themselves back, and logs no
+    // SPELL_RESURRECT: the cast is the only sign. Any other cast is not proof
+    // of life — a Demon Hunter's Shattered Souls is logged just after they die.
+    if (code === Ev.SPELL_CAST_SUCCESS && store.spellId[row] === REINCARNATION) {
+      dead.delete(store.srcActor[row]!);
+      continue;
+    }
+    if (code !== Ev.UNIT_DIED) continue;
+    // Feign Death, which the game logs as a death.
+    if ((store.flags[row]! & EvFlag.FEIGNED) !== 0) continue;
     const victim = store.dstActor[row]!;
     const actor = actors.at(victim);
     // Party deaths only, and the victim itself must be a party member. Testing
@@ -282,10 +311,12 @@ export function deathReports(
     // player death — a Blood DK's Blood Beasts alone turned 9 real deaths into
     // 27 on a real log.
     if (actor === undefined || !segments.party.has(victim)) continue;
+    dead.add(victim);
 
     const deathTs = store.ts[row]!;
     const report = buildReport(context, segments, victim, deathTs, row, windowMs, scrollbackMs);
     report.sincePreviousDeathMs = previousDeathTs === null ? null : deathTs - previousDeathTs;
+    report.deadAtOnce = dead.size;
     previousDeathTs = deathTs;
     reports.push(report);
   }
@@ -554,6 +585,7 @@ function buildReport(
     x,
     y,
     sincePreviousDeathMs: null,
+    deadAtOnce: 0,
   };
 }
 

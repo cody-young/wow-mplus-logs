@@ -134,7 +134,8 @@ export function positionTracks(
     const code = store.code[row]!;
     if (code === Ev.UNIT_DIED || code === Ev.UNIT_DESTROYED) {
       const victim = store.dstActor[row]!;
-      if (tracked(victim)) builderOf(victim).deaths.push(store.ts[row]!);
+      // A Feign Death is not a death to mark on the map.
+      if (tracked(victim) && (store.flags[row]! & EvFlag.FEIGNED) === 0) builderOf(victim).deaths.push(store.ts[row]!);
       continue;
     }
 

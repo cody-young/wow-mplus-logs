@@ -3,7 +3,7 @@ import test from 'node:test';
 
 import { ActorKind } from '../src/actors.js';
 import { Ev, EvFlag } from '../src/events.js';
-import { LogSession, type Run } from '../src/session.js';
+import { LogSession, type KeyRunMeta, type RaidPullMeta, type Run } from '../src/session.js';
 import { TimestampReader } from '../src/timestamp.js';
 import { MAX_FIELDS, fieldStr, splitFields } from '../src/tokenizer.js';
 import {
@@ -28,6 +28,16 @@ function parseAll(text: string): LogSession {
 function onlyRun(session: LogSession): Run {
   assert.equal(session.runs.length, 1, 'expected exactly one run');
   return session.runs[0]!;
+}
+
+function keyMeta(run: Run): KeyRunMeta {
+  assert.equal(run.meta.kind, 'key');
+  return run.meta as KeyRunMeta;
+}
+
+function raidMeta(run: Run): RaidPullMeta {
+  assert.equal(run.meta.kind, 'raid');
+  return run.meta as RaidPullMeta;
 }
 
 /** Rows in a run's store matching a predicate on (code, index). */
@@ -69,13 +79,14 @@ test('timestamp reads the legacy format and rolls the year at January', () => {
 
 test('session brackets the run and parses its keystone metadata', () => {
   const run = onlyRun(parseAll(LOG_TEXT));
-  assert.equal(run.meta.zoneName, 'Ara-Kara, City of Echoes');
-  assert.equal(run.meta.instanceId, 2660);
-  assert.equal(run.meta.challengeModeId, 503);
-  assert.equal(run.meta.keystoneLevel, 12);
-  assert.deepEqual(run.meta.affixes, [10, 9, 147, 148]);
-  assert.equal(run.meta.success, true);
-  assert.equal(run.meta.totalTimeMs, 1_890_000, 'the keystone timer, death penalty included');
+  const meta = keyMeta(run);
+  assert.equal(meta.zoneName, 'Ara-Kara, City of Echoes');
+  assert.equal(meta.instanceId, 2660);
+  assert.equal(meta.challengeModeId, 503);
+  assert.equal(meta.keystoneLevel, 12);
+  assert.deepEqual(meta.affixes, [10, 9, 147, 148]);
+  assert.equal(meta.success, true);
+  assert.equal(meta.totalTimeMs, 1_890_000, 'the keystone timer, death penalty included');
   assert.equal(run.meta.elapsedMs, 1_860_000, 'the time that actually passed');
   assert.equal(run.meta.encounters.length, 1);
   const boss = run.meta.encounters[0]!;
@@ -469,7 +480,7 @@ test('byte-level chunking is indistinguishable from a single push', () => {
     const a = onlyRun(whole);
     const b = onlyRun(session);
     assert.equal(b.store.count, a.store.count, `event count at chunk size ${size}`);
-    assert.deepEqual(b.meta.affixes, a.meta.affixes, `affixes at chunk size ${size}`);
+    assert.deepEqual(keyMeta(b).affixes, keyMeta(a).affixes, `affixes at chunk size ${size}`);
     assert.equal(b.meta.zoneName, a.meta.zoneName, `zone name at chunk size ${size}`);
     for (let i = 0; i < a.store.count; i++) {
       assert.equal(b.store.code[i], a.store.code[i], `code[${i}] at chunk size ${size}`);
@@ -552,7 +563,7 @@ test('a key announced again at a different level is a new key', () => {
     ].join('\n'),
   );
   const run = onlyRun(session);
-  assert.equal(run.meta.keystoneLevel, 15);
+  assert.equal(keyMeta(run).keystoneLevel, 15);
   assert.equal(run.store.count, 1);
   assert.equal(run.store.amount[0], 700);
 });
@@ -623,4 +634,115 @@ test('a run lists each map it entered once, starting with the one it began on', 
     minY: 750,
     maxY: 850,
   });
+});
+
+/** A Nerub-ar Palace night: zone in, wipe on Ulgrax, kill him, and a mythic 0 boss after. */
+function raidNight(options: { raids?: boolean } = {}): LogSession {
+  const stats = '0,1,1,1,1,1,0,0,1,1,1,0,0,1,1,1,0,1,1,1,1,1,1,1';
+  const tail = '[(1,1)],[],[],[],[],1,0,0,0';
+  const boss = 'Creature-0-1234-2657-1234-215657-00004321';
+  const hit = (time: string, amount: number): string =>
+    `9/30/2026 ${time}-4  SPELL_DAMAGE,${PLAYER},"A",0x511,0x0,${boss},"Ulgrax",0xa48,0x0,1,"S",0x1,${amount},${amount},-1,1,0,0,0,nil,nil,nil`;
+  const session = new LogSession({ assumedYear: 2026, ...options });
+  session.pushText(
+    [
+      '9/30/2026 20:00:00.000-4  ZONE_CHANGE,2657,"Nerub-ar Palace",16',
+      hit('20:01:00.000', 100),
+      '9/30/2026 20:02:00.000-4  ENCOUNTER_START,2902,"Ulgrax the Devourer",16,20,2657',
+      `9/30/2026 20:02:00.000-4  COMBATANT_INFO,${PLAYER},${stats},250,${tail}`,
+      `9/30/2026 20:02:00.000-4  COMBATANT_INFO,${HEALER},${stats},270,${tail}`,
+      hit('20:02:01.000', 500),
+      '9/30/2026 20:04:00.000-4  ENCOUNTER_END,2902,"Ulgrax the Devourer",16,20,0,120000',
+      hit('20:05:00.000', 100),
+      '9/30/2026 20:10:00.000-4  ENCOUNTER_START,2902,"Ulgrax the Devourer",16,20,2657',
+      `9/30/2026 20:10:00.000-4  COMBATANT_INFO,${PLAYER},${stats},250,${tail}`,
+      hit('20:10:01.000', 700),
+      hit('20:15:00.000', 900),
+      '9/30/2026 20:16:00.000-4  ENCOUNTER_END,2902,"Ulgrax the Devourer",16,20,1,360000',
+      '9/30/2026 21:00:00.000-4  ZONE_CHANGE,2660,"Ara-Kara, City of Echoes",23',
+      '9/30/2026 21:05:00.000-4  ENCOUNTER_START,2926,"Avanoxx",23,5,2660',
+      '9/30/2026 21:07:00.000-4  ENCOUNTER_END,2926,"Avanoxx",23,5,1,120000',
+      '',
+    ].join('\n'),
+  );
+  session.end();
+  return session;
+}
+
+test('each raid boss pull is its own run, numbered per boss and difficulty', () => {
+  const session = raidNight();
+  assert.equal(session.runs.length, 2, 'two pulls, and the mythic 0 dungeon boss is not a raid pull');
+  const [wipe, kill] = session.runs.map(raidMeta);
+
+  assert.equal(wipe!.encounterName, 'Ulgrax the Devourer');
+  assert.equal(wipe!.encounterId, 2902);
+  assert.equal(wipe!.difficultyId, 16);
+  assert.equal(wipe!.groupSize, 20);
+  assert.equal(wipe!.instanceId, 2657);
+  assert.equal(wipe!.zoneName, 'Nerub-ar Palace', 'named from the ZONE_CHANGE, since ENCOUNTER_START carries no zone');
+  assert.equal(wipe!.pull, 1);
+  assert.equal(wipe!.success, false);
+  assert.equal(wipe!.elapsedMs, 120_000);
+
+  assert.equal(kill!.pull, 2);
+  assert.equal(kill!.success, true);
+  assert.equal(kill!.elapsedMs, 360_000);
+  assert.deepEqual(kill!.encounters, [
+    { encounterId: 2902, name: 'Ulgrax the Devourer', difficultyId: 16, startTs: 0, endTs: 360_000, success: true },
+  ]);
+});
+
+test('a raid pull records only its own fight and its own roster', () => {
+  const session = raidNight();
+  const [wipe, kill] = session.runs;
+  assert.deepEqual([...wipe!.store.amount.subarray(0, wipe!.store.count)], [500], 'nothing from before or after the fight');
+  assert.deepEqual([...kill!.store.amount.subarray(0, kill!.store.count)], [700, 900]);
+
+  const actors = session.parser.actors;
+  assert.deepEqual(wipe!.meta.party, [actors.get(PLAYER)!.index, actors.get(HEALER)!.index]);
+  assert.deepEqual(kill!.meta.party, [actors.get(PLAYER)!.index], 'the healer sat out the kill');
+});
+
+test('raid pulls can be switched off, leaving only keys', () => {
+  assert.equal(raidNight({ raids: false }).runs.length, 0);
+});
+
+test('a raid pull that never logged its END is dropped when the next begins', () => {
+  const session = new LogSession({ assumedYear: 2026 });
+  session.pushText(
+    [
+      '9/30/2026 20:02:00.000-4  ENCOUNTER_START,2902,"Ulgrax the Devourer",16,20,2657',
+      '9/30/2026 20:10:00.000-4  ENCOUNTER_START,2902,"Ulgrax the Devourer",16,20,2657',
+      '9/30/2026 20:16:00.000-4  ENCOUNTER_END,2902,"Ulgrax the Devourer",16,20,1,360000',
+      '',
+    ].join('\n'),
+  );
+  const meta = raidMeta(onlyRun(session));
+  assert.equal(meta.startMs, Date.UTC(2026, 8, 30, 20, 10));
+  assert.equal(meta.pull, 2, 'the lost pull still counts as an attempt');
+  assert.equal(meta.success, true);
+});
+
+test('a dungeon boss inside a key stays a window of the key', () => {
+  const run = onlyRun(parseAll(LOG_TEXT));
+  assert.equal(run.meta.kind, 'key');
+  assert.equal(run.meta.encounters[0]!.name, 'Avanoxx');
+});
+
+test('a death logged as unconscious is flagged as a Feign Death', () => {
+  const session = new LogSession({ assumedYear: 2026 });
+  session.pushText(
+    [
+      '9/30/2026 20:02:00.000-4  ENCOUNTER_START,2902,"Ulgrax the Devourer",16,20,2657',
+      `9/30/2026 20:02:05.000-4  UNIT_DIED,0000000000000000,nil,0x80000000,0x80000000,${PLAYER},"A",0x512,0x80000000,1`,
+      `9/30/2026 20:02:09.000-4  UNIT_DIED,0000000000000000,nil,0x80000000,0x80000000,${PLAYER},"A",0x512,0x80000000,0`,
+      '9/30/2026 20:04:00.000-4  ENCOUNTER_END,2902,"Ulgrax the Devourer",16,20,0,120000',
+      '',
+    ].join('\n'),
+  );
+  const run = onlyRun(session);
+  const died = rows(run, Ev.UNIT_DIED);
+  assert.equal(died.length, 2, 'both are kept: the flag is for readers to act on');
+  assert.notEqual(run.store.flags[died[0]!]! & EvFlag.FEIGNED, 0);
+  assert.equal(run.store.flags[died[1]!]! & EvFlag.FEIGNED, 0);
 });

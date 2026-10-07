@@ -159,7 +159,7 @@ test('a rate is per second of the key, not per second of the keystone timer', ()
   // which is what gives a bad denominator away.
   const { context, segments } = load();
   const whole = damageReport(context, segments);
-  assert.equal(context.run.meta.totalTimeMs, 135_000, 'the timer the game showed');
+  assert.equal(context.run.meta.kind === 'key' ? context.run.meta.totalTimeMs : null, 135_000, 'the timer the game showed');
   assert.equal(whole.durationMs, 120_000, 'the time the key actually took');
   const top = whole.actors[0]!;
   assert.equal(top.perSecond, top.total / 120);
@@ -1425,4 +1425,57 @@ test('a world position lands on its map image a quarter turn round', () => {
   assert.deepEqual(mapPoint(bounds, 300, 400), { u: 0, v: 0 });
   assert.deepEqual(mapPoint(bounds, 0, 0), { u: 1, v: 1 });
   assert.deepEqual(mapPoint(bounds, 150, 100), { u: 0.75, v: 0.5 });
+});
+
+// --- Raid pulls ---------------------------------------------------------------
+
+/**
+ * A raid wipe with everything that makes counting its dead hard: a Feign
+ * Death, a battle res, and a shaman's Reincarnation.
+ */
+function raidWipe() {
+  const STATS = '0,1,1,1,1,1,0,0,1,1,1,0,0,1,1,1,0,1,1,1,1,1,1,1';
+  const TAIL = '[(1,1)],[],[],[],[],1,0,0,0';
+  const unitDied = (seconds: number, guid: string, name: string, unconscious: 0 | 1): string =>
+    `${at(seconds)}  UNIT_DIED,0000000000000000,nil,0x80000000,0x80000000,${guid},"${name}",0x512,0x80000000,${unconscious}`;
+  const session = new LogSession({ assumedYear: 2026 });
+  session.pushText(
+    [
+      `${at(0)}  ENCOUNTER_START,2902,"Ulgrax the Devourer",16,20,2657`,
+      `${at(0)}  COMBATANT_INFO,${TANK},${STATS},250,${TAIL}`,
+      `${at(0)}  COMBATANT_INFO,${HEALER},${STATS},264,${TAIL}`,
+      `${at(0)}  COMBATANT_INFO,${DPS},${STATS},255,${TAIL}`,
+      unitDied(5, DPS, 'Dee', 1),
+      unitDied(10, TANK, 'Tank', 0),
+      unitDied(12, HEALER, 'Heals', 0),
+      `${at(15)}  SPELL_RESURRECT,${DPS},"Dee",0x512,0x80000000,${TANK},"Tank",0x512,0x80000000,61999,"Raise Ally",0x20`,
+      unitDied(20, DPS, 'Dee', 0),
+      `${at(22)}  SPELL_CAST_SUCCESS,${HEALER},"Heals",0x512,0x80000000,0000000000000000,nil,0x80000000,0x80000000,21169,"Reincarnation",0x8`,
+      unitDied(25, TANK, 'Tank', 0),
+      `${at(30)}  ENCOUNTER_END,2902,"Ulgrax the Devourer",16,20,0,30000`,
+      '',
+    ].join('\n'),
+  );
+  session.end();
+  assert.equal(session.runs.length, 1, 'one pull');
+  const context = contextFor(session, session.runs[0]!);
+  return deathReports(context, buildSegments(context, { forces: null }));
+}
+
+test('a Feign Death is not a death', () => {
+  const deaths = raidWipe();
+  assert.ok(!deaths.some((death) => death.ts === 5000), 'the hunter feigning at 5s');
+  assert.deepEqual(
+    deaths.map((death) => death.name),
+    ['Tank', 'Heals', 'Dee', 'Tank'],
+  );
+});
+
+test('a death counts who was dead at once, net of battle res and Reincarnation', () => {
+  // By place in the list this reads 1, 2, 3, 4. The tank was raised before
+  // the third death and the shaman came back before the fourth.
+  assert.deepEqual(
+    raidWipe().map((death) => death.deadAtOnce),
+    [1, 2, 2, 2],
+  );
 });

@@ -210,6 +210,10 @@ export function prefixFieldCount(name: string): number {
   // not before it, so it has no prefix at all. Treating it as a one-field
   // prefix shifts the advanced block by one and corrupts the whole event.
   if (name.startsWith('ENVIRONMENTAL_')) return 0;
+  // UNIT_DIED and its kin, and PARTY_KILL, name no spell. Their one trailing
+  // field is unconsciousOnDeath, which read as a prefix became a spell id and
+  // hid the Feign Death flag past the end of the line.
+  if (name.startsWith('UNIT_') || name === 'PARTY_KILL') return 0;
   // SPELL_, SPELL_PERIODIC_, SPELL_BUILDING_, RANGE_, DAMAGE_SHIELD,
   // DAMAGE_SPLIT: spellId, spellName, spellSchool.
   return 3;
@@ -322,6 +326,15 @@ export const enum EvFlag {
    * way, while 426,499 Ebon Might rows paired with nothing at all.
    */
   SUPPORT_TWIN = 1 << 9,
+  /**
+   * A UNIT_DIED whose unit fell unconscious rather than died: a hunter's Feign
+   * Death, logged as a death with its trailing `unconsciousOnDeath` set.
+   *
+   * Nothing died, and reading it as a death is visible: on a raid night one
+   * hunter "died" 25 times this way and went on casting within the second,
+   * with no resurrection between. Their real deaths carry a 0.
+   */
+  FEIGNED = 1 << 10,
 }
 
 /**

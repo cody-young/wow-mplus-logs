@@ -10,10 +10,32 @@ import { SpecIcon } from './SpecIcon.js';
 /** Deaths within this of each other usually share one cause. */
 const CASCADE_MS = 8000;
 
-export function DeathsPanel({ deaths }: { deaths: DeathReport[] }): React.JSX.Element {
+export function DeathsPanel({
+  deaths,
+  wipeAfter = null,
+  clean = 'Clean key.',
+  showWhere = true,
+}: {
+  deaths: DeathReport[];
+  /**
+   * How many deaths count before the rest are a raid wiping, which are folded
+   * away until asked for; null to show every death. See `wipeCutoff`.
+   */
+  wipeAfter?: number | null;
+  /** What an empty list says. */
+  clean?: string;
+  /** Name the pull or boss each death was in; pointless when the run is one fight. */
+  showWhere?: boolean;
+}): React.JSX.Element {
+  const [showTail, setShowTail] = useState(false);
+  const tail = wipeAfter === null ? 0 : Math.max(0, deaths.length - wipeAfter);
   // Most recent at the top, and open on it: a key is read from the death that
-  // just happened backwards, not from the first one forwards.
-  const order = useMemo(() => [...deaths].reverse(), [deaths]);
+  // just happened backwards, not from the first one forwards. On a wipe that
+  // is the last death that still mattered, not the last one of the wipe.
+  const order = useMemo(
+    () => [...(showTail || tail === 0 ? deaths : deaths.slice(0, deaths.length - tail))].reverse(),
+    [deaths, showTail, tail],
+  );
   /**
    * The chosen death by identity rather than by position.
    *
@@ -28,7 +50,7 @@ export function DeathsPanel({ deaths }: { deaths: DeathReport[] }): React.JSX.El
     return (
       <div className="empty">
         <h2>No deaths</h2>
-        <p>Clean key.</p>
+        <p>{clean}</p>
       </div>
     );
   }
@@ -42,6 +64,14 @@ export function DeathsPanel({ deaths }: { deaths: DeathReport[] }): React.JSX.El
   return (
     <div className="death-grid">
       <div className="death-list">
+        {/* At the top, being newer than everything under it. */}
+        {tail > 0 ? (
+          <button type="button" className="death-tail" onClick={() => setShowTail(!showTail)}>
+            {showTail
+              ? `Hide the ${tail} deaths after the raid was wiping`
+              : `${tail} more deaths after the raid was wiping — show`}
+          </button>
+        ) : null}
         {order.map((entry) => {
           const id = identify(entry);
           const entrySpec = specOf(entry.specId);
@@ -61,10 +91,12 @@ export function DeathsPanel({ deaths }: { deaths: DeathReport[] }): React.JSX.El
                 <span style={{ color: entrySpec.color, fontWeight: 600 }}>{shortName(entry.name)}</span>
                 <span style={{ color: 'var(--dim)', fontVariantNumeric: 'tabular-nums' }}>{clock(entry.ts)}</span>
               </span>
-              <span className="where">
-                {entry.segmentKind === SegmentKind.BOSS ? 'Boss · ' : ''}
-                {entry.segmentLabel}
-              </span>
+              {showWhere ? (
+                <span className="where">
+                  {entry.segmentKind === SegmentKind.BOSS ? 'Boss · ' : ''}
+                  {entry.segmentLabel}
+                </span>
+              ) : null}
               <span className="cause">
                 {entry.killingBlow ? `${entry.killingBlow.spellName} — ${entry.killingBlow.sourceName}` : 'cause unclear'}
               </span>

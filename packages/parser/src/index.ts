@@ -35,8 +35,11 @@ export {
 } from './parser.js';
 export {
   LogSession,
+  isRaidDifficulty,
   type EncounterWindow,
+  type KeyRunMeta,
   type MapBounds,
+  type RaidPullMeta,
   type Run,
   type RunMeta,
   type SessionHooks,

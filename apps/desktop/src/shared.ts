@@ -64,6 +64,10 @@ export interface SegmentReports {
 
 export interface RunAnalysis {
   runId: string;
+  /**
+   * A key or one raid boss pull. A raid pull carries no avoidable hits, no
+   * positions and no MDT placement: those reports are the dungeon's.
+   */
   meta: RunMeta;
   /** Actor index -> display name, for everything the reports reference. */
   names: Record<number, string>;

@@ -101,7 +101,7 @@ if (body === undefined) {
 }
 
 console.log(
-  `+${analysis.meta.keystoneLevel} ${analysis.meta.zoneName} — ${analysis.deaths.length} death(s), view "${viewName}"`,
+  `${analysis.meta.kind === 'raid' ? `${analysis.meta.encounterName} pull ${analysis.meta.pull}` : `+${analysis.meta.keystoneLevel} ${analysis.meta.zoneName}`} — ${analysis.deaths.length} death(s), view "${viewName}"`,
 );
 analysis.deaths.forEach((death, index) => {
   console.log(

@@ -140,7 +140,7 @@ export function avoidableReport(context: AnalysisContext, segments: SegmentIndex
     if (flagged) blizzard.push(hit);
   }
 
-  return { hits, covered: avoidableDungeons().has(run.meta.challengeModeId), blizzard };
+  return { hits, covered: run.meta.kind === 'key' && avoidableDungeons().has(run.meta.challengeModeId), blizzard };
 }
 
 /**

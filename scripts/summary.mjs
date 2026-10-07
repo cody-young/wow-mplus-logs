@@ -30,7 +30,8 @@ const DAMAGE = new Set([
 ]);
 const HEAL = new Set([Ev.SPELL_HEAL, Ev.SPELL_PERIODIC_HEAL]);
 
-const session = new LogSession();
+// Keys only: a raid pull has no keystone, and counting pulls would shift run indices.
+const session = new LogSession({ raids: false });
 for await (const chunk of createReadStream(target, { highWaterMark: 1 << 20 })) {
   session.push(chunk);
 }
