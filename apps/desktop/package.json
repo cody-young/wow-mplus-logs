@@ -1,7 +1,7 @@
 {
   "name": "@mplus/desktop",
   "productName": "mplus-logs",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "private": true,
   "type": "module",
   "description": "Combat log analysis for Mythic+ keys",
