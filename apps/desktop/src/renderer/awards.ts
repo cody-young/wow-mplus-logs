@@ -52,7 +52,11 @@ export interface Badge {
   gapped: boolean;
 }
 
-/** A badge's other name, for a lone winner with `times` the runner-up's figure (and at least `min`). */
+/**
+ * A badge's other name, for a lone winner with `times` the runner-up's figure
+ * (and at least `min`) — or, for a "fewest" badge, a runner-up with `times`
+ * the winner's.
+ */
 interface Gap {
   title: string;
   blurb: string;
@@ -64,6 +68,8 @@ interface Gap {
 export interface MvpLine {
   category: string;
   points: number;
+  /** Where the player finished in it: 1 is first, and ties share a place. */
+  place: number;
 }
 
 export interface MvpStanding {
@@ -114,6 +120,52 @@ function rankPoints(party: readonly PartyMember[], values: Values, best: 'most' 
     points.set(member.actorIndex, beaten + 1);
   }
   return points;
+}
+
+/** What tops damage: twice what tops a category scored by rank. */
+const DAMAGE_POINTS = 10;
+
+/**
+ * What tops healing: the same as topping a category by rank. The healer leads
+ * healing every key, so at damage's weight it would be ten points for turning
+ * up; it scores by share only so a dps who healed a lot is told apart from one
+ * who healed a little.
+ */
+const HEALING_POINTS = 5;
+
+/**
+ * Points for one category by share of the top figure, rounded: the top scores
+ * `max`, and half its figure scores half that.
+ *
+ * Rank points cannot tell a carry from a photo finish: twice the next player's
+ * damage scores one point over them, the same as a hair more. Damage is what a
+ * key is cleared with, so it scores by how much, and at twice the weight of
+ * the rest.
+ */
+function sharePoints(party: readonly PartyMember[], values: Values, max: number): Map<number, number> {
+  const of = (index: number): number => values.get(index) ?? 0;
+  const top = Math.max(0, ...party.map((member) => of(member.actorIndex)));
+  const points = new Map<number, number>();
+  if (top <= 0) return points;
+  for (const member of party) {
+    const share = Math.round((max * of(member.actorIndex)) / top);
+    if (share > 0) points.set(member.actorIndex, share);
+  }
+  return points;
+}
+
+/** Each player's place in a category, 1 for first; ties share the better place. */
+function places(party: readonly PartyMember[], values: Values, best: 'most' | 'fewest'): Map<number, number> {
+  const of = (index: number): number => values.get(index) ?? 0;
+  return new Map(
+    party.map((member) => {
+      const mine = of(member.actorIndex);
+      const ahead = party.filter((other) =>
+        best === 'most' ? of(other.actorIndex) > mine : of(other.actorIndex) < mine,
+      ).length;
+      return [member.actorIndex, ahead + 1];
+    }),
+  );
 }
 
 function count<T>(list: readonly T[], key: (item: T) => number): Map<number, number> {
@@ -223,6 +275,8 @@ export function awardsFor(run: RunAnalysis): Awards | null {
     if (name !== undefined) pickedBy.set(member.actorIndex, name);
   }
 
+  const dpsField = party.filter((member) => specOf(member.specId).role === 'dps');
+
   const candidates: Badge[] = [];
   /**
    * A badge, if anyone earns it. `values` and `best` decide the winners among
@@ -251,7 +305,9 @@ export function awardsFor(run: RunAnalysis): Awards | null {
     const top = of(ranked[0]!.actorIndex);
     const second = ranked.length > 1 ? of(ranked[1]!.actorIndex) : 0;
     const gapped =
-      gap !== undefined && best === 'most' && winners.length === 1 && top >= gap.times * second && top >= (gap.min ?? 0);
+      gap !== undefined &&
+      winners.length === 1 &&
+      (best === 'most' ? top >= gap.times * second && top >= (gap.min ?? 0) : second >= gap.times * top);
     candidates.push({
       ...spec,
       ...(gapped ? { title: gap.title, blurb: gap.blurb } : {}),
@@ -304,6 +360,20 @@ export function awardsFor(run: RunAnalysis): Awards | null {
     },
     { gap: { title: 'Main Character', blurb: 'Picked out by random mechanics half again as often as anyone else.', times: 1.5, min: 8 } },
   );
+
+  // Last of the dps, and well behind the next: a dps a little short of the
+  // others is most keys, so it takes the next one doing half again as much.
+  // Among the dps only, since the tank and healer are always behind them.
+  const dpsDamage = dpsField.map((member) => damage.get(member.actorIndex) ?? 0).sort((a, b) => a - b);
+  if (dpsField.length >= 3 && dpsDamage[1]! >= 1.5 * dpsDamage[0]!) {
+    badge(
+      { key: 'backpack', title: 'Backpack', icon: '🎒', roast: true, blurb: 'Did the least damage of the dps, by a long way. Thanks for the ride.' },
+      damage,
+      'fewest',
+      (index) => `${short(dps.get(index) ?? 0)} DPS`,
+      { field: dpsField, gap: { title: 'Anchor', blurb: 'Did half the damage of the next dps. The group dragged you to the end.', times: 2 } },
+    );
+  }
 
   // The glory, building to the MVP.
   badge(
@@ -368,7 +438,7 @@ export function awardsFor(run: RunAnalysis): Awards | null {
     'most',
     (index) => `${short(hps.get(index) ?? 0)} HPS`,
     {
-      field: party.filter((member) => specOf(member.specId).role === 'dps'),
+      field: dpsField,
       gap: { title: 'David Hasselhoff', blurb: 'Healed twice as much as any other dps.', times: 2 },
     },
   );
@@ -377,29 +447,43 @@ export function awardsFor(run: RunAnalysis): Awards | null {
     damage,
     'most',
     (index) => `${short(dps.get(index) ?? 0)} DPS`,
-    { gap: { title: 'Hard Carry', blurb: 'Did half again the damage of anyone else.', times: 1.5 } },
+    { gap: { title: 'Hard Carry', blurb: 'Did 50% more damage than anyone else.', times: 1.5 } },
   );
   const badges = pick(candidates, seedOf(run, party));
 
-  // The MVP: rank points across everything a player can do for the group.
-  // Damage and healing both count, so a healer and a dps each have their
-  // category to win, and a tank's lies in kicks, control and staying alive.
-  // Falls score nothing either way; they are only funny.
-  const categories: Array<[string, Map<number, number>]> = [
-    ['Damage', rankPoints(party, damage, 'most')],
-    ['Healing', rankPoints(party, healing, 'most')],
-    ['Kicks', rankPoints(party, kicks, 'most')],
-    ['Crowd control', rankPoints(party, cc, 'most')],
-    ['Dispels', rankPoints(party, dispels, 'most')],
-    ['Fewest deaths', rankPoints(party, deaths, 'fewest')],
-    ['Totems', rankPoints(party, totems, 'most')],
+  // The MVP: points across everything a player can do for the group.
+  // Damage and healing both count, by share, so a healer and a dps each have
+  // their category to win, and a tank's lies in kicks, control and staying
+  // alive, by rank. Falls score nothing either way; they are only funny.
+  const byShare = (category: string, values: Values, max: number) => ({
+    category,
+    points: sharePoints(party, values, max),
+    places: places(party, values, 'most'),
+  });
+  const byRank = (category: string, values: Values, best: 'most' | 'fewest') => ({
+    category,
+    points: rankPoints(party, values, best),
+    places: places(party, values, best),
+  });
+  const categories = [
+    byShare('Damage', damage, DAMAGE_POINTS),
+    byShare('Healing', healing, HEALING_POINTS),
+    byRank('Kicks', kicks, 'most'),
+    byRank('Crowd control', cc, 'most'),
+    byRank('Dispels', dispels, 'most'),
+    byRank('Fewest deaths', deaths, 'fewest'),
+    byRank('Totems', totems, 'most'),
   ];
-  if (run.avoidable.covered) categories.push(['Least avoidable', rankPoints(party, avoidable, 'fewest')]);
+  if (run.avoidable.covered) categories.push(byRank('Least avoidable', avoidable, 'fewest'));
 
   const standings = party
     .map((member) => {
       const lines = categories
-        .map(([category, points]) => ({ category, points: points.get(member.actorIndex) ?? 0 }))
+        .map(({ category, points, places }) => ({
+          category,
+          points: points.get(member.actorIndex) ?? 0,
+          place: places.get(member.actorIndex) ?? party.length,
+        }))
         .filter((line) => line.points > 0);
       return { member, points: lines.reduce((sum, line) => sum + line.points, 0), lines };
     })

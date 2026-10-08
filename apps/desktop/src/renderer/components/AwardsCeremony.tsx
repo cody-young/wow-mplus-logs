@@ -184,6 +184,8 @@ function BadgeTip({
 function Podium({ awards }: { awards: Awards }): React.JSX.Element {
   const { standings, mvp } = awards;
   const order = [standings[1], standings[0], standings[2]].filter((entry): entry is MvpStanding => entry !== undefined);
+  // Ties share the better place, so tied steps stand at the same height.
+  const placeOf = (entry: MvpStanding): number => standings.filter((other) => other.points > entry.points).length + 1;
   return (
     <div className="podium-wrap">
       <div className="confetti" aria-hidden="true">
@@ -214,7 +216,7 @@ function Podium({ awards }: { awards: Awards }): React.JSX.Element {
       </p>
       <div className="podium">
         {order.map((entry) => {
-          const place = standings.indexOf(entry) + 1;
+          const place = placeOf(entry);
           return (
             <div key={entry.member.actorIndex} className={`podium-step place-${place}`} title={pointsTitle(entry)}>
               <span className="podium-who">
@@ -235,7 +237,7 @@ function Podium({ awards }: { awards: Awards }): React.JSX.Element {
       {standings.length > 3 ? (
         <ol className="podium-rest" start={4}>
           {standings.slice(3).map((entry) => (
-            <li key={entry.member.actorIndex} title={pointsTitle(entry)}>
+            <li key={entry.member.actorIndex} value={placeOf(entry)} title={pointsTitle(entry)}>
               <span className="pname" style={{ color: specOf(entry.member.specId).color }}>
                 {shortName(entry.member.name)}
               </span>{' '}
@@ -245,21 +247,22 @@ function Podium({ awards }: { awards: Awards }): React.JSX.Element {
         </ol>
       ) : null}
       <p className="measure">
-        Points are rank points: in each of damage, healing, kicks, crowd control, dispels, deaths,
-        totems and avoidable damage, one for every player beaten, plus one. Hover a step for the sums.
+        Damage scores up to 10 points and healing up to 5, by share of the top figure. Kicks, crowd
+        control, dispels, deaths, totems and avoidable damage score one for every player beaten, plus
+        one. Hover a step for the sums.
       </p>
     </div>
   );
 }
 
-/** Five points tops a category in a full group, so 5/4/3 are its gold, silver and bronze. */
-const POINT_MEDALS: Record<number, string> = { 5: '🥇', 4: '🥈', 3: '🥉' };
+/** By place, not points: damage and healing score by share, so their points say nothing of it. */
+const PLACE_MEDALS: Record<number, string> = { 1: '🥇', 2: '🥈', 3: '🥉' };
 
 function pointsTitle(entry: MvpStanding): string {
   return (
     entry.lines
       .map((line) => {
-        const medal = POINT_MEDALS[line.points];
+        const medal = PLACE_MEDALS[line.place];
         return `${line.category}: ${line.points}${medal ? ` ${medal}` : ''}`;
       })
       .join('\n') || 'No points'
