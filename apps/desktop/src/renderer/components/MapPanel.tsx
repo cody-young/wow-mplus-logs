@@ -92,6 +92,12 @@ const MAX_HEIGHT_VH = 0.7;
 const MDT_MIN_SPAN = 140;
 /** MDT art pixels per canvas unit. */
 const ART_SCALE = MDT_TILES.pixels / MDT_TILES.units;
+/** The furthest the map zooms in, as a multiple of the whole floor. */
+const MAX_ZOOM = 8;
+/** How much one notch of the wheel, or one press of a zoom button, zooms. */
+const ZOOM_STEP = 1.25;
+/** How far the pointer moves, in px, before a press on the map is a drag rather than a click. */
+const DRAG_PX = 4;
 
 export function MapPanel({ run, selectedSegment, onSelectSegment }: Props): React.JSX.Element {
   const { positions } = run;
@@ -474,10 +480,25 @@ interface CanvasProps {
   onSelectSegment(id: number | null): void;
 }
 
+/**
+ * How far the reader has zoomed into a floor: `k` times the whole floor,
+ * centred on (u, v) of its plane. Kept with the floor it was made on, so a
+ * change of floor, or of MDT map, starts that floor whole.
+ */
+interface Zoom {
+  uiMapId: number;
+  onMdt: boolean;
+  k: number;
+  u: number;
+  v: number;
+}
+
 /** Pixel geometry for one floor at one size. */
 interface Frame {
   width: number;
   height: number;
+  /** The whole floor, unzoomed. */
+  base: Box;
   /** What of the floor's plane the frame shows. */
   view: Box;
   /** World to canvas px, with the quarter turn every WoW map has. */
@@ -514,32 +535,79 @@ function MapCanvas({
     return () => observer.disconnect();
   }, []);
 
+  const [zoomState, setZoom] = useState<Zoom | null>(null);
+  const onMdt = floor.fit !== null;
+  const zoom = zoomState !== null && zoomState.uiMapId === floor.uiMapId && zoomState.onMdt === onMdt ? zoomState : null;
+
   const frame = useMemo<Frame | null>(() => {
     if (available <= 0) return null;
     const { plane } = floor;
     const cap = window.innerHeight * MAX_HEIGHT_VH;
     // On MDT's map there is always more map to show, so fill the frame with
     // it rather than with bars.
-    const view = floor.fit === null ? floor.view : fillView(floor.view, available / cap);
-    const spanU = view.maxU - view.minU;
-    const spanV = view.maxV - view.minV;
+    const base = floor.fit === null ? floor.view : fillView(floor.view, available / cap);
+    const spanU = base.maxU - base.minU;
+    const spanV = base.maxV - base.minV;
     let width = available;
     let height = (width * spanV) / spanU;
     if (height > cap) {
       height = cap;
       width = (height * spanU) / spanV;
     }
-    const scale = width / spanU;
+    // Zooming keeps the frame's size and shows less of the floor in it.
+    const view = zoomedView(base, zoom);
+    const scale = width / (view.maxU - view.minU);
     const planePx = (u: number, v: number): [number, number] => [(u - view.minU) * scale, (v - view.minV) * scale];
     return {
       width: Math.round(width),
       height: Math.round(height),
+      base,
       view,
       px: (x, y) => planePx(...plane(x, y)),
       planePx,
       scale,
     };
-  }, [floor, available]);
+  }, [floor, available, zoom]);
+
+  /** Zooms by `factor` about a point of the frame, keeping that point where it is on screen. */
+  const zoomAbout = useCallback(
+    (factor: number, x: number, y: number): void => {
+      if (frame === null) return;
+      const k = Math.min(MAX_ZOOM, Math.max(1, (zoom?.k ?? 1) * factor));
+      if (k === 1) {
+        setZoom(null);
+        return;
+      }
+      const { base, view } = frame;
+      const u = view.minU + x / frame.scale;
+      const v = view.minV + y / frame.scale;
+      const spanU = (base.maxU - base.minU) / k;
+      const spanV = (base.maxV - base.minV) / k;
+      const minU = u - (x / frame.width) * spanU;
+      const minV = v - (y / frame.height) * spanV;
+      setZoom(clampZoom(base, { uiMapId: floor.uiMapId, onMdt, k, u: minU + spanU / 2, v: minV + spanV / 2 }));
+    },
+    [frame, zoom, floor.uiMapId, onMdt],
+  );
+
+  // The wheel zooms. React's wheel handler is passive and cannot keep the page
+  // from scrolling too, so this one is added by hand.
+  const zoomAboutRef = useRef(zoomAbout);
+  zoomAboutRef.current = zoomAbout;
+  useEffect(() => {
+    const element = canvas.current;
+    if (element === null) return;
+    const onWheel = (event: WheelEvent): void => {
+      event.preventDefault();
+      const rect = element.getBoundingClientRect();
+      // Trackpads send many small deltas, a wheel a few large ones; both come
+      // out at about one step per notch.
+      const factor = ZOOM_STEP ** (-event.deltaY / (event.deltaMode === 0 ? 100 : 3));
+      zoomAboutRef.current(factor, event.clientX - rect.left, event.clientY - rect.top);
+    };
+    element.addEventListener('wheel', onWheel, { passive: false });
+    return () => element.removeEventListener('wheel', onWheel);
+  }, [frame !== null]);
 
   const hulls = useMemo(() => {
     if (frame === null) return [];
@@ -763,21 +831,94 @@ function MapCanvas({
     return [event.clientX - rect.left, event.clientY - rect.top];
   };
 
+  // Dragging a zoomed map pans it. A press that barely moves is still a click
+  // on a pull; one that dragged is not.
+  const drag = useRef<{ x: number; y: number; u: number; v: number; moved: boolean } | null>(null);
+  const [dragging, setDragging] = useState(false);
+  const dragged = useRef(false);
+
   return (
     <div className="map-canvas" ref={wrap}>
       {frame !== null ? (
-        <canvas
-          ref={canvas}
-          style={{ width: frame.width, height: frame.height, cursor: hover !== null ? 'pointer' : 'default' }}
-          title={hover !== null ? pullTitle(hover, forcesRequired) : ''}
-          onMouseMove={(event) => setHover(pullAt(...local(event)))}
-          onMouseLeave={() => setHover(null)}
-          onClick={(event) => {
-            const segment = pullAt(...local(event));
-            if (segment === null) return;
-            onSelectSegment(segment.id === selectedSegment ? null : segment.id);
-          }}
-        />
+        <div className="map-stage" style={{ width: frame.width, height: frame.height }}>
+          <canvas
+            ref={canvas}
+            style={{
+              width: frame.width,
+              height: frame.height,
+              cursor: dragging ? 'grabbing' : hover !== null ? 'pointer' : zoom !== null ? 'grab' : 'default',
+            }}
+            title={hover !== null && !dragging ? pullTitle(hover, forcesRequired) : ''}
+            onPointerDown={(event) => {
+              dragged.current = false;
+              if (zoom === null || event.button !== 0) return;
+              drag.current = { x: event.clientX, y: event.clientY, u: zoom.u, v: zoom.v, moved: false };
+              event.currentTarget.setPointerCapture(event.pointerId);
+            }}
+            onPointerMove={(event) => {
+              const start = drag.current;
+              if (start === null || zoom === null) return;
+              const dx = event.clientX - start.x;
+              const dy = event.clientY - start.y;
+              if (!start.moved && Math.hypot(dx, dy) < DRAG_PX) return;
+              if (!start.moved) {
+                start.moved = true;
+                setDragging(true);
+                setHover(null);
+              }
+              setZoom(clampZoom(frame.base, { ...zoom, u: start.u - dx / frame.scale, v: start.v - dy / frame.scale }));
+            }}
+            onPointerUp={(event) => {
+              dragged.current = drag.current?.moved ?? false;
+              drag.current = null;
+              setDragging(false);
+              if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+                event.currentTarget.releasePointerCapture(event.pointerId);
+              }
+            }}
+            onMouseMove={(event) => {
+              if (drag.current?.moved) return;
+              setHover(pullAt(...local(event)));
+            }}
+            onMouseLeave={() => setHover(null)}
+            onClick={(event) => {
+              if (dragged.current) return;
+              const segment = pullAt(...local(event));
+              if (segment === null) return;
+              onSelectSegment(segment.id === selectedSegment ? null : segment.id);
+            }}
+            onDoubleClick={(event) => {
+              // A double click on empty map zooms in there; on a pull it is two clicks.
+              const at = local(event);
+              if (pullAt(...at) === null) zoomAbout(ZOOM_STEP * ZOOM_STEP, ...at);
+            }}
+          />
+          <div className="map-zoom" aria-label="Zoom">
+            <button
+              type="button"
+              aria-label="Zoom in"
+              title="Zoom in (or scroll on the map)"
+              disabled={zoom !== null && zoom.k >= MAX_ZOOM}
+              onClick={() => zoomAbout(ZOOM_STEP * ZOOM_STEP, frame.width / 2, frame.height / 2)}
+            >
+              +
+            </button>
+            <button
+              type="button"
+              aria-label="Zoom out"
+              title="Zoom out"
+              disabled={zoom === null}
+              onClick={() => zoomAbout(1 / (ZOOM_STEP * ZOOM_STEP), frame.width / 2, frame.height / 2)}
+            >
+              −
+            </button>
+            {zoom !== null ? (
+              <button type="button" className="map-zoom-reset" title="Show the whole floor" onClick={() => setZoom(null)}>
+                Fit
+              </button>
+            ) : null}
+          </div>
+        </div>
       ) : null}
     </div>
   );
@@ -837,6 +978,25 @@ function fillView(view: Box, aspect: number): Box {
   const minU = fit((view.minU + view.maxU) / 2, spanU, MDT_CANVAS.width);
   const minV = fit((view.minV + view.maxV) / 2, spanV, MDT_CANVAS.height);
   return { minU, maxU: minU + spanU, minV, maxV: minV + spanV };
+}
+
+/**
+ * The part of the whole floor a zoom shows: `k` times smaller, about its
+ * centre, slid back inside the floor so panning never runs off its edge.
+ */
+function zoomedView(base: Box, zoom: Zoom | null): Box {
+  if (zoom === null || zoom.k <= 1) return base;
+  const spanU = (base.maxU - base.minU) / zoom.k;
+  const spanV = (base.maxV - base.minV) / zoom.k;
+  const minU = Math.min(Math.max(zoom.u - spanU / 2, base.minU), base.maxU - spanU);
+  const minV = Math.min(Math.max(zoom.v - spanV / 2, base.minV), base.maxV - spanV);
+  return { minU, maxU: minU + spanU, minV, maxV: minV + spanV };
+}
+
+/** A zoom with its centre moved to that of the view it shows. */
+function clampZoom(base: Box, zoom: Zoom): Zoom {
+  const view = zoomedView(base, zoom);
+  return { ...zoom, u: (view.minU + view.maxU) / 2, v: (view.minV + view.maxV) / 2 };
 }
 
 function pullTitle(segment: Segment, forcesRequired: number): string {

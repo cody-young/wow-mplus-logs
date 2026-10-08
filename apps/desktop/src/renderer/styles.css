@@ -814,7 +814,16 @@ table.roster-table { margin-top: 6px; }
   display: flex; justify-content: center; width: 100%;
   background: var(--panel); border: 1px solid var(--border); border-radius: 7px; padding: 8px 0;
 }
-.map-canvas canvas { display: block; }
+.map-canvas canvas { display: block; touch-action: none; }
+.map-stage { position: relative; }
+.map-zoom { position: absolute; top: 6px; right: 6px; display: flex; flex-direction: column; gap: 4px; }
+.map-zoom button {
+  min-width: 26px; height: 26px; padding: 0 6px; font-size: 14px; line-height: 1;
+  background: var(--panel-raised); border: 1px solid var(--border); border-radius: 6px; color: var(--muted);
+}
+.map-zoom button:hover:not(:disabled) { color: var(--text); }
+.map-zoom button:disabled { opacity: 0.4; }
+.map-zoom .map-zoom-reset { font-size: 11px; }
 .map-replay { display: flex; align-items: center; gap: 10px; }
 .map-replay input[type='range'] { flex: 1 1 auto; min-width: 80px; accent-color: var(--accent); }
 .map-play { width: 32px; padding: 3px 0; font-size: 12px; }
