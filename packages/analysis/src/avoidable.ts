@@ -1,4 +1,4 @@
-import { avoidable, avoidableDungeons, isBlizzardAvoidable, overrulesBlizzard, ownAuras } from '@mplus/data';
+import { afterCasts, avoidable, avoidableDungeons, ownAuras } from '@mplus/data';
 import { Ev } from '@mplus/parser';
 
 import { actorName, spellName, type AnalysisContext } from './context.js';
@@ -11,10 +11,9 @@ import { segmentAt, type SegmentIndex } from './segments.js';
  * Elitism Helper did this in game, and Midnight took the in-game combat log
  * away from addons, so the log file is where it lives now. The judgement of
  * what counts is `@mplus/data/avoidable` — a hand-kept list. Blizzard's own
- * flag for the same thing is read alongside it into `blizzard`, for comparing
- * the two while that flag is still a guess. Everything here is
- * mechanical: a damage line, from an enemy, onto a party member, carrying an
- * id on that list.
+ * avoidable flag on the spell was tried beside it and dropped: too much of
+ * what it flags is not avoidable. Everything here is mechanical: a damage
+ * line, from an enemy, onto a party member, carrying an id on that list.
  *
  * Amounts are the same net figure the Damage Taken tab uses — overkill off,
  * absorbs not counted — so the two tabs agree on what a hit was worth. A hit a
@@ -51,15 +50,6 @@ export interface AvoidableReport {
    * clean run, which is the one thing the tab must never claim falsely.
    */
   covered: boolean;
-  /**
-   * The same party's hits on spells Blizzard's own data flags as avoidable —
-   * `isBlizzardAvoidable`, a bit in SpellMisc. In development: shown beside
-   * `hits` so the two can be compared, not instead of it.
-   *
-   * No dungeon gate, because the flag is on every dungeon's spells, and no
-   * tank rule, because the in-game meter is not known to have one.
-   */
-  blizzard: AvoidableHit[];
 }
 
 /**
@@ -86,13 +76,36 @@ export function avoidableReport(context: AnalysisContext, segments: SegmentIndex
   const { run } = context;
   const { store, actors } = run;
   const hits: AvoidableHit[] = [];
-  const blizzard: AvoidableHit[] = [];
   const watched = ownAuras();
   /** When each player's watched aura last came off, keyed `actor:aura`. */
   const cameOff = new Map<string, number>();
+  const casts = afterCasts();
+  /** When each watched enemy cast last started. */
+  const castAt = new Map<number, number>();
+  /** Auras that went on as part of the mechanic, keyed `actor:aura`. */
+  const excused = new Set<string>();
 
   for (let row = 0; row < store.count; row++) {
     const code = store.code[row]!;
+    if (code === Ev.SPELL_CAST_START) {
+      const cast = store.spellId[row]!;
+      if (casts.has(cast)) castAt.set(cast, store.ts[row]!);
+      continue;
+    }
+    if (code === Ev.SPELL_AURA_APPLIED || code === Ev.SPELL_AURA_APPLIED_DOSE || code === Ev.SPELL_AURA_REFRESH) {
+      const after = avoidable(store.spellId[row]!)?.unlessAfter;
+      if (after !== undefined) {
+        // Stacks can mix a slash the mechanic dealt with one the player
+        // walked into; the latest one decides, so a walk-in is never hidden
+        // behind an earlier excused stack. Not cleared when the aura comes
+        // off: its last tick is logged just after the removal.
+        const key = `${store.dstActor[row]!}:${store.spellId[row]!}`;
+        const started = castAt.get(after.cast);
+        if (started !== undefined && store.ts[row]! - started <= after.ms) excused.add(key);
+        else excused.delete(key);
+      }
+      continue;
+    }
     if (code === Ev.SPELL_AURA_REMOVED) {
       const aura = store.spellId[row]!;
       if (watched.has(aura)) cameOff.set(`${store.dstActor[row]!}:${aura}`, store.ts[row]!);
@@ -100,12 +113,8 @@ export function avoidableReport(context: AnalysisContext, segments: SegmentIndex
     }
     if (!DAMAGE_CODES.has(code)) continue;
     const spellId = store.spellId[row]!;
-    // Melee is spell 0 and never on either list; skip the lookups for the
-    // most common line in the log.
-    if (spellId === 0) continue;
     const entry = avoidable(spellId);
-    const flagged = isBlizzardAvoidable(spellId);
-    if (entry === undefined && !flagged) continue;
+    if (entry === undefined) continue;
 
     // The player themself, not their pet: a pet standing in fire is the
     // pet's business, and it has no row in the party to file it under.
@@ -118,13 +127,14 @@ export function avoidableReport(context: AnalysisContext, segments: SegmentIndex
     const specId = victim?.specId ?? -1;
     const ts = store.ts[row]!;
     // A burst on the player whose own debuff just came off is theirs to take.
-    const off = entry?.unlessOwn === undefined ? undefined : cameOff.get(`${dst}:${entry.unlessOwn}`);
-    const own = off !== undefined && ts - off <= OWN_BURST_MS;
-    const listed = entry !== undefined && !(entry.tank === true && TANK_SPECS.has(specId)) && !own;
-    if (!listed && !flagged) continue;
+    const off = entry.unlessOwn === undefined ? undefined : cameOff.get(`${dst}:${entry.unlessOwn}`);
+    if (off !== undefined && ts - off <= OWN_BURST_MS) continue;
+    // Part of the mechanic as designed, like stopping an Echo of Nalorakk.
+    if (entry.unlessAfter !== undefined && excused.has(`${dst}:${spellId}`)) continue;
+    if (entry.tank === true && TANK_SPECS.has(specId)) continue;
 
     const segmentId = segments.segmentOf(row);
-    const hit: AvoidableHit = {
+    hits.push({
       ts,
       actorIndex: dst,
       name: actorName(context, dst),
@@ -135,33 +145,12 @@ export function avoidableReport(context: AnalysisContext, segments: SegmentIndex
       amount: effective(store.amount[row]!, store.waste[row]!),
       fatal: store.waste[row]! > 0,
       segmentId: segmentId >= 0 ? segmentId : segmentAt(segments, ts),
-    };
-    if (listed) hits.push(hit);
-    if (flagged) blizzard.push(hit);
+    });
   }
 
-  return { hits, covered: run.meta.kind === 'key' && avoidableDungeons().has(run.meta.challengeModeId), blizzard };
+  return { hits, covered: run.meta.kind === 'key' && avoidableDungeons().has(run.meta.challengeModeId) };
 }
 
-/**
- * Blizzard's flag with the hand-kept list as a supplement: every flagged hit,
- * plus the list's hits on spells the flag misses. In development, like
- * `blizzard`. Where the list overrules the flag — Infest's DoT — the list's
- * judgement stands.
- *
- * A flagged spell's hits are taken from `blizzard` alone, so a tank frontal
- * the flag carries counts against the tank here even though the list exempts
- * it.
- */
-export function combinedAvoidable(report: AvoidableReport): AvoidableHit[] {
-  const flagRules = (spellId: number): boolean => isBlizzardAvoidable(spellId) && !overrulesBlizzard(spellId);
-  return [
-    ...report.blizzard.filter((hit) => flagRules(hit.spellId)),
-    ...report.hits.filter((hit) => !flagRules(hit.spellId)),
-  ].sort(
-    (a, b) => a.ts - b.ts,
-  );
-}
 
 /** One avoidable ability, as one player took it. */
 export interface AvoidableAbility {

@@ -572,6 +572,12 @@ the logs behind this, their targeting columns do not separate them either —
 nearly every enemy spell in a Murder Row key is an area effect that hit every
 non-tank in every run.
 
+Blizzard's own avoidable flag (`SpellMisc` `Attributes_15` bit 22, apparently
+what the in-game meter's Avoidable Damage Taken reads) was tried beside the
+list and dropped. It covers most of the list, but in practice it also flags too
+much that nobody can dodge — Infest's DoT, which ticks on all five players at
+once, among them.
+
 The seed is [Method's ability trackers][method] for Midnight Season 2, which tag
 each ability Avoid, Frontal, Party Damage and so on. Those tags name the cast,
 and what lands on a player is often another id with only half the ability in

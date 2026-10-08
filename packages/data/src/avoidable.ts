@@ -68,6 +68,13 @@ export interface AvoidableSpell {
    * off — that is, when they stood in somebody else's.
    */
   unlessOwn?: number;
+  /**
+   * An enemy cast that starts the mechanic this is part of. A hit whose aura
+   * went on within `ms` of that cast starting is the mechanic doing what it
+   * is meant to, and it and every tick of that aura are not counted. Only for
+   * an aura that carries the same id as its damage.
+   */
+  unlessAfter?: { cast: number; ms: number };
   /** What the player did wrong, for whoever edits this next. */
   why: string;
 }
@@ -121,7 +128,12 @@ const DUNGEONS: readonly Dungeon[] = [
       { id: 1247030, name: 'Poison Spear Volley', why: 'Grizzled Warbringer spear circles' },
       { id: 1247367, name: 'Earthquake', why: 'Loa Speaker Nanea puddle' },
       { id: 1242887, name: 'Echoing Maul', why: "Nalorakk's echo landing on a marked spot" },
-      { id: 1255577, name: 'Spectral Slash', why: 'Too close to an Echo of Nalorakk' },
+      {
+        id: 1255577,
+        name: 'Spectral Slash',
+        unlessAfter: { cast: 1297797, ms: 2000 },
+        why: "Walked into an Echo of Nalorakk. The players who stop the Echoes charging Zul'jarra are slashed for it, 0.7-1.1s into Forceful Slam in every logged wave; a walk-in landed 3.8s after it at the soonest",
+      },
       // Out: Rotten Supplies 1297699 (the hit on its target), Cryo Surge (a
       // DoT's splash), Earthquake 1247366 (the hit on its target).
     ],
@@ -329,30 +341,14 @@ export function avoidable(spellId: number): AvoidableSpell | undefined {
   return table().get(spellId);
 }
 
-/**
- * Ids Blizzard's flag carries that are not avoidable, checked against logs.
- *
- * `blizzard-avoidable.ts` is generated, so it is overruled here rather than
- * edited. Only the combined view reads this; Blizzard's own side stays as the
- * data has it, since that side is there to be compared with the in-game meter.
- */
-const BLIZZARD_WRONG: ReadonlyMap<number, string> = new Map([
-  [1309382, "Infest's DoT ticks, on all five players at once. The burst after it, 1309398, is the part to dodge"],
-]);
-
-/** Whether this list overrules Blizzard's avoidable flag on the id. */
-export function overrulesBlizzard(spellId: number): boolean {
-  return BLIZZARD_WRONG.has(spellId);
-}
-
-/** The overruled ids with their reasons. Exported for the test. */
-export function blizzardOverrules(): ReadonlyMap<number, string> {
-  return BLIZZARD_WRONG;
-}
-
 /** The auras an entry's `unlessOwn` names, for the analysis to watch come off. */
 export function ownAuras(): ReadonlySet<number> {
   return new Set(avoidableEntries().flatMap((entry) => (entry.unlessOwn === undefined ? [] : [entry.unlessOwn])));
+}
+
+/** The casts an entry's `unlessAfter` names, for the analysis to watch start. */
+export function afterCasts(): ReadonlySet<number> {
+  return new Set(avoidableEntries().flatMap((entry) => (entry.unlessAfter === undefined ? [] : [entry.unlessAfter.cast])));
 }
 
 /** The dungeons this covers, for the view to say when a key is not one of them. */

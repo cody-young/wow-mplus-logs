@@ -237,12 +237,11 @@ export function App(): React.JSX.Element {
    * And avoidable damage, one list of hits for the same reason.
    */
   const avoidable = useMemo(() => {
-    if (run === null) return { hits: [], covered: false, blizzard: [] };
+    if (run === null) return { hits: [], covered: false };
     if (selectedSegment === null) return run.avoidable;
     return {
       hits: run.avoidable.hits.filter((hit) => hit.segmentId === selectedSegment),
       covered: run.avoidable.covered,
-      blizzard: run.avoidable.blizzard.filter((hit) => hit.segmentId === selectedSegment),
     };
   }, [run, selectedSegment]);
 
@@ -475,10 +474,10 @@ export function App(): React.JSX.Element {
                   ],
                   [
                     'avoidable',
-                    `Superiority Assister*${avoidable.hits.length > 0 ? ` (${avoidable.hits.length})` : ''}`,
+                    `Superiority Assister${avoidable.hits.length > 0 ? ` (${avoidable.hits.length})` : ''}`,
                   ],
                   ['deaths', `Deaths${deaths.length > 0 ? ` (${deaths.length})` : ''}`],
-                  ['stats', 'Stats'],
+                  ['stats', 'Awards'],
                   ['map', 'Map'],
                 ] as Array<[Tab, string]>
               )

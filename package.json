@@ -28,7 +28,6 @@
     "shot": "node scripts/shot.mjs",
     "spell-effects": "node scripts/spell-effects.mjs",
     "spell-presses": "node scripts/spell-presses.mjs",
-    "spell-avoidable": "node scripts/spell-avoidable.mjs",
     "enemy-forces": "node scripts/enemy-forces.mjs"
   },
   "devDependencies": {

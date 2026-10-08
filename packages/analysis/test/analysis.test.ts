@@ -27,7 +27,6 @@ import {
   type SegmentIndex,
   type SegmentOptions,
   avoidableReport,
-  combinedAvoidable,
   summarizeAvoidable,
   TrackKind,
   mapPoint,
@@ -1277,24 +1276,6 @@ test('a dungeon the list does not cover says so instead of reading clean', () =>
   assert.equal(murderRow(500).covered, false);
 });
 
-test("Blizzard's flag is read on its own, with no dungeon gate and no tank rule", () => {
-  // Burning Steps carries the flag; Legion Strike and Demonic Rage do not.
-  for (const report of [murderRow(), murderRow(500)]) {
-    assert.deepEqual(
-      report.blizzard.map((entry) => entry.spellName),
-      ['Burning Steps', 'Burning Steps'],
-    );
-  }
-});
-
-test('combined is the flag plus what the list has that the flag misses', () => {
-  const combined = combinedAvoidable(murderRow());
-  assert.deepEqual(
-    combined.map((entry) => `${entry.spellName} on ${entry.name}`),
-    ['Burning Steps on Dee', 'Legion Strike on Heals', 'Burning Steps on Dee'],
-  );
-});
-
 /**
  * Altar of Fangs' Infest: a DoT on everyone, and a burst around each player as
  * theirs runs out. The burst on its own bearer is unavoidable; landing on
@@ -1343,13 +1324,60 @@ test("Infest's burst counts on everyone but the player whose debuff it was", () 
   );
 });
 
-test("combined drops Infest's DoT, which Blizzard flags and the list overrules", () => {
-  const report = infest();
-  assert.equal(report.blizzard.filter((entry) => entry.spellId === 1309382).length, 2);
-  const combined = combinedAvoidable(report);
+/**
+ * Den of Nalorakk's Spectral Slash: a stacking DoT from an Echo of Nalorakk.
+ * Whoever stops the Echoes charging Zul'jarra is slashed under a second into
+ * Forceful Slam, which is the job; walking into one is the fail.
+ */
+function spectralSlash() {
+  const nalorakk = creature(246404, 60);
+  const echo = creature(246500, 61);
+  const slam = `${at(20)}  SPELL_CAST_START,${nalorakk},"Nalorakk",0xa48,0x0,0000000000000000,nil,0x80000000,0x80000000,1297797,"Forceful Slam",0x1`;
+  const on = (seconds: number, dst: string, name: string, up = true) =>
+    aura(seconds, echo, 'Echo of Nalorakk', dst, name, 1255577, 'Spectral Slash', up, { srcFlags: '0xa48', dstFlags: '0x511' });
+  const tick = (seconds: number, dst: string, name: string) =>
+    taken(seconds, echo, 'Echo of Nalorakk', dst, name, 1000, { spellId: 1255577, spellName: 'Spectral Slash' }).replace(
+      'SPELL_DAMAGE',
+      'SPELL_PERIODIC_DAMAGE',
+    );
+  const lines = [
+    LINES[0]!,
+    `${at(0)}  CHALLENGE_MODE_START,"Den of Nalorakk",2000,586,12,[10,9,147]`,
+    ...LINES.filter((line) => line.includes('COMBATANT_INFO')),
+    // Dee walks into one before any slam.
+    on(5, DPS, 'Dee'),
+    tick(5, DPS, 'Dee'),
+    on(9, DPS, 'Dee', false),
+    slam,
+    // The tank and the healer stop two Echoes, and keep ticking after.
+    on(20.8, TANK, 'Tank'),
+    tick(20.8, TANK, 'Tank'),
+    on(21.1, HEALER, 'Heals'),
+    tick(21.1, HEALER, 'Heals'),
+    tick(22.8, TANK, 'Tank'),
+    tick(23.1, HEALER, 'Heals'),
+    // The last tick lands just after the aura comes off, as the game logs it.
+    on(30, TANK, 'Tank', false),
+    tick(30.001, TANK, 'Tank'),
+    on(31, HEALER, 'Heals', false),
+    // Dee again, well after the slam.
+    on(24, DPS, 'Dee'),
+    tick(24, DPS, 'Dee'),
+    `${at(40)}  CHALLENGE_MODE_END,2000,1,12,40000,40`,
+  ];
+  const session = new LogSession({ assumedYear: 2026 });
+  session.pushText(lines.join('\n') + '\n');
+  session.end();
+  const run = session.runs[0]!;
+  const context = contextFor(session, run);
+  return avoidableReport(context, buildSegments(context));
+}
+
+test('a slash from stopping the Echoes is not counted, and walking into one is', () => {
+  const { hits } = spectralSlash();
   assert.deepEqual(
-    combined.map((entry) => `${entry.spellId} on ${entry.name.split('-')[0]}`),
-    ['1309398 on Dee', '1309398 on Heals'],
+    hits.map((entry) => `${entry.spellName} on ${entry.name.split('-')[0]}`),
+    ['Spectral Slash on Dee', 'Spectral Slash on Dee'],
   );
 });
 

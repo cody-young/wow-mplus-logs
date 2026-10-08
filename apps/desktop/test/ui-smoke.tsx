@@ -7,7 +7,6 @@
  * segments one millisecond long. Rendering to a string in Node catches every
  * crash and lets the output be asserted on.
  */
-import { overrulesBlizzard } from '@mplus/data';
 import { renderToString } from 'react-dom/server';
 
 import { AvoidablePanel } from '../src/renderer/components/AvoidablePanel.js';
@@ -201,9 +200,9 @@ export function render(analysis: RunAnalysis): Record<string, string> {
     emptyDispels: renderToString(<DispelsPanel dispels={{ dispels: [], casts: 0 }} />),
     // A clean key, and a key from a dungeon the list does not cover, which
     // must not read as clean.
-    emptyAvoidable: renderToString(<AvoidablePanel avoidable={{ hits: [], covered: true, blizzard: [] }} />),
-    uncoveredAvoidable: renderToString(<AvoidablePanel avoidable={{ hits: [], covered: false, blizzard: [] }} />),
-    shareUncovered: shareAvoidable({ hits: [], covered: false, blizzard: [] }, { meta: analysis.meta, segment: null }),
+    emptyAvoidable: renderToString(<AvoidablePanel avoidable={{ hits: [], covered: true }} />),
+    uncoveredAvoidable: renderToString(<AvoidablePanel avoidable={{ hits: [], covered: false }} />),
+    shareUncovered: shareAvoidable({ hits: [], covered: false }, { meta: analysis.meta, segment: null }),
     // Presses that stopped nothing whatsoever — the case where the panel's
     // headline number is zero and the breakdown is the whole content.
     allWhiffedInterrupts: renderToString(
@@ -360,9 +359,6 @@ export function render(analysis: RunAnalysis): Record<string, string> {
 
 /** Re-exported so the assertions can compute the same party the row renders. */
 export { partyOf };
-
-/** Re-exported so the assertions can tell which flagged spells the combined side takes from the list. */
-export { overrulesBlizzard };
 
 /** Re-exported so the assertions can work out where a wipe's deaths are folded. */
 export { wipeCutoff };

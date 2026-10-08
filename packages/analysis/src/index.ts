@@ -27,7 +27,6 @@ export {
 } from './crowd-control.js';
 export {
   avoidableReport,
-  combinedAvoidable,
   summarizeAvoidable,
   type AvoidableAbility,
   type AvoidableActor,

@@ -43,15 +43,13 @@ export {
 } from './mdt.js';
 export { Defense, defenseKinds, defensiveCount, isDefensive, type DefenseKind } from './defensives.js';
 export {
+  afterCasts,
   avoidable,
   avoidableDungeons,
   avoidableEntries,
-  blizzardOverrules,
-  overrulesBlizzard,
   ownAuras,
   type AvoidableSpell,
 } from './avoidable.js';
-export { blizzardAvoidableCount, isBlizzardAvoidable } from './blizzard-avoidable.js';
 export { buttonCount, isButton } from './buttons.js';
 export {
   Control,

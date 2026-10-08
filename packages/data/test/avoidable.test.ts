@@ -2,12 +2,11 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  afterCasts,
   avoidable,
   avoidableDungeons,
   avoidableEntries,
-  blizzardOverrules,
   db2Dungeons,
-  isBlizzardAvoidable,
   ownAuras,
 } from '../src/index.js';
 
@@ -50,16 +49,14 @@ test('a tank frontal is marked as one, and a ground effect is not', () => {
   assert.notEqual(avoidable(1215985)?.tank, true, 'Fel Beam');
 });
 
-test("an overrule names a spell Blizzard actually flags, and one the list leaves out", () => {
-  for (const [id, why] of blizzardOverrules()) {
-    assert.ok(isBlizzardAvoidable(id), `${id} is not flagged, so overruling it does nothing: ${why}`);
-    assert.equal(avoidable(id), undefined, `${id} is overruled and listed at once`);
-  }
-});
-
 test("a burst's own debuff is an aura, not a damage id on the list", () => {
   assert.deepEqual([...ownAuras()], [1308865]);
   for (const aura of ownAuras()) assert.equal(avoidable(aura), undefined);
+});
+
+test("a mechanic's cast is an enemy cast, not a damage id on the list", () => {
+  assert.deepEqual([...afterCasts()], [1297797]);
+  for (const cast of afterCasts()) assert.equal(avoidable(cast), undefined);
 });
 
 test('every entry says why', () => {
