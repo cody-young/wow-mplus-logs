@@ -1,3 +1,4 @@
+import { avoidable } from '@mplus/data';
 import { ActorKind, Environment, Ev, EvFlag } from '@mplus/parser';
 
 import { actorName, spellName, type AnalysisContext } from './context.js';
@@ -5,7 +6,7 @@ import { DAMAGE_CODES, effective } from './events.js';
 import { segmentAt, type SegmentIndex } from './segments.js';
 
 /**
- * The stats tab: the numbers nobody needs and everybody wants to see.
+ * The awards tab: the numbers nobody needs and everybody wants to see.
  *
  * Totems, first. A key's casters drop Magma and Volatile Totems
  * that do nothing until someone breaks them, and somebody always does more of
@@ -30,7 +31,18 @@ import { segmentAt, type SegmentIndex } from './segments.js';
  * screenshot. As the game showed it: the whole amount, overkill included,
  * because a hit that ended a mob with room to spare is no smaller for it.
  *
- * What the log cannot give, however the stats tab might want it, is a jump:
+ * And who the dungeon picked on. Plenty of mechanics choose one player at
+ * random — a dive, a curse, a barrage — and the log says who, as the debuff
+ * an enemy puts on them. Nothing in the game's data marks a mechanic as
+ * random, so it is read from how the debuff lands: one player at a time
+ * (casts are applications more than 1.5s apart), at least three times, on at
+ * least three different players, and mostly not on the tank. That last is
+ * what tells a random pick from a tank buster, which picks the tank every
+ * time. A debuff from standing in something is on the avoidable list, and is
+ * that list's to count. Across six logs of this season it finds Razor Dive,
+ * Cutpurse, Arrow Barrage, Curse of Doom, Shadow Barrage and the like.
+ *
+ * What the log cannot give, however the awards tab might want it, is a jump:
  * nothing in it records one, and its positions carry no height.
  */
 
@@ -80,6 +92,18 @@ export interface BigHit {
   segmentId: number;
 }
 
+/** One time an enemy's mechanic picked a player out. */
+export interface Pick {
+  /** Store-relative ms. */
+  ts: number;
+  actorIndex: number;
+  name: string;
+  specId: number;
+  spellId: number;
+  spellName: string;
+  segmentId: number;
+}
+
 export interface StatsReport {
   /** Every enemy totem the party finished, in order. */
   totemKills: TotemKill[];
@@ -87,9 +111,16 @@ export interface StatsReport {
   falls: Fall[];
   /** Each player's biggest hit, one per player who hit anything. */
   biggestHits: BigHit[];
+  /** Every time a mechanic that picks at random picked one of the party, in order. */
+  picks: Pick[];
 }
 
 const TOTEM = / Totem$/;
+
+const TANK_SPECS: ReadonlySet<number> = new Set([250, 581, 104, 268, 66, 73]);
+
+/** Applications of one debuff closer together than this are one cast. */
+const CAST_MS = 1500;
 
 export function statsReport(context: AnalysisContext, segments: SegmentIndex): StatsReport {
   const { run, interner } = context;
@@ -102,9 +133,21 @@ export function statsReport(context: AnalysisContext, segments: SegmentIndex): S
   const biggest = new Map<number, number>();
   /** A unit is finished once; a second line for it would be a second stomp. */
   const finished = new Set<number>();
+  /** Enemy debuff id -> the rows that put it on a player. */
+  const debuffs = new Map<number, number[]>();
 
   for (let row = 0; row < store.count; row++) {
     const code = store.code[row]!;
+    if (code === Ev.SPELL_AURA_APPLIED) {
+      if (store.flags[row]! & EvFlag.BUFF || !segments.party.has(store.dstActor[row]!)) continue;
+      const source = actors.at(store.srcActor[row]!);
+      if (source === undefined || source.kind !== ActorKind.CREATURE || source.everPlayerControlled) continue;
+      const spellId = store.spellId[row]!;
+      const rows = debuffs.get(spellId);
+      if (rows === undefined) debuffs.set(spellId, [row]);
+      else rows.push(row);
+      continue;
+    }
     if (code === Ev.ENVIRONMENTAL_DAMAGE) {
       const dst = store.dstActor[row]!;
       if (store.extraSpellId[row] !== Environment.FALLING || !segments.party.has(dst)) continue;
@@ -174,5 +217,35 @@ export function statsReport(context: AnalysisContext, segments: SegmentIndex): S
     };
   });
 
-  return { totemKills, falls, biggestHits };
+  const picks: Pick[] = [];
+  for (const [spellId, rows] of debuffs) {
+    if (avoidable(spellId) !== undefined) continue;
+    const casts: number[][] = [];
+    for (const row of rows) {
+      const last = casts.at(-1);
+      if (last !== undefined && store.ts[row]! - store.ts[last.at(-1)!]! < CAST_MS) last.push(row);
+      else casts.push([row]);
+    }
+    const lone = casts.filter((cast) => new Set(cast.map((row) => store.dstActor[row]!)).size === 1);
+    const targets = new Set(lone.map((cast) => store.dstActor[cast[0]!]!));
+    const onTank = lone.filter((cast) => TANK_SPECS.has(actors.at(store.dstActor[cast[0]!]!)?.specId ?? -1)).length;
+    if (casts.length < 3 || lone.length < casts.length * 0.9 || targets.size < 3 || onTank > lone.length * 0.4) continue;
+    for (const [row] of lone) {
+      const ts = store.ts[row!]!;
+      const actor = store.dstActor[row!]!;
+      const segmentId = segments.segmentOf(row!);
+      picks.push({
+        ts,
+        actorIndex: actor,
+        name: actorName(context, actor),
+        specId: actors.at(actor)?.specId ?? -1,
+        spellId,
+        spellName: spellName(context, spellId),
+        segmentId: segmentId >= 0 ? segmentId : segmentAt(segments, ts),
+      });
+    }
+  }
+  picks.sort((a, b) => a.ts - b.ts);
+
+  return { totemKills, falls, biggestHits, picks };
 }

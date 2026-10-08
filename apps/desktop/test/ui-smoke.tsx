@@ -38,6 +38,7 @@ import {
 import { pullSummary, wipeCutoff } from '../src/renderer/format.js';
 import { SPECS } from '../src/renderer/specs.js';
 import { awardsFor } from '../src/renderer/awards.js';
+import { specOf } from '../src/renderer/specs.js';
 import type { RunAnalysis, RunForces, UpdateState, UpdateStatus } from '../src/shared.js';
 
 /** A run whose dungeon the criteria table does not cover, which drops the count columns. */
@@ -129,6 +130,22 @@ export function render(analysis: RunAnalysis): Record<string, string> {
     // Finished, as it opens on a second visit: the podium and every badge.
     stats: renderToString(
       <StatsPanel stats={analysis.stats} party={partyOf(analysis)} awards={awardsFor(analysis)} />,
+    ),
+    // What the awards picked, for the rules the markup cannot show: how many,
+    // that only a dps is ever the Lifeguard, and that a runaway name has one winner.
+    awards: JSON.stringify(
+      (() => {
+        const awards = awardsFor(analysis);
+        const lifeguard = awards?.badges.find((badge) => badge.key === 'lifeguard');
+        return {
+          keys: awards?.badges.map((badge) => badge.key) ?? [],
+          titles: awards?.badges.map((badge) => badge.title) ?? [],
+          gappedShared: awards?.badges.some((badge) => badge.gapped && badge.winners.length > 1) ?? false,
+          lifeguardNotDps: partyOf(analysis).some(
+            (member) => lifeguard?.winners.includes(member.actorIndex) === true && specOf(member.specId).role !== 'dps',
+          ),
+        };
+      })(),
     ),
     // Every player's hits open in every section, for the same reason.
     avoidableLog: renderToString(<AvoidablePanel avoidable={analysis.avoidable} defaultExpanded />),

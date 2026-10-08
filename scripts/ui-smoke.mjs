@@ -621,6 +621,13 @@ check('stats view has a card for totems, falls and the biggest hit',
 if (!analysis.live) {
   check('a finished key opens its awards on the podium', views.stats.includes('class="podium"'));
   check('the share text names an MVP', /\nMVP: /.test(views.shareStats));
+  const picked = JSON.parse(views.awards);
+  check('a key hands out at most six badges', picked.keys.length <= 6, picked.keys.join(', '));
+  check('the shelf shows every badge picked',
+    countOf(views.stats, 'class="badge-card') === picked.keys.length,
+    `${countOf(views.stats, 'class="badge-card')} cards for ${picked.keys.length} badges`);
+  check('only a dps is ever the Lifeguard', !picked.lifeguardNotDps);
+  check('a runaway name goes to one winner, never a tie', !picked.gappedShared, picked.titles.join(', '));
 }
 console.log(`  (stats share:\n${views.shareStats.split('\n').map((line) => `    ${line}`).join('\n')})`);
 

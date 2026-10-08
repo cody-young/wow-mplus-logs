@@ -67,7 +67,7 @@ export function App(): React.JSX.Element {
   const browsingOlder = useRef(false);
   /**
    * Runs whose awards ceremony has played. The ceremony plays the first time
-   * the reader opens the stats tab on a finished key, and opens finished after
+   * the reader opens the awards tab on a finished key, and opens finished after
    * that. A ref for the same reason as `browsingOlder`: nothing renders from
    * it until the tab mounts again.
    */
@@ -249,15 +249,16 @@ export function App(): React.JSX.Element {
   const awards = useMemo(() => (run === null ? null : awardsFor(run)), [run]);
 
   /**
-   * And the stats tab's lists, for the same reason.
+   * And the awards tab's lists, for the same reason.
    */
   const stats = useMemo(() => {
-    if (run === null) return { totemKills: [], falls: [], biggestHits: [] };
+    if (run === null) return { totemKills: [], falls: [], biggestHits: [], picks: [] };
     if (selectedSegment === null) return run.stats;
     return {
       totemKills: run.stats.totemKills.filter((kill) => kill.segmentId === selectedSegment),
       falls: run.stats.falls.filter((entry) => entry.segmentId === selectedSegment),
       biggestHits: run.stats.biggestHits.filter((entry) => entry.segmentId === selectedSegment),
+      picks: run.stats.picks.filter((entry) => entry.segmentId === selectedSegment),
     };
   }, [run, selectedSegment]);
 
@@ -589,7 +590,7 @@ export function App(): React.JSX.Element {
  * A party member's badges beside their name in the header, MVP crown first.
  *
  * Icons only, with the title and what earned it on the hover, so five names
- * with a few badges each still fit one header line. A click opens the stats
+ * with a few badges each still fit one header line. A click opens the awards
  * tab, which is a click the reader made.
  */
 function BadgeChips({

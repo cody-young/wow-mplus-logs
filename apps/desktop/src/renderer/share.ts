@@ -158,7 +158,7 @@ export function shareStats(
 ): string {
   const name = (index: number): string =>
     shortName(party.find((member) => member.actorIndex === index)?.name ?? '?');
-  const lines = [heading('Stats', scope)];
+  const lines = [heading('Awards', scope)];
   // The awards are the whole run's, so they ride along only with it.
   if (awards !== null && scope.segment === null) {
     if (awards.mvp.length > 0) lines.push(fit(`MVP: ${awards.mvp.map(name).join(' & ')}`));

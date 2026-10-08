@@ -7,7 +7,7 @@ import { memberTitle, type PartyMember } from './RunRow.js';
 import type { StatsReport } from '../../shared.js';
 
 /**
- * The stats tab: the awards ceremony, then one card per stat, the whole
+ * The awards tab: the awards ceremony, then one card per stat, the whole
  * party ranked on each.
  *
  * The cards follow the selected pull like every other tab; the awards are

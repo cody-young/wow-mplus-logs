@@ -687,6 +687,8 @@ test('each raid boss pull is its own run, numbered per boss and difficulty', () 
   assert.equal(kill!.pull, 2);
   assert.equal(kill!.success, true);
   assert.equal(kill!.elapsedMs, 360_000);
+  assert.equal(wipe!.fightTimeMs, 120_000, "the server's fight time, from ENCOUNTER_END");
+  assert.equal(kill!.fightTimeMs, 360_000);
   assert.deepEqual(kill!.encounters, [
     { encounterId: 2902, name: 'Ulgrax the Devourer', difficultyId: 16, startTs: 0, endTs: 360_000, success: true },
   ]);

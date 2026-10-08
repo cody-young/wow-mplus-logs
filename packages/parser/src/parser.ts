@@ -88,6 +88,8 @@ export interface EncounterInfo {
   /** The instance id, which only ENCOUNTER_START carries; 0 on an END. */
   instanceId: number;
   success: boolean;
+  /** The server's fight length in ms, which only ENCOUNTER_END carries; 0 on a START. */
+  fightTimeMs: number;
 }
 
 export interface CombatantInfo {
@@ -402,6 +404,7 @@ export class CombatLogParser {
           // START: ..., instanceId. END: ..., success, fightTime.
           instanceId: code === Ev.ENCOUNTER_START && count > 4 ? fieldInt(line, offsets, 4) : 0,
           success: code === Ev.ENCOUNTER_END && count > 4 ? fieldBool(line, offsets, 4) : false,
+          fightTimeMs: code === Ev.ENCOUNTER_END && count > 5 ? fieldInt(line, offsets, 5) : 0,
         };
         if (code === Ev.ENCOUNTER_START) this.hooks.onEncounterStart?.(info);
         else this.hooks.onEncounterEnd?.(info);

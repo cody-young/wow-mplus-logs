@@ -1644,6 +1644,41 @@ test('the caster that drops totems is not one', () => {
   assert.deepEqual(kills, []);
 });
 
+test('a debuff that picks one player at a time, round the party, is a random pick', () => {
+  const caster = creature(1004, 10);
+  const debuff = (seconds: number, dst: string, name: string, spellId: number, spellName: string) =>
+    aura(seconds, caster, 'Flame Shaman', dst, name, spellId, spellName, true, { srcFlags: '0xa48', dstFlags: '0x511' });
+  const picks = statsWith([
+    debuff(100, HEALER, 'Heals', 900001, 'Razor Dive'),
+    debuff(102, DPS, 'Dee', 900001, 'Razor Dive'),
+    debuff(104, HEALER, 'Heals', 900001, 'Razor Dive'),
+    debuff(106, TANK, 'Tank', 900001, 'Razor Dive'),
+    // A tank buster picks the tank every time, which is no pick at all.
+    debuff(100.5, TANK, 'Tank', 900002, 'Rending Strike'),
+    debuff(102.5, TANK, 'Tank', 900002, 'Rending Strike'),
+    debuff(104.5, HEALER, 'Heals', 900002, 'Rending Strike'),
+    debuff(106.5, DPS, 'Dee', 900002, 'Rending Strike'),
+    debuff(108.5, TANK, 'Tank', 900002, 'Rending Strike'),
+    // And one that lands on everyone at once is a party debuff.
+    debuff(101, TANK, 'Tank', 900003, 'Shadow Pulse'),
+    debuff(101, HEALER, 'Heals', 900003, 'Shadow Pulse'),
+    debuff(101, DPS, 'Dee', 900003, 'Shadow Pulse'),
+    debuff(103, TANK, 'Tank', 900003, 'Shadow Pulse'),
+    debuff(103, HEALER, 'Heals', 900003, 'Shadow Pulse'),
+    debuff(103, DPS, 'Dee', 900003, 'Shadow Pulse'),
+    debuff(105, HEALER, 'Heals', 900003, 'Shadow Pulse'),
+  ]).picks;
+  assert.deepEqual(
+    picks.map((pick) => [pick.name, pick.spellName]),
+    [
+      ['Heals', 'Razor Dive'],
+      ['Dee', 'Razor Dive'],
+      ['Heals', 'Razor Dive'],
+      ['Tank', 'Razor Dive'],
+    ],
+  );
+});
+
 function fall(seconds: number, guid: string, name: string, amount: number, overkill = 0, type = 'Falling'): string {
   const block = `${guid},0000000000000000,1000,1000,0,0,1470,0,0,0,3,100,100,0,100.5,200.5,2291,1.5,70`;
   return `${at(seconds)}  ENVIRONMENTAL_DAMAGE,0000000000000000,nil,0x80000000,0x80000000,${guid},"${name}",0x511,0x0,${block},${type},${amount},${amount},${overkill},1,0,0,0,nil,nil,nil`;

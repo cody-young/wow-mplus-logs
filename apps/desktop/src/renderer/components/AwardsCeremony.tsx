@@ -1,12 +1,13 @@
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 
 import { shortName, specOf } from '../specs.js';
 import { SpecIcon } from './SpecIcon.js';
+import { Tip, useTip, type TipState } from './Tip.js';
 import { memberTitle, type PartyMember } from './RunRow.js';
 import type { Awards, Badge, MvpStanding } from '../awards.js';
 
 /**
- * The awards ceremony at the top of the stats tab.
+ * The awards ceremony at the top of the awards tab.
  *
  * Plays when the reader opens the tab, never by itself: the app does not move
  * anyone off the tab they chose because a key ended. Once a run's ceremony has
@@ -15,6 +16,9 @@ import type { Awards, Badge, MvpStanding } from '../awards.js';
  * One badge takes the stage at a time, roasts first, then settles onto the
  * shelf below; the MVP podium comes last, with confetti. A reader who asked
  * the system for less motion gets the finished ceremony straight away.
+ *
+ * Hovering a badge on the shelf shows what it is for and how the whole party
+ * stood on it, so a narrow win reads as one.
  */
 
 /** How long each badge holds the stage. */
@@ -56,6 +60,7 @@ export function AwardsCeremony({
   /** The badge on stage right now, if any: the one most recently revealed. */
   const onStage = playing && step > 0 ? awards.badges[step - 1] : undefined;
   const shelf = awards.badges.slice(0, playing ? Math.max(0, step - 1) : total);
+  const tip = useTip<Badge>();
 
   return (
     <section className={`ceremony${playing ? ' playing' : ''}`}>
@@ -85,10 +90,11 @@ export function AwardsCeremony({
       )}
 
       {shelf.length > 0 ? (
-        <div className="badge-shelf">
+        <div className="badge-shelf" ref={tip.rootRef}>
           {shelf.map((badge) => (
-            <BadgeCard key={badge.key} badge={badge} member={member} />
+            <BadgeCard key={badge.key} badge={badge} member={member} tip={tip} />
           ))}
+          {tip.data === null ? null : <BadgeTip badge={tip.data} member={member} state={tip} />}
         </div>
       ) : null}
     </section>
@@ -99,13 +105,20 @@ function BadgeCard({
   badge,
   member,
   big = false,
+  tip,
 }: {
   badge: Badge;
   member: (index: number) => PartyMember | undefined;
   big?: boolean;
+  /** The shelf's hover tip. The card on stage has none: it reads its blurb out. */
+  tip?: TipState<Badge>;
 }): React.JSX.Element {
   return (
-    <div className={`badge-card${badge.roast ? ' roast' : ''}${big ? ' big' : ''}`} title={badge.blurb}>
+    <div
+      className={`badge-card${badge.roast ? ' roast' : ''}${badge.gapped ? ' gapped' : ''}${big ? ' big' : ''}`}
+      onMouseEnter={tip?.show(badge)}
+      onMouseLeave={tip?.hide}
+    >
       <span className="badge-icon" aria-hidden="true">
         {badge.icon}
       </span>
@@ -119,15 +132,48 @@ function BadgeCard({
               <span className="pname" style={{ color: specOf(who?.specId ?? -1).color }}>
                 {shortName(who?.name ?? '?')}
               </span>
-              <span className="badge-reason" title={badge.reasons[index]}>
-                {badge.reasons[index]}
-              </span>
+              <span className="badge-reason">{badge.reasons[index]}</span>
             </span>
           );
         })}
         {big ? <span className="badge-blurb">{badge.blurb}</span> : null}
       </span>
     </div>
+  );
+}
+
+/** A shelf badge's tip: what it is for, and the party's standings on it. */
+function BadgeTip({
+  badge,
+  member,
+  state,
+}: {
+  badge: Badge;
+  member: (index: number) => PartyMember | undefined;
+  state: TipState<Badge>;
+}): React.JSX.Element {
+  return (
+    <Tip state={state}>
+      <strong>
+        {badge.icon} <span className={badge.gapped ? 'badge-gapped-title' : undefined}>{badge.title}</span>
+      </strong>
+      <span className="tip-desc">{badge.blurb}</span>
+      <dl className="tip-rows">
+        {badge.field.map((entry) => {
+          const who = member(entry.actorIndex);
+          const won = badge.winners.includes(entry.actorIndex);
+          return (
+            <Fragment key={entry.actorIndex}>
+              <dt className={won ? 'badge-tip-won' : undefined} style={{ color: specOf(who?.specId ?? -1).color }}>
+                {won ? '★ ' : ''}
+                {shortName(who?.name ?? '?')}
+              </dt>
+              <dd className={won ? 'badge-tip-won' : undefined}>{entry.text}</dd>
+            </Fragment>
+          );
+        })}
+      </dl>
+    </Tip>
   );
 }
 

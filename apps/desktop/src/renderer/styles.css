@@ -929,7 +929,16 @@ button.badge-chips:hover:not(:disabled) { background: var(--panel-raised); borde
 .badge-card.big .badge-winner { font-size: 18px; font-weight: 600; }
 .badge-reason { color: var(--muted); font-size: 12px; font-weight: 400; overflow: hidden; text-overflow: ellipsis; }
 .badge-blurb { color: var(--dim); font-size: 12px; margin-top: 2px; }
-.badge-shelf { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 8px; margin-top: 12px; }
+.badge-tip-won { font-weight: 600; }
+/* A runaway winner's sillier name, in a gradient so it reads as the upgrade. */
+.badge-card.gapped .badge-title,
+.badge-gapped-title {
+  background: linear-gradient(90deg, #ff8000, #e6cc80, #a335ee);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.badge-shelf { position: relative; display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 8px; margin-top: 12px; }
 @keyframes badge-pop { from { transform: scale(0.4); opacity: 0; } to { transform: scale(1); opacity: 1; } }
 @keyframes badge-settle { from { transform: translateY(-6px); opacity: 0; } to { transform: none; opacity: 1; } }
 

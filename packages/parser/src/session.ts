@@ -169,6 +169,12 @@ export interface RaidPullMeta extends RunMetaBase {
    * numbers from wherever it began.
    */
   pull: number;
+  /**
+   * The server's fight length from ENCOUNTER_END, null while in progress or
+   * when the line omits it. Unlike `elapsedMs` it is the same in every
+   * player's log, which is what anything shared across a raid keys on.
+   */
+  fightTimeMs: number | null;
 }
 
 export type RunMeta = KeyRunMeta | RaidPullMeta;
@@ -422,6 +428,7 @@ export class LogSession {
       difficultyId: info.difficultyId,
       groupSize: info.groupSize,
       pull,
+      fightTimeMs: null,
       startMs: info.ts,
       utcOffsetMinutes: this.parser.tzOffsetMinutes,
       endMs: null,
@@ -554,6 +561,7 @@ export class LogSession {
       const window = run.meta.encounters[0]!;
       window.endTs = info.ts - run.meta.startMs;
       window.success = info.success;
+      run.meta.fightTimeMs = info.fightTimeMs > 0 ? info.fightTimeMs : null;
       this.finish(run, info.ts, info.success);
       return;
     }

@@ -115,7 +115,7 @@ export interface RunAnalysis {
    */
   avoidable: AvoidableReport;
   /**
-   * The stats tab's numbers: who stomped the totems, so far.
+   * The awards tab's numbers: who stomped the totems, so far.
    *
    * Flat lists, each record carrying its segment, for the same reason as the
    * control list.
