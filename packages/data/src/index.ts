@@ -61,3 +61,4 @@ export {
 export { dispelCount, enrageCount, isDispel, isEnrage } from './dispels.js';
 export { inertCount, isInertMarker } from './markers.js';
 export { interruptCount, isInterrupt } from './interrupts.js';
+export { procCount, procsPerMinute } from './procs.js';

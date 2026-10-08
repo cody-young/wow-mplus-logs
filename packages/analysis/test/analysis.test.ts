@@ -36,7 +36,24 @@ import {
   whoPulled,
   type PullReport,
 } from '../src/index.js';
-import { ACTORS, DPS, FORCES, HEALER, LINES, LOG_TEXT, PET, TANK, at, aura, creature, died, hit, taken } from './fixture.js';
+import {
+  ACTORS,
+  DPS,
+  FORCES,
+  HEALER,
+  LINES,
+  LOG_TEXT,
+  PET,
+  TANK,
+  at,
+  aura,
+  creature,
+  died,
+  heal,
+  hit,
+  interrupt,
+  taken,
+} from './fixture.js';
 
 function load(options: SegmentOptions = {}): {
   session: LogSession;
@@ -1593,7 +1610,7 @@ test('a key gets no who-pulled report', () => {
 });
 
 /** The fixture key with `extra` lines just before it ends. */
-function statsWith(extra: string[]) {
+function statsWith(extra: string[], withForces = false) {
   const lines = LOG_TEXT.split('\n');
   const end = lines.findIndex((line) => line.includes('CHALLENGE_MODE_END'));
   lines.splice(end, 0, ...extra);
@@ -1601,7 +1618,7 @@ function statsWith(extra: string[]) {
   session.pushText(lines.join('\n'));
   session.end();
   const context = contextFor(session, session.runs[0]!);
-  return statsReport(context, buildSegments(context));
+  return statsReport(context, buildSegments(context, withForces ? { forces: forcesFor(FORCES, 500) } : {}));
 }
 
 function partyKill(seconds: number, src: string, srcName: string, dst: string, dstName: string, srcFlags = '0x511'): string {
@@ -1722,4 +1739,107 @@ test("a player's biggest hit is their single largest, not a support share of som
   assert.equal(dee.amount, 90_000);
   assert.equal(dee.spellName, 'Chaos Bolt');
   assert.equal(dee.targetName, 'Flame Shaman');
+});
+
+/** The tally of the fixture key's player with this GUID. */
+function tallyOf(stats: ReturnType<typeof statsWith>, guid: string) {
+  const name = { [TANK]: 'Tank', [HEALER]: 'Heals', [DPS]: 'Dee' }[guid];
+  return stats.tallies.find((entry) => entry.name === name)!;
+}
+
+/** An enemy's melee swing landing on a player, as the victim's copy logs it. */
+function enemySwing(seconds: number, src: string, srcName: string, dst: string, dstName: string): string {
+  const block = `${dst},0000000000000000,900,1000,0,0,1470,0,0,0,3,100,100,0,100.5,200.5,2291,1.5,70`;
+  return `${at(seconds)}  SWING_DAMAGE_LANDED,${src},"${srcName}",0xa48,0x0,${dst},"${dstName}",0x511,0x0,${block},100,100,-1,1,0,0,0,nil,nil,nil`;
+}
+
+test('the moments the log states outright are each counted for the right player', () => {
+  const caster = creature(1004, 10);
+  const stats = statsWith([
+    cast(100, HEALER, 'Heals', 32182, 'Heroism'),
+    cast(101, HEALER, 'Heals', 21169, 'Reincarnation'),
+    // A save leaves its mark on whoever was saved.
+    aura(102, DPS, 'Dee', DPS, 'Dee', 45181, 'Cheated Death', true, { dstFlags: '0x511', buff: false }),
+    heal(103, HEALER, 'Heals', TANK, 'Tank', 50000, 0, { spellId: 48153, spellName: 'Guardian Spirit' }),
+    interrupt(104, caster, 'Flame Shaman', DPS, 'Dee', 267257, 'Disruption', 51505, 'Lava Burst', {
+      srcFlags: '0xa48',
+      dstFlags: '0x511',
+    }),
+    // The party's own interrupt of an enemy is no lockout.
+    interrupt(105, DPS, 'Dee', caster, 'Flame Shaman', 1766, 'Kick', 900010, 'Fireball'),
+    `${at(106)}  SPELL_MISSED,${caster},"Flame Shaman",0xa48,0x0,${TANK},"Tank",0x511,0x0,900011,"Fireball",0x4,REFLECT,nil,ST`,
+    `${at(107)}  SPELL_MISSED,${caster},"Flame Shaman",0xa48,0x0,${TANK},"Tank",0x511,0x0,900011,"Fireball",0x4,DODGE`,
+  ]);
+  const who = (list: { name: string; spellName: string }[]) => list.map((entry) => [entry.name, entry.spellName]);
+  assert.deepEqual(who(stats.lusts), [['Heals', 'Heroism']]);
+  assert.deepEqual(who(stats.ankhs), [['Heals', 'Reincarnation']]);
+  assert.deepEqual(who(stats.cheats), [['Dee', 'Cheated Death'], ['Tank', 'Guardian Spirit']]);
+  // The fixture's own enemy interrupt of a Vivify is one too; the Kick is not.
+  assert.deepEqual(who(stats.lockouts), [['Heals', 'Vivify'], ['Dee', 'Lava Burst']], 'named by the cast it stopped');
+  assert.deepEqual(who(stats.reflects), [['Tank', 'Fireball']]);
+});
+
+test("an enemy's swing is a threat, unless it has marked who it swings at", () => {
+  const ogre = creature(1002, 30);
+  const before = statsWith([]);
+  const stats = statsWith([
+    enemySwing(100, ogre, 'Ogre', DPS, 'Dee'),
+    enemySwing(101, ogre, 'Ogre', DPS, 'Dee'),
+    aura(102, ogre, 'Ogre', HEALER, 'Heals', 900020, 'Fixate', true, { srcFlags: '0xa48', dstFlags: '0x511' }),
+    enemySwing(103, ogre, 'Ogre', HEALER, 'Heals'),
+    aura(104, ogre, 'Ogre', HEALER, 'Heals', 900020, 'Fixate', false, { srcFlags: '0xa48', dstFlags: '0x511' }),
+    enemySwing(105, ogre, 'Ogre', HEALER, 'Heals'),
+  ]);
+  const added = (guid: string, read: (tally: ReturnType<typeof tallyOf>) => number) =>
+    read(tallyOf(stats, guid)) - read(tallyOf(before, guid));
+  assert.equal(added(DPS, (tally) => tally.swings), 2);
+  assert.equal(added(HEALER, (tally) => tally.swings), 1, 'the swing while fixated is not counted, the one after is');
+  assert.equal(added(HEALER, (tally) => tally.debuffs), 1);
+  assert.equal(added(DPS, (tally) => tally.debuffsApplied), 0, 'a debuff on you is not one you applied');
+});
+
+test('debuffs applied are the party\'s on enemies, with a pet\'s going to its owner', () => {
+  const before = statsWith([]);
+  const shaman = creature(1004, 10);
+  const stats = statsWith([
+    aura(100, DPS, 'Dee', shaman, 'Flame Shaman', 900030, 'Corruption', true),
+    aura(101, PET, 'Imp', shaman, 'Flame Shaman', 900031, 'Felbolt', true, { srcFlags: '0x1111' }),
+    // A buff on an enemy is not a debuff, and a debuff on a friend is not on an enemy.
+    aura(102, DPS, 'Dee', shaman, 'Flame Shaman', 900032, 'Odd Buff', true, { buff: true }),
+    aura(103, DPS, 'Dee', HEALER, 'Heals', 900033, 'Friendly Fire', true, { dstFlags: '0x511' }),
+  ]);
+  assert.equal(tallyOf(stats, DPS).debuffsApplied - tallyOf(before, DPS).debuffsApplied, 2);
+});
+
+test('healing on others is told from healing on yourself, with its overhealing', () => {
+  const before = tallyOf(statsWith([]), HEALER);
+  const healer = tallyOf(
+    statsWith([heal(100, HEALER, 'Heals', TANK, 'Tank', 1000, 400), heal(101, HEALER, 'Heals', HEALER, 'Heals', 5000, 5000)]),
+    HEALER,
+  );
+  assert.equal(healer.healingOnOthers - before.healingOnOthers, 1000);
+  assert.equal(healer.overhealingOnOthers - before.overhealingOnOthers, 400, 'the self-heal\'s overhealing is not counted');
+});
+
+test('a proc counts once however many rows it shows up on, and is expected at its rate', () => {
+  const stats = statsWith([
+    aura(100, DPS, 'Dee', DPS, 'Dee', 1241715, 'Might of the Void', true, { dstFlags: '0x511', buff: true }),
+    hit(100.1, DPS, 'Dee', creature(1004, 10), 'Flame Shaman', 500, { spellId: 1241715, spellName: 'Might of the Void' }),
+    aura(110, DPS, 'Dee', DPS, 'Dee', 1241715, 'Might of the Void', true, { dstFlags: '0x511', buff: true }),
+  ]);
+  const dee = tallyOf(stats, DPS);
+  assert.equal(dee.procs, 2);
+  assert.ok(dee.procsExpected > 0, 'three a minute over the key');
+  assert.equal(tallyOf(stats, TANK).procsExpected, 0, 'nobody is expected a proc they never showed');
+});
+
+test('padding is damage to trash worth nothing, and only when forces are known', () => {
+  // The fixture's Magma Totems are not in its forces table: worth nothing.
+  const totemHit = hit(101, DPS, 'Dee', creature(1005, 11), 'Magma Totem', 400);
+  const known = statsWith([totemHit], true);
+  assert.equal(known.paddingKnown, true);
+  assert.ok(tallyOf(known, DPS).padding >= 400);
+  const unknown = statsWith([totemHit]);
+  assert.equal(unknown.paddingKnown, false);
+  assert.equal(tallyOf(unknown, DPS).padding, 0);
 });

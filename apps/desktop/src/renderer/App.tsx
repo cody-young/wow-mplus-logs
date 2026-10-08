@@ -31,7 +31,7 @@ import {
   shareStats,
 } from './share.js';
 import { shortName, specOf } from './specs.js';
-import type { LogSummary, ParseProgress, RunAnalysis } from '../shared.js';
+import type { LogSummary, ParseProgress, RunAnalysis, StatsReport } from '../shared.js';
 
 type Tab =
   | 'damage'
@@ -251,14 +251,38 @@ export function App(): React.JSX.Element {
   /**
    * And the awards tab's lists, for the same reason.
    */
-  const stats = useMemo(() => {
-    if (run === null) return { totemKills: [], falls: [], biggestHits: [], picks: [] };
+  const stats = useMemo((): StatsReport => {
+    if (run === null) {
+      return {
+        totemKills: [],
+        falls: [],
+        biggestHits: [],
+        picks: [],
+        lusts: [],
+        cheats: [],
+        ankhs: [],
+        lockouts: [],
+        reflects: [],
+        tallies: [],
+        paddingKnown: false,
+      };
+    }
     if (selectedSegment === null) return run.stats;
+    const inPull = <T extends { segmentId: number }>(list: T[]): T[] =>
+      list.filter((entry) => entry.segmentId === selectedSegment);
+    // The tallies are whole-key sums with no pull to filter by; only the
+    // badges read them, and a badge is for the whole run anyway.
     return {
-      totemKills: run.stats.totemKills.filter((kill) => kill.segmentId === selectedSegment),
-      falls: run.stats.falls.filter((entry) => entry.segmentId === selectedSegment),
-      biggestHits: run.stats.biggestHits.filter((entry) => entry.segmentId === selectedSegment),
-      picks: run.stats.picks.filter((entry) => entry.segmentId === selectedSegment),
+      ...run.stats,
+      totemKills: inPull(run.stats.totemKills),
+      falls: inPull(run.stats.falls),
+      biggestHits: inPull(run.stats.biggestHits),
+      picks: inPull(run.stats.picks),
+      lusts: inPull(run.stats.lusts),
+      cheats: inPull(run.stats.cheats),
+      ankhs: inPull(run.stats.ankhs),
+      lockouts: inPull(run.stats.lockouts),
+      reflects: inPull(run.stats.reflects),
     };
   }, [run, selectedSegment]);
 

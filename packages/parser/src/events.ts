@@ -335,6 +335,15 @@ export const enum EvFlag {
    * with no resurrection between. Their real deaths carry a 0.
    */
   FEIGNED = 1 << 10,
+  /**
+   * A *_MISSED whose type was REFLECT: a Spell Reflection sent it back.
+   *
+   * Its own bit because AVOIDED cannot say which avoid it was, and the
+   * reflected half never names the reflector: the spell lands on its caster
+   * as the caster's own damage, so this miss is the only row that says who
+   * held up the mirror.
+   */
+  REFLECTED = 1 << 11,
 }
 
 /**

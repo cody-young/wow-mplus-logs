@@ -3,6 +3,7 @@ import {
   summarizeCrowdControl,
   summarizeDispels,
   summarizeInterrupts,
+  type Tally,
 } from '@mplus/analysis';
 
 import { integer, short, wipeCutoff } from './format.js';
@@ -174,6 +175,38 @@ function count<T>(list: readonly T[], key: (item: T) => number): Map<number, num
   return out;
 }
 
+/**
+ * Melee swings it takes to be a threat. On a night of keys most of the party
+ * took 0 to 10 and the one who pulled aggro took dozens; a stray swing or two
+ * is a mob turning round, not a threat.
+ */
+const THREAT_MIN_SWINGS = 10;
+
+/**
+ * Share of their damage on worthless trash it takes to be a padder. Measured
+ * at 0 to 8% for everyone in most keys and up to 18% in a key full of adds.
+ */
+const PADDER_MIN_SHARE = 0.1;
+
+/**
+ * Overhealing it takes to be paranoid, as a share of healing on others, and
+ * the share of the party's healing on others it takes to count at all. This
+ * season's healers ran 18 to 41%; a disc priest, 52 to 60%.
+ */
+const PARANOID_OVERHEAL = 0.45;
+const PARANOID_SHARE = 0.25;
+
+/**
+ * Procs it takes to be lucky, against what the rates expected. Measured at
+ * 0.66 to 1.25 per player, so 1.15 is a good night, not just the best of five.
+ * Below ten expected procs a ratio is a coin flip or two.
+ */
+const LUCK_MIN_RATIO = 1.15;
+const LUCK_MIN_EXPECTED = 10;
+
+/** How long a death has to take, from the first hit in its window, for a heal to have had a chance. */
+const SLOW_DEATH_MS = 5000;
+
 /** At most this many badges a key, of which at most `MAX_ROASTS` are roasts. */
 const MAX_BADGES = 6;
 const MAX_ROASTS = 2;
@@ -276,6 +309,51 @@ export function awardsFor(run: RunAnalysis): Awards | null {
   }
 
   const dpsField = party.filter((member) => specOf(member.specId).role === 'dps');
+  const nonTanks = party.filter((member) => specOf(member.specId).role !== 'tank');
+  const healers = party.filter((member) => specOf(member.specId).role === 'healer');
+
+  const tally = new Map(run.stats.tallies.map((entry) => [entry.actorIndex, entry]));
+  const fromTally = (read: (entry: Tally) => number): Map<number, number> =>
+    new Map(run.stats.tallies.map((entry) => [entry.actorIndex, read(entry)]));
+  const lusts = count(run.stats.lusts, (entry) => entry.actorIndex);
+  const cheats = count(run.stats.cheats, (entry) => entry.actorIndex);
+  const ankhs = count(run.stats.ankhs, (entry) => entry.actorIndex);
+  const lockouts = count(run.stats.lockouts, (entry) => entry.actorIndex);
+  const reflects = count(run.stats.reflects, (entry) => entry.actorIndex);
+  const swings = fromTally((entry) => entry.swings);
+  const debuffs = fromTally((entry) => entry.debuffs);
+  const debuffsApplied = fromTally((entry) => entry.debuffsApplied);
+  // Padding as a share of the player's damage, so a big pumper is not a
+  // padder for hitting everything harder.
+  const padding = fromTally((entry) => {
+    const total = damage.get(entry.actorIndex) ?? 0;
+    return total > 0 ? entry.padding / total : 0;
+  });
+  // Overhealing only counts for whoever did a real part of the healing on
+  // others: a dps whose one stray heal topped off a full tank is not paranoid.
+  const healingOnOthers = run.stats.tallies.reduce((sum, entry) => sum + entry.healingOnOthers, 0);
+  const overhealing = fromTally((entry) =>
+    entry.healingOnOthers >= PARANOID_SHARE * healingOnOthers && entry.healingOnOthers > 0
+      ? entry.overhealingOnOthers / entry.healingOnOthers
+      : 0,
+  );
+  // Procs against the odds. Only for whoever was expected enough of them
+  // that the ratio is more than a coin flip or two.
+  const luck = fromTally((entry) => (entry.procsExpected >= LUCK_MIN_EXPECTED ? entry.procs / entry.procsExpected : 0));
+  // Deaths that took their time and had no heal from the healer in them. A
+  // one-shot had no time for a heal, so it is not the healer's doing.
+  const healerNames = new Set(healers.map((member) => member.name));
+  const neglected = count(
+    (cutoff === null ? run.deaths : run.deaths.slice(0, cutoff)).filter((death) => {
+      if (healerNames.size === 0 || healerNames.has(death.name)) return false;
+      const from = death.ts - death.windowMs;
+      const first = death.incoming.find((hit) => hit.ts >= from);
+      if (first === undefined || death.ts - first.ts < SLOW_DEATH_MS) return false;
+      return !death.healsReceived.some((heal) => heal.ts >= from && healerNames.has(heal.sourceName));
+    }),
+    (death) => death.actorIndex,
+  );
+  const percent = (fraction: number): string => `${Math.round(fraction * 100)}%`;
 
   const candidates: Badge[] = [];
   /**
@@ -375,7 +453,106 @@ export function awardsFor(run: RunAnalysis): Awards | null {
     );
   }
 
+  badge(
+    { key: 'ankh', title: 'Shaman Defensive', icon: '🪦', roast: true, blurb: 'Used Ankh. A defensive, technically.' },
+    ankhs,
+    'most',
+    (index) => plural(ankhs.get(index) ?? 0, 'Ankh'),
+  );
+  badge(
+    { key: 'cheater', title: 'Cheater', icon: '🃏', roast: true, blurb: 'Cheated death the most. Should have been a death.' },
+    cheats,
+    'most',
+    (index) => plural(cheats.get(index) ?? 0, 'save'),
+    { gap: { title: 'Nine Lives', blurb: 'Cheated death twice as often as anyone else.', times: 2, min: 3 } },
+  );
+  badge(
+    { key: 'lockout', title: "Don't Interrupt Me", icon: '🤐', roast: true, blurb: 'Had the most casts cut off by an enemy.' },
+    lockouts,
+    'most',
+    (index) => `${plural(lockouts.get(index) ?? 0, 'cast')} cut off`,
+  );
+  // Among the rest of the party: taking hits is the tank's job.
+  badge(
+    { key: 'threat', title: "I'm a Threat", icon: '🎯', roast: true, blurb: 'Took the most melee hits of anyone but the tank.' },
+    swings,
+    'most',
+    (index) => plural(swings.get(index) ?? 0, 'swing'),
+    {
+      field: nonTanks,
+      eligible: (index) => (swings.get(index) ?? 0) >= THREAT_MIN_SWINGS,
+      gap: { title: 'Off-Tank', blurb: 'Took twice the melee of anyone else but the tank. Queue as one.', times: 2, min: 30 },
+    },
+  );
+  badge(
+    { key: 'typhoid', title: 'Typhoid Mary', icon: '🦠', roast: true, blurb: 'Wore the most enemy debuffs, tank aside.' },
+    debuffs,
+    'most',
+    (index) => plural(debuffs.get(index) ?? 0, 'debuff'),
+    { field: nonTanks, gap: { title: 'Patient Zero', blurb: 'Wore half again the debuffs of anyone but the tank.', times: 1.5 } },
+  );
+  badge(
+    { key: 'neglected', title: "Healer's Enemy", icon: '🚑', roast: true, blurb: 'Died slowly, and not one heal from the healer on the way down.' },
+    neglected,
+    'most',
+    (index) => plural(neglected.get(index) ?? 0, 'unhealed death'),
+    { field: party.filter((member) => !healerNames.has(member.name)) },
+  );
+  if (run.stats.paddingKnown) {
+    badge(
+      { key: 'padder', title: 'Padder', icon: '📈', roast: true, blurb: 'Spent the most of their damage on trash worth nothing.' },
+      padding,
+      'most',
+      (index) => `${percent(padding.get(index) ?? 0)} of their damage`,
+      {
+        eligible: (index) => (padding.get(index) ?? 0) >= PADDER_MIN_SHARE,
+        gap: { title: 'Meter Merchant', blurb: 'Padded twice as hard as anyone else.', times: 2 },
+      },
+    );
+  }
+  badge(
+    { key: 'paranoid', title: 'Paranoid', icon: '😰', roast: true, blurb: 'Overhealed the most, and by nearly half or more.' },
+    overhealing,
+    'most',
+    (index) => {
+      const mine = tally.get(index);
+      return mine === undefined || mine.healingOnOthers === 0 ? '—' : `${percent(mine.overhealingOnOthers / mine.healingOnOthers)} overhealing`;
+    },
+    { eligible: (index) => (overhealing.get(index) ?? 0) >= PARANOID_OVERHEAL },
+  );
+
   // The glory, building to the MVP.
+  badge(
+    { key: 'lust', title: 'Haste for the Haste Gods', icon: '🥁', roast: false, blurb: 'Pressed the most Bloodlust.' },
+    lusts,
+    'most',
+    (index) => plural(lusts.get(index) ?? 0, 'lust'),
+  );
+  // Typhoid Mary's other half: the one doing the spreading.
+  badge(
+    { key: 'plague', title: 'Plague Bearer', icon: '🐀', roast: false, blurb: 'Put the most debuffs on enemies.' },
+    debuffsApplied,
+    'most',
+    (index) => plural(debuffsApplied.get(index) ?? 0, 'debuff'),
+    { gap: { title: 'Black Death', blurb: 'Spread twice the debuffs of anyone else.', times: 2 } },
+  );
+  badge(
+    { key: 'mirror', title: 'Mirror', icon: '🪞', roast: false, blurb: 'Reflected the most enemy spells back at them.' },
+    reflects,
+    'most',
+    (index) => plural(reflects.get(index) ?? 0, 'reflect'),
+  );
+  badge(
+    { key: 'procs', title: 'Proc Machine', icon: '🎰', roast: false, blurb: 'Procced the most against the odds.' },
+    luck,
+    'most',
+    (index) => {
+      const mine = tally.get(index);
+      if (mine === undefined || mine.procsExpected < LUCK_MIN_EXPECTED) return '—';
+      return `${plural(mine.procs, 'proc')}, ${percent(mine.procs / mine.procsExpected)} of the odds`;
+    },
+    { eligible: (index) => (luck.get(index) ?? 0) >= LUCK_MIN_RATIO },
+  );
   badge(
     { key: 'totems', title: 'Totem Stomper', icon: '🗿', roast: false, blurb: 'Finished off the most enemy totems.' },
     totems,

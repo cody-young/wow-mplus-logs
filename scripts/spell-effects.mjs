@@ -10,6 +10,7 @@
  *   packages/data/src/interrupts.ts     which spells are interrupt buttons
  *   packages/data/src/crowd-control.ts  which auras take a unit out of the fight
  *   packages/data/src/dispels.ts        which spells are dispels, and which auras are enrages
+ *   packages/data/src/procs.ts          how often each proc is meant to fire
  *
  * There is no "this is a defensive" flag in the game's data, and no amount of
  * looking for one will turn one up. What Blizzard does classify is *effects*:
@@ -40,6 +41,10 @@
  * effect again (EFFECT_DISPEL), but whether the aura a dispel removed was an
  * enrage is not an effect of anything: it is the aura's own dispel type, which
  * lives in SpellCategories.db2. See DISPEL_EFFECTS and DISPEL_TYPE_ENRAGE.
+ *
+ * The sixth follows the trigger aura from a proc's passive to the spell the
+ * log shows, and joins the passive's rate from three more small tables. See
+ * PROC_TRIGGER_AURAS.
  *
  *   node scripts/spell-effects.mjs [--build 12.1.0.69933] [--csv SpellEffect.csv]
  *                                  [--categories-csv SpellCategories.csv]
@@ -233,6 +238,30 @@ const DISPEL_TYPE_ENRAGE = 9;
 const EFFECT_APPLY_AURA = 6;
 const AURA_DUMMY = 4;
 
+/**
+ * The auras that fire another spell when something happens: PROC_TRIGGER_SPELL
+ * (42) and PROC_TRIGGER_SPELL_WITH_VALUE (231), as TrinityCore names them.
+ *
+ * A proc is two spells. The passive on the player — a trinket's equip effect,
+ * a weapon enchant — carries the chance, in SpellAuraOptions.db2; the spell
+ * it triggers is the one the log shows, as a buff or a hit. This aura is the
+ * link between them, and its EffectTriggerSpell names the second.
+ */
+const PROC_TRIGGER_AURAS = new Set([42, 231]);
+
+/**
+ * The real-procs-per-minute modifiers this table honours, from
+ * SpellProcsPerMinuteMod.db2's Type column, as SimulationCraft names them.
+ *
+ * Class and spec only. The others scale with a player's haste, crit, race or
+ * item level, which the log does not reliably carry, and leaving them out
+ * moves every player's expected count the same way rather than reordering
+ * anyone. Read off the data: Might of the Void, Frenzied Focus and Halazzi's
+ * Rite carry no modifier at all, while 573 of the 841 rows are spec rows.
+ */
+const RPPM_MOD_CLASS = 3;
+const RPPM_MOD_SPEC = 4;
+
 const args = process.argv.slice(2);
 const flag = (name, fallback) => {
   const at = args.indexOf(`--${name}`);
@@ -246,6 +275,7 @@ const outMarkers = fileURLToPath(new URL('../packages/data/src/markers.ts', impo
 const outInterrupts = fileURLToPath(new URL('../packages/data/src/interrupts.ts', import.meta.url));
 const outControl = fileURLToPath(new URL('../packages/data/src/crowd-control.ts', import.meta.url));
 const outDispels = fileURLToPath(new URL('../packages/data/src/dispels.ts', import.meta.url));
+const outProcs = fileURLToPath(new URL('../packages/data/src/procs.ts', import.meta.url));
 
 const build = flag('build') ?? (await liveBuild());
 const csvPath = flag('csv');
@@ -255,6 +285,9 @@ const categoriesCsv =
   categoriesPath === undefined
     ? await download('SpellCategories', build)
     : readFileSync(categoriesPath, 'utf8');
+const auraOptionsCsv = await download('SpellAuraOptions', build);
+const rppmCsv = await download('SpellProcsPerMinute', build);
+const rppmModCsv = await download('SpellProcsPerMinuteMod', build);
 
 const header = csv.slice(0, csv.indexOf('\n')).split(',');
 const columns = {
@@ -297,6 +330,8 @@ const alsoDoesSomethingElse = new Set();
 // Dispels need no subtraction: a spell that dispels is a dispel whatever else
 // it does, and Revival healing the party while it cleanses is still a cleanse.
 const dispels = new Set();
+// Passive -> the spells its proc auras trigger.
+const triggers = new Map();
 let rows = 0;
 for (const line of csv.split('\n')) {
   if (line === '' || rows++ === 0) continue;
@@ -309,6 +344,12 @@ for (const line of csv.split('\n')) {
 
   const control = controlWanted.get(fields[auraAt]);
   if (control !== undefined) controlFlags.set(id, (controlFlags.get(id) ?? 0) | control);
+
+  const triggered = Number(fields[triggerAt]);
+  if (PROC_TRIGGER_AURAS.has(Number(fields[auraAt])) && triggered > 0) {
+    if (!triggers.has(id)) triggers.set(id, new Set());
+    triggers.get(id).add(triggered);
+  }
 
   const effect = Number(fields[effectAt]);
   if (effect === 0) continue;
@@ -372,12 +413,54 @@ for (const { kind, flag: bit } of dedupe(CONTROLS)) {
   console.log(`  ${kind.padEnd(10)} ${controlIds.filter((id) => (controlFlags.get(id) & bit) !== 0).length}`);
 }
 
+// Procs. Three small tables joined to the trigger links gathered above:
+// SpellAuraOptions names the passive's rate, SpellProcsPerMinute is the rate,
+// SpellProcsPerMinuteMod adjusts it per class and spec.
+const rppmBase = new Map();
+for (const fields of csvRows(rppmCsv, ['ID', 'BaseProcRate'])) {
+  const rate = Number(fields.BaseProcRate);
+  if (rate > 0) rppmBase.set(Number(fields.ID), Number(rate.toFixed(4)));
+}
+const rppmMods = new Map();
+for (const fields of csvRows(rppmModCsv, ['Type', 'Param', 'Coeff', 'SpellProcsPerMinuteID'])) {
+  const type = Number(fields.Type);
+  if (type !== RPPM_MOD_CLASS && type !== RPPM_MOD_SPEC) continue;
+  const id = Number(fields.SpellProcsPerMinuteID);
+  if (!rppmMods.has(id)) rppmMods.set(id, []);
+  rppmMods.get(id).push(`${type === RPPM_MOD_CLASS ? 'c' : 's'}${fields.Param}:${Number(Number(fields.Coeff).toFixed(4))}`);
+}
+const passiveRate = new Map();
+for (const fields of csvRows(auraOptionsCsv, ['SpellID', 'SpellProcsPerMinuteID'])) {
+  const rppm = Number(fields.SpellProcsPerMinuteID);
+  if (rppmBase.has(rppm)) passiveRate.set(Number(fields.SpellID), rppm);
+}
+// A spell some other passive also fires, at no rate, has no expectation:
+// Tempest procs at 1.1 a minute from Stormbringer and on every Ascendance,
+// and counted against the first alone it read as three times lucky.
+const unrated = new Set();
+for (const [passive, fired] of triggers) {
+  if (!passiveRate.has(passive)) for (const triggered of fired) unrated.add(triggered);
+}
+// A triggered spell reached from two rated passives keeps the lower passive
+// id's rate, so a rebuild against the same data writes the same file.
+const procRate = new Map();
+for (const passive of [...passiveRate.keys()].sort((a, b) => a - b)) {
+  for (const triggered of triggers.get(passive) ?? []) {
+    if (procRate.has(triggered) || unrated.has(triggered)) continue;
+    const rppm = passiveRate.get(passive);
+    const mods = (rppmMods.get(rppm) ?? []).sort().join(',');
+    procRate.set(triggered, `${rppmBase.get(rppm)}|${mods}`);
+  }
+}
+console.log(`${passiveRate.size} passives with a real-procs-per-minute rate → ${procRate.size} proc spells`);
+
 const written = [
   [outDefensives, renderDefensives(ids, flags, build)],
   [outMarkers, renderMarkers(inert, build)],
   [outInterrupts, renderInterrupts(stoppers, interrupts.size, dedicated.length, build)],
   [outControl, renderControl(controlIds, controlFlags, build)],
   [outDispels, renderDispels(dispelIds, enrageIds, build)],
+  [outProcs, renderProcs(procRate, build)],
 ];
 if (checkOnly) {
   const stale = written.filter(([path, source]) => {
@@ -395,6 +478,24 @@ if (checkOnly) {
 for (const [path, source] of written) {
   writeFileSync(path, source);
   console.log(`wrote ${path} (${(source.length / 1024).toFixed(1)}KB) for build ${build}`);
+}
+
+/**
+ * A small table's rows as objects, by column name.
+ *
+ * Only for the tables whose every column is a number, like the split above:
+ * none of the three it reads carries a name or a description.
+ */
+function* csvRows(text, needed) {
+  const lines = text.split('\n');
+  const header = lines[0].split(',');
+  const missing = needed.filter((name) => !header.includes(name));
+  if (missing.length > 0) throw new Error(`no ${missing.join('/')} column in: ${header.join(', ')}`);
+  for (const line of lines.slice(1)) {
+    if (line === '') continue;
+    const fields = line.split(',');
+    yield Object.fromEntries(header.map((name, at) => [name, fields[at]]));
+  }
 }
 
 function dedupe(entries) {
@@ -937,6 +1038,123 @@ export function dispelCount(): number {
 export function enrageCount(): number {
   enrages ??= decode(ENRAGES);
   return enrages.size;
+}
+`;
+}
+
+/**
+ * The proc table as a module.
+ *
+ * One row per distinct rate: the base procs per minute, its class and spec
+ * multipliers, and the delta-coded spells that proc at it. Most procs share a
+ * handful of rates, so grouping by rate keeps the file to its ids.
+ */
+function renderProcs(procRate, version) {
+  const groups = new Map();
+  for (const [id, signature] of procRate) {
+    if (!groups.has(signature)) groups.set(signature, []);
+    groups.get(signature).push(id);
+  }
+  const rows = [...groups]
+    .map(([signature, ids]) => {
+      const [base, mods] = signature.split('|');
+      ids.sort((a, b) => a - b);
+      let previous = 0;
+      const deltas = ids.map((id) => {
+        const delta = id - previous;
+        previous = id;
+        return delta.toString(36);
+      });
+      return { base: Number(base), mods, first: ids[0], text: deltas.join('.') };
+    })
+    .sort((a, b) => a.base - b.base || a.mods.localeCompare(b.mods) || a.first - b.first);
+  return `/**
+ * How often each proc is meant to happen, from Blizzard's own data.
+ *
+ * GENERATED — do not edit. Rebuild with \`node scripts/spell-effects.mjs\`.
+ * Built from SpellEffect.db2, SpellAuraOptions.db2, SpellProcsPerMinute.db2
+ * and SpellProcsPerMinuteMod.db2, retail build ${version}, via wago.tools.
+ *
+ * A proc is two spells: the passive a player carries — a trinket, an enchant,
+ * an embellishment — and the spell it fires, which is what the log shows. The
+ * passive's real-procs-per-minute rate is in the data, and its
+ * PROC_TRIGGER_SPELL aura names the spell it fires. This table is that join,
+ * keyed on the spell the log will show.
+ *
+ * A spell that some other passive also fires at no rate is left out: what it
+ * was meant to do cannot be said. Only class and spec multipliers are applied. The rest scale with haste,
+ * crit, race or item level, which the log does not reliably give; leaving
+ * them out moves everyone's expected count the same way, so a comparison
+ * between players still reads true. Procs on a flat chance per hit are not
+ * here at all: they have no rate to expect.
+ *
+ * ${procRate.size} spells at ${rows.length} rates. Only ids and numbers are stored: no names, no
+ * descriptions, no art.
+ */
+
+/**
+ * Base procs per minute, class and spec adjustments ("c<classMask>:x", "s<specId>:x"),
+ * spells. An adjustment is added to 1 and multiplied in, the way the game reads
+ * it: a tank spec's -0.75 is a quarter of the rate.
+ */
+const RATES: readonly (readonly [number, string, string])[] = [
+${rows.map(({ base, mods, text }) => `  [${base}, '${mods}', '${chunk(text)}'],`).join('\n')}
+];
+
+interface Rate {
+  base: number;
+  /** Class mask -> what it adds to the rate, as a fraction: -0.75 is a quarter of it. */
+  classes: ReadonlyArray<readonly [number, number]>;
+  /** Spec id -> the same. */
+  specs: ReadonlyMap<number, number>;
+}
+
+/**
+ * Built on the first lookup rather than at import: most of the app never asks,
+ * and the decode is wasted work in a worker thread that only parses.
+ */
+let table: Map<number, Rate> | null = null;
+
+function decode(): Map<number, Rate> {
+  const built = new Map<number, Rate>();
+  for (const [base, mods, text] of RATES) {
+    const classes: Array<readonly [number, number]> = [];
+    const specs = new Map<number, number>();
+    for (const mod of mods === '' ? [] : mods.split(',')) {
+      const [key, coeff] = mod.split(':') as [string, string];
+      if (key[0] === 'c') classes.push([Number(key.slice(1)), Number(coeff)]);
+      else specs.set(Number(key.slice(1)), Number(coeff));
+    }
+    const rate = { base, classes, specs };
+    let id = 0;
+    for (const delta of text.split('.')) {
+      id += parseInt(delta, 36);
+      built.set(id, rate);
+    }
+  }
+  return built;
+}
+
+/**
+ * How many times a minute this spell is meant to proc for a player of this
+ * class and spec, or 0 when it is not a proc with a rate.
+ *
+ * 0 for every id the table has never heard of, so a proc newer than this file
+ * is simply not counted, rather than counted against an expectation of nothing.
+ */
+export function procsPerMinute(spellId: number, classId: number, specId: number): number {
+  table ??= decode();
+  const rate = table.get(spellId);
+  if (rate === undefined) return 0;
+  let perMinute = rate.base;
+  for (const [mask, coeff] of rate.classes) if (classId > 0 && mask & (1 << (classId - 1))) perMinute *= 1 + coeff;
+  return perMinute * (1 + (rate.specs.get(specId) ?? 0));
+}
+
+/** How many spells the table knows. Exported for the test, which asserts it is not empty. */
+export function procCount(): number {
+  table ??= decode();
+  return table.size;
 }
 `;
 }

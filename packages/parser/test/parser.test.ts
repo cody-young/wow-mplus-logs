@@ -432,6 +432,14 @@ test('a miss is only flagged as avoided when nothing landed', () => {
 
   // A missType-only suffix has no amountMissed to read past the end of.
   assert.equal(run.store.amount[dodge], 0);
+  assert.equal(run.store.flags[dodge]! & EvFlag.REFLECTED, 0, 'a dodge is not a reflect');
+});
+
+test('a reflected spell is an avoid that says it was a reflect', () => {
+  const run = onlyRun(parseAll(LOG_TEXT.replace(',0x4,DODGE', ',0x4,REFLECT')));
+  const [, reflected] = rows(run, Ev.SPELL_MISSED) as [number, number];
+  assert.ok(run.store.flags[reflected]! & EvFlag.AVOIDED);
+  assert.ok(run.store.flags[reflected]! & EvFlag.REFLECTED);
 });
 
 test('the advanced block is attributed to the unit its infoGUID names', () => {

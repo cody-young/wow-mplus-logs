@@ -135,4 +135,13 @@ export {
   type PullRedirect,
   type PullReport,
 } from './pull.js';
-export { statsReport, type BigHit, type Fall, type Pick, type StatsReport, type TotemKill } from './stats.js';
+export {
+  statsReport,
+  type BigHit,
+  type Fall,
+  type Moment,
+  type Pick,
+  type StatsReport,
+  type Tally,
+  type TotemKill,
+} from './stats.js';

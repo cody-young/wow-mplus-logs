@@ -652,8 +652,10 @@ export class CombatLogParser {
       case Ev.DAMAGE_SHIELD_MISSED: {
         flags |= EvFlag.MISSED;
         // missType, isOffHand, amountMissed, critical
-        if (suffixStart < count && isAvoidMissType(fieldStr(line, offsets, suffixStart))) {
-          flags |= EvFlag.AVOIDED;
+        if (suffixStart < count) {
+          const missType = fieldStr(line, offsets, suffixStart);
+          if (isAvoidMissType(missType)) flags |= EvFlag.AVOIDED;
+          if (missType === 'REFLECT') flags |= EvFlag.REFLECTED;
         }
         if (suffixStart + 2 < count) {
           store.amount[row] = fieldFloat(line, offsets, suffixStart + 2);
