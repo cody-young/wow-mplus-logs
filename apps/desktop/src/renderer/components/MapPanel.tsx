@@ -100,6 +100,8 @@ const DEFAULT_SPEED = 8;
 const TRAIL_MS = 15_000;
 /** An enemy not seen dead is dropped this long after its last sample: it reset, or walked off. */
 const ENEMY_LINGER_MS = 5_000;
+/** A player's last sample older than this does not say which floor they are on now. */
+const FLOOR_FRESH_MS = 5_000;
 /** Room around the drawn extent, as a fraction of its larger side. */
 const PAD = 0.05;
 /** How far a pull's outline stands off its mobs' icons, in px. */
@@ -1355,13 +1357,21 @@ function pullShapes(segments: Segment[], enemies: PositionTrack[]): PullShape[] 
   return shapes;
 }
 
-/** The floor most of the living party is on at t, or null before anyone is seen. */
+/**
+ * The floor most of the living party is on at t, or null before anyone is seen.
+ * Only players seen lately vote while anyone has been: a player can go quiet
+ * for seconds, and their last sample is then a floor the rest have walked off.
+ */
 function partyFloorAt(party: PositionTrack[], t: number): number | null {
-  const votes = new Map<number, number>();
+  const fresh = new Map<number, number>();
+  const stale = new Map<number, number>();
   for (const track of party) {
     const at = positionAt(track, t);
-    if (at !== null) votes.set(at.uiMapId, (votes.get(at.uiMapId) ?? 0) + 1);
+    if (at === null) continue;
+    const votes = t - lastSampleTs(track, t) <= FLOOR_FRESH_MS ? fresh : stale;
+    votes.set(at.uiMapId, (votes.get(at.uiMapId) ?? 0) + 1);
   }
+  const votes = fresh.size > 0 ? fresh : stale;
   let best: number | null = null;
   let most = 0;
   for (const [uiMapId, count] of votes) {
@@ -1371,6 +1381,18 @@ function partyFloorAt(party: PositionTrack[], t: number): number | null {
     }
   }
   return best;
+}
+
+/** The time of a track's last sample at or before t; the caller has seen one exists. */
+function lastSampleTs(track: PositionTrack, t: number): number {
+  let lo = 0;
+  let hi = track.ts.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >>> 1;
+    if (track.ts[mid]! <= t) lo = mid;
+    else hi = mid - 1;
+  }
+  return track.ts[lo]!;
 }
 
 // ------------------------------------------------------------------ geometry
