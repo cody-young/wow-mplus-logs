@@ -103,6 +103,13 @@ interface RunMetaBase {
    */
   elapsedMs: number | null;
   /**
+   * The log's UTC offset at the START, in minutes; 0 for a legacy log that
+   * writes none. `startMs` is the local wall clock, so the instant the run
+   * began is `startMs - utcOffsetMinutes * 60_000` — which is what anything
+   * outside the log, Warcraft Logs included, times it by.
+   */
+  utcOffsetMinutes: number;
+  /**
    * Boss windows inside the run, in order; a raid pull has exactly one,
    * starting at 0. Both ends are needed, not just kills: segmentation uses the
    * window to decide whether a newly engaged enemy is a boss add or trash that
@@ -376,6 +383,7 @@ export class LogSession {
       keystoneLevel: info.keystoneLevel,
       affixes: info.affixes,
       startMs: info.ts,
+      utcOffsetMinutes: this.parser.tzOffsetMinutes,
       endMs: null,
       success: null,
       totalTimeMs: null,
@@ -415,6 +423,7 @@ export class LogSession {
       groupSize: info.groupSize,
       pull,
       startMs: info.ts,
+      utcOffsetMinutes: this.parser.tzOffsetMinutes,
       endMs: null,
       success: null,
       elapsedMs: null,

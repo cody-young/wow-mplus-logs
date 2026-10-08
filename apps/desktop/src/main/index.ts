@@ -18,8 +18,18 @@ import {
   setAutomatic,
   updateState,
 } from './updater.js';
+import { parsesForRun, signIn as wclSignIn, signOut as wclSignOut, status as wclStatus } from './wcl.js';
 
 const isDev = !app.isPackaged;
+
+// Chromium picks a keyring from the desktop's name, and one it does not know —
+// Hyprland, Sway, i3 — gets plain text, which safeStorage reports as no
+// encryption at all, so the Warcraft Logs token was never written. Every
+// keyring worth having speaks the Secret Service API that libsecret talks to.
+// Must be set before ready; an explicit --password-store still wins.
+if (process.platform === 'linux' && !app.commandLine.hasSwitch('password-store')) {
+  app.commandLine.appendSwitch('password-store', 'gnome-libsecret');
+}
 
 let window: BrowserWindow | null = null;
 let worker: Worker | null = null;
@@ -166,6 +176,11 @@ ipcMain.handle('mplus:copyText', (_event, text: unknown) => {
 ipcMain.handle('mplus:mdtTiles', (_event, textureDir: unknown, sublevel: unknown) =>
   mdtDirectory === null ? null : mdtTiles(mdtDirectory, textureDir, sublevel),
 );
+
+ipcMain.handle('mplus:wclStatus', () => wclStatus());
+ipcMain.handle('mplus:wclSignIn', () => wclSignIn());
+ipcMain.handle('mplus:wclSignOut', () => wclSignOut());
+ipcMain.handle('mplus:wclParses', (_event, run: unknown, fresh: unknown) => parsesForRun(run, fresh === true));
 
 ipcMain.handle('mplus:open', async (_event, path: string, tail: boolean) => {
   // Awaited rather than loaded in parallel with the parse: the analysis needs

@@ -2,11 +2,13 @@ import { Fragment, useState } from 'react';
 
 import type { ActorBreakdown, BreakdownReport, SpellBreakdown } from '@mplus/analysis';
 
+import type { WclParse } from '../../shared.js';
 import { integer, percent, short } from '../format.js';
 import { useSpellIcons } from '../icons.js';
 import { shortName, specOf } from '../specs.js';
 import { SpecIcon } from './SpecIcon.js';
 import { Tip, useTip } from './Tip.js';
+import { parseColor } from '../wcl.js';
 
 interface Props {
   report: BreakdownReport;
@@ -17,6 +19,12 @@ interface Props {
    * a string render cannot click, and the ability rows are most of this view.
    */
   defaultExpanded?: boolean;
+  /**
+   * Warcraft Logs parses by actor index, drawn beside the rate. Only for the
+   * whole key: a parse ranks the run, and beside one pull's numbers it would
+   * read as that pull's.
+   */
+  parses?: Record<number, WclParse>;
 }
 
 /** The ability a row describes, and the player whose share it is a share of. */
@@ -160,7 +168,7 @@ function spellColumns(mode: Props['mode'], durationMs: number): SpellColumn[] {
  */
 const rowKey = (actorIndex: number, spellId: number): string => `${actorIndex}:${spellId}`;
 
-export function BreakdownTable({ report, mode, defaultExpanded = false }: Props): React.JSX.Element {
+export function BreakdownTable({ report, mode, defaultExpanded = false, parses }: Props): React.JSX.Element {
   const [expanded, setExpanded] = useState<Set<number>>(
     () => new Set(defaultExpanded ? report.actors.map((actor) => actor.actorIndex) : []),
   );
@@ -224,7 +232,7 @@ export function BreakdownTable({ report, mode, defaultExpanded = false }: Props)
       <table className="breakdown players">
         <colgroup>
           <col />
-          <col style={{ width: 84 }} />
+          <col style={{ width: parses === undefined ? 84 : 120 }} />
           <col style={{ width: 84 }} />
           <col style={{ width: 68 }} />
           <col style={{ width: 92 }} />
@@ -266,7 +274,10 @@ export function BreakdownTable({ report, mode, defaultExpanded = false }: Props)
                       <span className="spec">{spec.name}</span>
                     </span>
                   </td>
-                  <td>{short(actor.perSecond)}</td>
+                  <td>
+                    <ParseBadge parse={parses?.[actor.actorIndex]} />
+                    {short(actor.perSecond)}
+                  </td>
                   <td>{short(actor.total)}</td>
                   <td>{percent(actor.share)}</td>
                   <td style={{ color: 'var(--muted)' }}>{short(actor.wasted)}</td>
@@ -477,5 +488,29 @@ function SpellDetail({ hover, mode }: { hover: SpellHover; mode: Props['mode'] }
         ) : null}
       </dl>
     </>
+  );
+}
+
+/**
+ * A player's Warcraft Logs percentile, in the site's colours. The number is
+ * the bracket percentile — same spec, same keystone level — because that is
+ * the one a report page shows for a key; the overall one is in the hover with
+ * the site's own rate, which divides by a slightly different clock and so
+ * need not match the number beside it.
+ */
+function ParseBadge({ parse }: { parse: WclParse | undefined }): React.JSX.Element | null {
+  if (parse === undefined) return null;
+  const shown = parse.bracketPercent ?? parse.rankPercent;
+  const detail = [
+    parse.bracketPercent === null ? null : `${Math.floor(parse.bracketPercent)} at this key level`,
+    `${Math.floor(parse.rankPercent)} overall`,
+    parse.amount === null ? null : `Warcraft Logs reads ${short(parse.amount)}/s`,
+  ]
+    .filter((part) => part !== null)
+    .join(' · ');
+  return (
+    <span className="parse" style={{ color: parseColor(shown) }} title={detail}>
+      {Math.floor(shown)}
+    </span>
   );
 }

@@ -12,6 +12,8 @@ import type {
   ParseProgress,
   RunAnalysis,
   UpdateState,
+  WclRunResult,
+  WclStatus,
   WorkerEvent,
 } from '../shared.js';
 
@@ -80,6 +82,10 @@ const api: DesktopApi = {
   copyText: (text) => ipcRenderer.invoke('mplus:copyText', text) as Promise<void>,
   mdtTiles: (textureDir, sublevel) =>
     ipcRenderer.invoke('mplus:mdtTiles', textureDir, sublevel) as Promise<Array<string | null> | null>,
+  wclStatus: () => ipcRenderer.invoke('mplus:wclStatus') as Promise<WclStatus>,
+  wclSignIn: () => ipcRenderer.invoke('mplus:wclSignIn') as Promise<WclStatus>,
+  wclSignOut: () => ipcRenderer.invoke('mplus:wclSignOut') as Promise<WclStatus>,
+  wclParses: (run, fresh) => ipcRenderer.invoke('mplus:wclParses', run, fresh) as Promise<WclRunResult>,
 };
 
 contextBridge.exposeInMainWorld('mplus', api);

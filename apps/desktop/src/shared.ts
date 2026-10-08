@@ -208,6 +208,51 @@ export interface UpdateState {
   status: UpdateStatus;
 }
 
+/** Whether Warcraft Logs parses can be shown, and as whom. */
+export interface WclStatus {
+  /** False in a build with no client id, or with MPLUS_OFFLINE set. */
+  available: boolean;
+  signedIn: boolean;
+  userName: string | null;
+}
+
+/** One ranking, as Warcraft Logs reports it. Percentiles are 0..100. */
+export interface WclParse {
+  /** Against everyone of the spec on this dungeon, at any keystone level. */
+  rankPercent: number;
+  /** Against the same spec at the same keystone level: what a report page shows. */
+  bracketPercent: number | null;
+  /** Warcraft Logs' own dps or hps, which can differ slightly from ours. */
+  amount: number | null;
+}
+
+export interface WclPlayerParses {
+  dps?: WclParse;
+  hps?: WclParse;
+}
+
+/** What the main process needs to find a finished key on Warcraft Logs. */
+export interface WclRunQuery {
+  runId: string;
+  keystoneLevel: number;
+  startMs: number;
+  endMs: number;
+  utcOffsetMinutes: number;
+  /** The party, with names as the log writes them: "Name-Realm-Region". */
+  party: Array<{ actorIndex: number; name: string }>;
+}
+
+export type WclRunResult =
+  | { status: 'unavailable' }
+  | { status: 'signed-out' }
+  | { status: 'error' }
+  /** No public report of this key, yet. */
+  | { status: 'not-found' }
+  /** The report is there but has no rankings: still processing, or not rankable. */
+  | { status: 'unranked'; url: string }
+  /** Keyed by actor index. */
+  | { status: 'found'; url: string; players: Record<number, WclPlayerParses> };
+
 /** What the preload bridge exposes on window.mplus. */
 export interface DesktopApi {
   /** Opens a file picker and begins parsing. Resolves to the chosen path. */
@@ -268,4 +313,13 @@ export interface DesktopApi {
    * sublevel's, relative to MDT's folder.
    */
   mdtTiles(textureDir: string, sublevel: number): Promise<Array<string | null> | null>;
+  wclStatus(): Promise<WclStatus>;
+  /** Opens Warcraft Logs' consent page; resolves once the reader answers it. */
+  wclSignIn(): Promise<WclStatus>;
+  wclSignOut(): Promise<WclStatus>;
+  /**
+   * Never rejects: every failure is a status. A remembered miss is answered
+   * from memory for a few minutes unless `fresh` asks Warcraft Logs again.
+   */
+  wclParses(run: WclRunQuery, fresh: boolean): Promise<WclRunResult>;
 }

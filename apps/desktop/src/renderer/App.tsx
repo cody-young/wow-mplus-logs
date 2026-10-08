@@ -4,6 +4,8 @@ import { SegmentKind } from '@mplus/analysis';
 
 import { AvoidablePanel } from './components/AvoidablePanel.js';
 import { BreakdownTable } from './components/BreakdownTable.js';
+import { WclBar } from './components/WclBar.js';
+import { useWcl } from './wcl.js';
 import { ControlPanel } from './components/ControlPanel.js';
 import { DispelsPanel } from './components/DispelsPanel.js';
 import { DeathsPanel } from './components/DeathsPanel.js';
@@ -149,6 +151,19 @@ export function App(): React.JSX.Element {
     () => (run === null || selectedSegment === null ? null : run.segments.find((entry) => entry.id === selectedSegment) ?? null),
     [run, selectedSegment],
   );
+
+  const wcl = useWcl(run);
+  const parses = useMemo(() => {
+    const result = wcl.result;
+    if (result?.status !== 'found' || selectedSegment !== null) return undefined;
+    const metric = shown === 'damage' ? 'dps' : shown === 'healing' ? 'hps' : null;
+    if (metric === null) return undefined;
+    return Object.fromEntries(
+      Object.entries(result.players).flatMap(([actor, parsed]) =>
+        parsed[metric] === undefined ? [] : [[Number(actor), parsed[metric]]],
+      ),
+    );
+  }, [wcl.result, selectedSegment, shown]);
 
   const reports = useMemo(() => {
     if (run === null) return null;
@@ -507,10 +522,14 @@ export function App(): React.JSX.Element {
                   avoidable={avoidable}
                 />
               ) : reports !== null ? (
-                <BreakdownTable
-                  report={shown === 'damage' ? reports.damage : shown === 'taken' ? reports.taken : reports.healing}
-                  mode={shown === 'damage' ? 'done' : shown === 'taken' ? 'taken' : 'healing'}
-                />
+                <>
+                  <BreakdownTable
+                    report={shown === 'damage' ? reports.damage : shown === 'taken' ? reports.taken : reports.healing}
+                    mode={shown === 'damage' ? 'done' : shown === 'taken' ? 'taken' : 'healing'}
+                    {...(parses === undefined ? {} : { parses })}
+                  />
+                  {shown !== 'taken' && !raid ? <WclBar wcl={wcl} wholeRun={selectedSegment === null} /> : null}
+                </>
               ) : null}
             </div>
           </>

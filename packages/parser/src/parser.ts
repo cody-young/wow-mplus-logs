@@ -220,6 +220,15 @@ export class CombatLogParser {
   readonly interner: StringInterner;
   readonly actors: ActorTable;
 
+  /**
+   * The UTC offset of the line just read, in minutes, as the log wrote it; 0
+   * for a legacy line that carries none. Every `ms` this parser hands out is
+   * local wall clock, so this is what turns one into a real instant.
+   */
+  get tzOffsetMinutes(): number {
+    return this.ts.tzOffsetMinutes;
+  }
+
   /** Where decoded events land. Null discards them but still runs hooks. */
   get target(): EventStore | null {
     return this.targetStore;
