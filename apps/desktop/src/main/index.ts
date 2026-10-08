@@ -1,14 +1,14 @@
 import { dirname, join } from 'node:path';
 import { Worker } from 'node:worker_threads';
 
-import { BrowserWindow, app, clipboard, dialog, ipcMain, shell } from 'electron';
+import { BrowserWindow, app, clipboard, dialog, ipcMain, screen, shell } from 'electron';
 
 import type { UpdateState, WorkerEvent, WorkerRequest } from '../shared.js';
 import { resolveDescriptions, resolveIcons, resolveNamed } from './icons.js';
 import { findLatestLog, listLogs } from './logs.js';
 import { loadForces } from './forces.js';
 import { mdtTiles } from './mdt-tiles.js';
-import { load as loadSettings, save as saveSettings } from './settings.js';
+import { load as loadSettings, save as saveSettings, type WindowPlacement } from './settings.js';
 import {
   check as checkForUpdate,
   download as downloadUpdate,
@@ -53,10 +53,59 @@ function send(request: WorkerRequest): void {
   startWorker().postMessage(request);
 }
 
-function createWindow(): void {
+/**
+ * Whether a remembered placement still lands somewhere reachable. A monitor
+ * unplugged or rearranged since leaves it off every screen, and a window there
+ * opens invisible. The test is the title bar, since that is what has to be on
+ * screen for the reader to grab it and drag the rest back.
+ */
+function onScreen(placement: WindowPlacement): boolean {
+  const titleBar = { x: placement.x, y: placement.y, width: placement.width, height: 32 };
+  return screen.getAllDisplays().some(({ workArea }) => {
+    const across =
+      Math.min(titleBar.x + titleBar.width, workArea.x + workArea.width) - Math.max(titleBar.x, workArea.x);
+    const down =
+      Math.min(titleBar.y + titleBar.height, workArea.y + workArea.height) - Math.max(titleBar.y, workArea.y);
+    return across >= 100 && down > 0;
+  });
+}
+
+/**
+ * Keeps the window's placement in settings as it changes, so the next launch —
+ * including the one an update restarts into — opens where this one was.
+ *
+ * Written as it moves rather than only on close: quitting to install an update
+ * exits without waiting on the async write a close handler would start, and
+ * then the placement from before the last move is what survives.
+ */
+function rememberPlacement(created: BrowserWindow): void {
+  let timer: NodeJS.Timeout | undefined;
+  const save = (): void => {
+    clearTimeout(timer);
+    if (created.isDestroyed() || created.isMinimized() || created.isFullScreen()) return;
+    // The normal bounds, not the current ones: a maximized window's own bounds
+    // are the screen's, and restoring them would leave nothing to unmaximize to.
+    const bounds = created.getNormalBounds();
+    void saveSettings({ window: { ...bounds, maximized: created.isMaximized() } });
+  };
+  const later = (): void => {
+    clearTimeout(timer);
+    timer = setTimeout(save, 500);
+  };
+  created.on('move', later);
+  created.on('resize', later);
+  created.on('maximize', save);
+  created.on('unmaximize', save);
+  created.on('close', save);
+}
+
+async function createWindow(): Promise<void> {
+  const remembered = (await loadSettings()).window;
+  const placement = remembered !== null && onScreen(remembered) ? remembered : null;
   window = new BrowserWindow({
-    width: 1440,
-    height: 940,
+    ...(placement !== null
+      ? { x: placement.x, y: placement.y, width: placement.width, height: placement.height }
+      : { width: 1440, height: 940 }),
     minWidth: 900,
     show: false,
     backgroundColor: '#12121a',
@@ -84,6 +133,8 @@ function createWindow(): void {
     });
   }
 
+  if (placement?.maximized === true) window.maximize();
+  rememberPlacement(window);
   window.on('ready-to-show', () => window?.show());
   window.webContents.setWindowOpenHandler(({ url }) => {
     void shell.openExternal(url);
@@ -193,9 +244,9 @@ ipcMain.handle('mplus:open', async (_event, path: string, tail: boolean) => {
 });
 
 void app.whenReady().then(async () => {
-  createWindow();
+  await createWindow();
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    if (BrowserWindow.getAllWindows().length === 0) void createWindow();
   });
   // After the window, so the first state it pushes has somewhere to land. The
   // renderer also asks for the state once on mount, which covers the gap for a

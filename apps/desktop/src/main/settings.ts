@@ -20,9 +20,31 @@ export interface Settings {
    * could not find one. Null until they are asked.
    */
   logDirectory: string | null;
+  /**
+   * Where the window was when last moved or resized: its normal (unmaximized)
+   * bounds plus whether it was maximized over them. Null until it first moves.
+   */
+  window: WindowPlacement | null;
 }
 
-const DEFAULTS: Settings = { automaticUpdates: true, logDirectory: null };
+export interface WindowPlacement {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  maximized: boolean;
+}
+
+const DEFAULTS: Settings = { automaticUpdates: true, logDirectory: null, window: null };
+
+function isPlacement(value: unknown): value is WindowPlacement {
+  if (typeof value !== 'object' || value === null) return false;
+  const record = value as Record<string, unknown>;
+  return (
+    ['x', 'y', 'width', 'height'].every((key) => Number.isFinite(record[key])) &&
+    typeof record['maximized'] === 'boolean'
+  );
+}
 
 let current: Settings = { ...DEFAULTS };
 let loaded: Promise<Settings> | null = null;
@@ -41,6 +63,9 @@ async function read(): Promise<Settings> {
       }
       if (typeof record['logDirectory'] === 'string' && record['logDirectory'] !== '') {
         current.logDirectory = record['logDirectory'];
+      }
+      if (isPlacement(record['window'])) {
+        current.window = record['window'];
       }
     }
   } catch {
