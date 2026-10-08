@@ -338,6 +338,43 @@ export const enum EvFlag {
 }
 
 /**
+ * What hurt a unit on an ENVIRONMENTAL_DAMAGE row, kept in its `extraSpellId`.
+ *
+ * The row has no spell, so the column is free, and the type is the only thing
+ * that says what happened: a fall, a swim too long, a step in lava. 0 is a
+ * type this build does not know, which keeps the hit without naming it.
+ */
+export enum Environment {
+  UNKNOWN = 0,
+  FALLING,
+  DROWNING,
+  FATIGUE,
+  FIRE,
+  LAVA,
+  SLIME,
+}
+
+const ENVIRONMENTS: ReadonlyMap<string, Environment> = new Map([
+  ['Falling', Environment.FALLING],
+  ['Drowning', Environment.DROWNING],
+  ['Fatigue', Environment.FATIGUE],
+  ['Fire', Environment.FIRE],
+  ['Lava', Environment.LAVA],
+  ['Slime', Environment.SLIME],
+]);
+
+/** The log's environmentalType, as an Environment. */
+export function environmentOf(type: string): Environment {
+  return ENVIRONMENTS.get(type) ?? Environment.UNKNOWN;
+}
+
+/** The name the log uses for an Environment, or "Environment" for one it gave none. */
+export function environmentName(kind: number): string {
+  for (const [name, value] of ENVIRONMENTS) if (value === kind) return name;
+  return 'Environment';
+}
+
+/**
  * Miss types that mean the attempt landed on nothing.
  *
  * The complement — ABSORB, BLOCK, RESIST — is deliberate rather than absent:

@@ -121,6 +121,10 @@ const html = `<!doctype html>
 html { background: var(--bg); }
 body { overflow: visible; padding: 16px; width: ${width}px; }
 .death-grid, .split { min-width: 0; }
+/* A still frame should show where an entrance animation lands, not where it
+   starts: the awards' podium otherwise shoots flat and its badges invisible. */
+*, *::before, *::after { animation-duration: 0s !important; animation-delay: 0s !important; }
+.confetti { display: none; }
 </style></head>
 <body><div class="app" style="display:block;height:auto"><div class="content" style="padding:0">${body}</div></div></body></html>`;
 const htmlPath = keepHtml ? outPath.replace(/\.png$/, '.html') : join(tmpdir(), `shot-${process.pid}.html`);

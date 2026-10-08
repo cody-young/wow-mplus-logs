@@ -18,7 +18,10 @@ import type {
   RunAnalysis,
   RunForces,
   Segment,
+  StatsReport,
 } from '../shared.js';
+import type { Awards } from './awards.js';
+import type { PartyMember } from './components/RunRow.js';
 
 /**
  * Every tab as plain text, for the copy button: something to paste into party
@@ -145,6 +148,45 @@ export function shareDispels(report: DispelReport, scope: ShareScope): string {
     lines.push(ranked(index + 1, `${shortName(actor.name)} ${actor.removed} removed (${kinds.join(', ')})`));
   }
   return join(lines);
+}
+
+export function shareStats(
+  report: StatsReport,
+  party: readonly PartyMember[],
+  scope: ShareScope,
+  awards: Awards | null = null,
+): string {
+  const name = (index: number): string =>
+    shortName(party.find((member) => member.actorIndex === index)?.name ?? '?');
+  const lines = [heading('Stats', scope)];
+  // The awards are the whole run's, so they ride along only with it.
+  if (awards !== null && scope.segment === null) {
+    if (awards.mvp.length > 0) lines.push(fit(`MVP: ${awards.mvp.map(name).join(' & ')}`));
+    for (const badge of awards.badges) {
+      lines.push(fit(`${badge.title}: ${badge.winners.map((index) => `${name(index)} (${badge.reasons[index]})`).join(', ')}`));
+    }
+  }
+  const tally = (indices: readonly number[]): Array<[number, number]> =>
+    [...count(indices)].sort((a, b) => b[1] - a[1]);
+  const totems = tally(report.totemKills.map((kill) => kill.actorIndex));
+  lines.push(
+    totems.length === 0
+      ? 'Totems stomped: none.'
+      : fit(`Totems stomped: ${totems.map(([index, n]) => `${name(index)} ${n}`).join(', ')}`),
+  );
+  const falls = tally(report.falls.map((entry) => entry.actorIndex));
+  lines.push(
+    falls.length === 0
+      ? 'Falls: none.'
+      : fit(`Falls: ${falls.map(([index, n]) => `${name(index)} ${n}`).join(', ')}`),
+  );
+  return join(lines);
+}
+
+function count(indices: readonly number[]): Map<number, number> {
+  const out = new Map<number, number>();
+  for (const index of indices) out.set(index, (out.get(index) ?? 0) + 1);
+  return out;
 }
 
 export function shareDeaths(deaths: readonly DeathReport[], scope: ShareScope): string {

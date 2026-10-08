@@ -26,6 +26,7 @@ import {
   interruptReport,
   placeOnMdt,
   positionTracks,
+  statsReport,
   whoPulled,
   type SegmentIndex,
 } from '@mplus/analysis';
@@ -111,6 +112,7 @@ function analyze(active: LogSession, run: Run, live: boolean): RunAnalysis {
     control: crowdControlReport(context, segments),
     dispels: dispelReport(context, segments),
     avoidable: key === null ? { hits: [], covered: false, blizzard: [] } : avoidableReport(context, segments),
+    stats: statsReport(context, segments),
     positions,
     mdt: mdtDungeon === undefined ? null : placeOnMdt(positions, mdtDungeon),
     pull,

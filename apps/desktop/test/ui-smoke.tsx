@@ -24,6 +24,7 @@ import { PullStat } from '../src/renderer/components/PullStat.js';
 import { RunRow, partyOf } from '../src/renderer/components/RunRow.js';
 import { SegmentTimeline } from '../src/renderer/components/SegmentTimeline.js';
 import { SpecIcon } from '../src/renderer/components/SpecIcon.js';
+import { StatsPanel } from '../src/renderer/components/StatsPanel.js';
 import { UpdateFooter } from '../src/renderer/components/UpdateFooter.js';
 import {
   shareAvoidable,
@@ -31,11 +32,13 @@ import {
   shareControl,
   shareDeaths,
   shareDispels,
+  shareStats,
   shareInterrupts,
   shareRoute,
 } from '../src/renderer/share.js';
 import { pullSummary, wipeCutoff } from '../src/renderer/format.js';
 import { SPECS } from '../src/renderer/specs.js';
+import { awardsFor } from '../src/renderer/awards.js';
 import type { RunAnalysis, RunForces, UpdateState, UpdateStatus } from '../src/shared.js';
 
 /** A run whose dungeon the criteria table does not cover, which drops the count columns. */
@@ -124,6 +127,10 @@ export function render(analysis: RunAnalysis): Record<string, string> {
     // Every section's log open, for the same reason.
     dispelLog: renderToString(<DispelsPanel dispels={analysis.dispels} defaultExpanded />),
     avoidable: renderToString(<AvoidablePanel avoidable={analysis.avoidable} />),
+    // Finished, as it opens on a second visit: the podium and every badge.
+    stats: renderToString(
+      <StatsPanel stats={analysis.stats} party={partyOf(analysis)} awards={awardsFor(analysis)} />,
+    ),
     // Every player's hits open in every section, for the same reason.
     avoidableLog: renderToString(<AvoidablePanel avoidable={analysis.avoidable} defaultExpanded />),
     // Only the chrome around the canvas: the canvas has no size until it is
@@ -140,6 +147,7 @@ export function render(analysis: RunAnalysis): Record<string, string> {
     shareDispels: shareDispels(analysis.dispels, { meta: analysis.meta, segment: null }),
     shareAvoidable: shareAvoidable(analysis.avoidable, { meta: analysis.meta, segment: null }),
     shareDeaths: shareDeaths(analysis.deaths, { meta: analysis.meta, segment: null }),
+    shareStats: shareStats(analysis.stats, partyOf(analysis), { meta: analysis.meta, segment: null }, awardsFor(analysis)),
     shareRoute: shareRoute(analysis.segments, analysis.forces, { meta: analysis.meta, segment: null }),
     // One pull's text, which names the pull in its heading.
     shareSegment:

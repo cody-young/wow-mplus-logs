@@ -136,3 +136,4 @@ export {
   type PullRedirect,
   type PullReport,
 } from './pull.js';
+export { statsReport, type BigHit, type Fall, type StatsReport, type TotemKill } from './stats.js';

@@ -614,6 +614,16 @@ if (controlled.length > 0) {
   console.log('  (nobody pressed any control; control view assertions skipped)');
 }
 
+// --- Stats and awards ---------------------------------------------------------
+check('stats view has a card for totems, falls and the biggest hit',
+  countOf(views.stats, 'class="stat-card"') === 3,
+  `${countOf(views.stats, 'class="stat-card"')} cards`);
+if (!analysis.live) {
+  check('a finished key opens its awards on the podium', views.stats.includes('class="podium"'));
+  check('the share text names an MVP', /\nMVP: /.test(views.shareStats));
+}
+console.log(`  (stats share:\n${views.shareStats.split('\n').map((line) => `    ${line}`).join('\n')})`);
+
 // --- Dispels -----------------------------------------------------------------
 check('empty dispel view says so', views.emptyDispels.includes('No dispels'));
 const removed = analysis.dispels.dispels;

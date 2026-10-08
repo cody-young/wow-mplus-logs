@@ -5,6 +5,7 @@ import {
   Ev,
   MIN_ADVANCED_FIELD_COUNT,
   EvFlag,
+  environmentOf,
   fieldLooksLikeGuid,
   hasBaseBlock,
   identifyEvent,
@@ -476,7 +477,11 @@ export class CombatLogParser {
 
     // ENVIRONMENTAL_DAMAGE puts environmentalType after the advanced block,
     // ahead of an otherwise ordinary damage suffix.
-    if (code === Ev.ENVIRONMENTAL_DAMAGE) suffixStart += 1;
+    let environment = 0;
+    if (code === Ev.ENVIRONMENTAL_DAMAGE) {
+      environment = environmentOf(fieldStr(line, offsets, suffixStart));
+      suffixStart += 1;
+    }
 
     // A _SUPPORT row carries the supporter's GUID in the place of the ST/AOE
     // category, and where the event has no such field it is appended instead:
@@ -543,6 +548,7 @@ export class CombatLogParser {
     store.code[row] = code;
     store.srcActor[row] = source.index;
     store.dstActor[row] = dest.index;
+    if (environment !== 0) store.extraSpellId[row] = environment;
 
     if (prefixWidth === 3) {
       const spellId = fieldInt(line, offsets, prefixStart);

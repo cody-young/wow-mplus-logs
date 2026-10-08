@@ -9,8 +9,11 @@ export { ActorKind, ActorTable, UnitFlag, type Actor } from './actors.js';
 export {
   ADVANCED_FIELD_COUNT,
   BASE_FIELD_COUNT,
+  Environment,
   Ev,
   EvFlag,
+  environmentName,
+  environmentOf,
   MIN_ADVANCED_FIELD_COUNT,
   hasBaseBlock,
   identifyEvent,

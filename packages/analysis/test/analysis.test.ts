@@ -33,6 +33,7 @@ import {
   mapPoint,
   positionAt,
   positionTracks,
+  statsReport,
   whoPulled,
   type PullReport,
 } from '../src/index.js';
@@ -1561,4 +1562,101 @@ test('a key gets no who-pulled report', () => {
   session.pushText(LOG_TEXT);
   session.end();
   assert.equal(whoPulled(contextFor(session, session.runs[0]!)), null);
+});
+
+/** The fixture key with `extra` lines just before it ends. */
+function statsWith(extra: string[]) {
+  const lines = LOG_TEXT.split('\n');
+  const end = lines.findIndex((line) => line.includes('CHALLENGE_MODE_END'));
+  lines.splice(end, 0, ...extra);
+  const session = new LogSession({ assumedYear: 2026 });
+  session.pushText(lines.join('\n'));
+  session.end();
+  const context = contextFor(session, session.runs[0]!);
+  return statsReport(context, buildSegments(context));
+}
+
+function partyKill(seconds: number, src: string, srcName: string, dst: string, dstName: string, srcFlags = '0x511'): string {
+  return `${at(seconds)}  PARTY_KILL,${src},"${srcName}",${srcFlags},0x0,${dst},"${dstName}",0xa48,0x0,0`;
+}
+
+test('a totem that expired is nobody\'s stomp', () => {
+  // The fixture's two Magma Totems die with no PARTY_KILL, the way a totem
+  // runs out its duration.
+  assert.deepEqual(statsWith([]).totemKills, []);
+});
+
+test('a totem is stomped by whoever the log says finished it', () => {
+  const totem = creature(1005, 13);
+  const kills = statsWith([
+    partyKill(104.5, DPS, 'Dee', totem, 'Magma Totem'),
+    died(104.5, totem, 'Magma Totem', '0xa48'),
+  ]).totemKills;
+  assert.equal(kills.length, 1);
+  assert.equal(kills[0]!.name, 'Dee');
+  assert.equal(kills[0]!.totemName, 'Magma Totem');
+  assert.equal(kills[0]!.petName, '');
+  assert.ok(kills[0]!.segmentId >= 0, 'filed under the pull it fell in');
+});
+
+test("a pet's stomp is its owner's", () => {
+  const kills = statsWith([
+    partyKill(104.5, PET, 'Imp', creature(1005, 14), 'Magma Totem', '0x1111'),
+  ]).totemKills;
+  assert.equal(kills.length, 1);
+  assert.equal(kills[0]!.name, 'Dee');
+  assert.equal(kills[0]!.petName, 'Imp');
+});
+
+test('the caster that drops totems is not one', () => {
+  const kills = statsWith([
+    partyKill(104.5, DPS, 'Dee', creature(1010, 40), 'Ruthless Totemcaller'),
+    partyKill(104.6, DPS, 'Dee', creature(1004, 10), 'Flame Shaman'),
+  ]).totemKills;
+  assert.deepEqual(kills, []);
+});
+
+function fall(seconds: number, guid: string, name: string, amount: number, overkill = 0, type = 'Falling'): string {
+  const block = `${guid},0000000000000000,1000,1000,0,0,1470,0,0,0,3,100,100,0,100.5,200.5,2291,1.5,70`;
+  return `${at(seconds)}  ENVIRONMENTAL_DAMAGE,0000000000000000,nil,0x80000000,0x80000000,${guid},"${name}",0x511,0x0,${block},${type},${amount},${amount},${overkill},1,0,0,0,nil,nil,nil`;
+}
+
+test('a fall is counted for whoever fell, and lava is not a fall', () => {
+  const falls = statsWith([
+    fall(104, HEALER, 'Heals', 400),
+    fall(104.5, HEALER, 'Heals', 1200, 300),
+    fall(105, TANK, 'Tank', 900, 0, 'Lava'),
+  ]).falls;
+  assert.deepEqual(
+    falls.map((entry) => [entry.name, entry.amount, entry.fatal]),
+    [
+      ['Heals', 400, false],
+      ['Heals', 900, true],
+    ],
+  );
+});
+
+test('a fall that kills is named in the death, not called melee', () => {
+  const lines = LOG_TEXT.split('\n');
+  const end = lines.findIndex((line) => line.includes('CHALLENGE_MODE_END'));
+  lines.splice(end, 0, fall(104, HEALER, 'Heals', 1200, 300), died(104.1, HEALER, 'Heals'));
+  const session = new LogSession({ assumedYear: 2026 });
+  session.pushText(lines.join('\n'));
+  session.end();
+  const context = contextFor(session, session.runs[0]!);
+  const death = deathReports(context, buildSegments(context)).find((entry) => entry.name === 'Heals');
+  assert.ok(death);
+  assert.equal(death.killingBlow?.spellName, 'Falling');
+});
+
+test("a player's biggest hit is their single largest, not a support share of someone else's", () => {
+  const hits = statsWith([
+    hit(104, DPS, 'Dee', creature(1004, 10), 'Flame Shaman', 90_000, { spellName: 'Chaos Bolt', spellId: 116858 }),
+    hit(104.1, DPS, 'Dee', creature(1004, 10), 'Flame Shaman', 500_000, { support: TANK }),
+  ]).biggestHits;
+  const dee = hits.find((entry) => entry.name === 'Dee');
+  assert.ok(dee);
+  assert.equal(dee.amount, 90_000);
+  assert.equal(dee.spellName, 'Chaos Bolt');
+  assert.equal(dee.targetName, 'Flame Shaman');
 });

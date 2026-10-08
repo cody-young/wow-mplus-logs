@@ -16,7 +16,9 @@ import { RunRow, memberTitle, partyOf } from './components/RunRow.js';
 import { PullStat } from './components/PullStat.js';
 import { SegmentTimeline } from './components/SegmentTimeline.js';
 import { SpecIcon } from './components/SpecIcon.js';
+import { StatsPanel } from './components/StatsPanel.js';
 import { UpdateFooter, useUpdates } from './components/UpdateFooter.js';
+import { awardsFor, badgesOf, type Badge } from './awards.js';
 import { difficultyName, integer, percent, runClock, short, wipeCutoff } from './format.js';
 import {
   shareAvoidable,
@@ -26,6 +28,7 @@ import {
   shareDispels,
   shareInterrupts,
   shareRoute,
+  shareStats,
 } from './share.js';
 import { shortName, specOf } from './specs.js';
 import type { LogSummary, ParseProgress, RunAnalysis } from '../shared.js';
@@ -39,6 +42,7 @@ type Tab =
   | 'dispels'
   | 'avoidable'
   | 'deaths'
+  | 'stats'
   | 'map';
 
 /** Tabs built on dungeon data — the avoidable list, MDT's map — that a raid pull does not get. */
@@ -61,6 +65,13 @@ export function App(): React.JSX.Element {
    * log is opened, since the choice was about the keys in the previous one.
    */
   const browsingOlder = useRef(false);
+  /**
+   * Runs whose awards ceremony has played. The ceremony plays the first time
+   * the reader opens the stats tab on a finished key, and opens finished after
+   * that. A ref for the same reason as `browsingOlder`: nothing renders from
+   * it until the tab mounts again.
+   */
+  const celebrated = useRef(new Set<string>());
   const updates = useUpdates();
 
   useEffect(() => {
@@ -235,6 +246,22 @@ export function App(): React.JSX.Element {
     };
   }, [run, selectedSegment]);
 
+  /** The post-game awards, for the whole run whatever pull is selected. */
+  const awards = useMemo(() => (run === null ? null : awardsFor(run)), [run]);
+
+  /**
+   * And the stats tab's lists, for the same reason.
+   */
+  const stats = useMemo(() => {
+    if (run === null) return { totemKills: [], falls: [], biggestHits: [] };
+    if (selectedSegment === null) return run.stats;
+    return {
+      totemKills: run.stats.totemKills.filter((kill) => kill.segmentId === selectedSegment),
+      falls: run.stats.falls.filter((entry) => entry.segmentId === selectedSegment),
+      biggestHits: run.stats.biggestHits.filter((entry) => entry.segmentId === selectedSegment),
+    };
+  }, [run, selectedSegment]);
+
   /**
    * The open tab as text, for the copy button.
    *
@@ -261,6 +288,8 @@ export function App(): React.JSX.Element {
         return shareAvoidable(avoidable, scope);
       case 'deaths':
         return shareDeaths(deaths, scope);
+      case 'stats':
+        return shareStats(stats, partyOf(run), scope, awards);
       case 'map':
         return shareRoute(run.segments, run.forces, scope);
     }
@@ -415,6 +444,14 @@ export function App(): React.JSX.Element {
                           {shortName(member.name)}
                         </span>
                       )}
+                      {raid ? null : (
+                        <BadgeChips
+                          badges={badgesOf(awards, member.actorIndex)}
+                          mvp={awards?.mvp.includes(member.actorIndex) === true}
+                          reason={member.actorIndex}
+                          onOpen={() => setTab('stats')}
+                        />
+                      )}
                     </span>
                   ))}
                 </span>
@@ -441,6 +478,7 @@ export function App(): React.JSX.Element {
                     `Superiority Assister*${avoidable.hits.length > 0 ? ` (${avoidable.hits.length})` : ''}`,
                   ],
                   ['deaths', `Deaths${deaths.length > 0 ? ` (${deaths.length})` : ''}`],
+                  ['stats', 'Stats'],
                   ['map', 'Map'],
                 ] as Array<[Tab, string]>
               )
@@ -499,6 +537,15 @@ export function App(): React.JSX.Element {
                   selectedSegment={selectedSegment}
                   onSelectSegment={setSelectedSegment}
                 />
+              ) : shown === 'stats' ? (
+                <StatsPanel
+                  key={run.runId}
+                  stats={stats}
+                  party={partyOf(run)}
+                  awards={awards}
+                  autoplay={!celebrated.current.has(run.runId)}
+                  onPlayed={() => celebrated.current.add(run.runId)}
+                />
               ) : shown === 'deaths' ? (
                 <DeathsPanel
                   key={`${run.runId}:${selectedSegment ?? 'all'}`}
@@ -536,6 +583,46 @@ export function App(): React.JSX.Element {
         )}
       </main>
     </div>
+  );
+}
+
+/**
+ * A party member's badges beside their name in the header, MVP crown first.
+ *
+ * Icons only, with the title and what earned it on the hover, so five names
+ * with a few badges each still fit one header line. A click opens the stats
+ * tab, which is a click the reader made.
+ */
+function BadgeChips({
+  badges,
+  mvp,
+  reason,
+  onOpen,
+}: {
+  badges: readonly Badge[];
+  mvp: boolean;
+  /** The member's actor index, to read what earned each badge. */
+  reason: number;
+  onOpen: () => void;
+}): React.JSX.Element | null {
+  if (badges.length === 0 && !mvp) return null;
+  return (
+    <button type="button" className="badge-chips" onClick={onOpen} title="Open the awards">
+      {mvp ? (
+        <span className="badge-chip mvp" title="Dungeon MVP">
+          ♛
+        </span>
+      ) : null}
+      {badges.map((badge) => (
+        <span
+          key={badge.key}
+          className={`badge-chip${badge.roast ? ' roast' : ''}`}
+          title={`${badge.title}: ${badge.reasons[reason] ?? ''}`}
+        >
+          {badge.icon}
+        </span>
+      ))}
+    </button>
   );
 }
 

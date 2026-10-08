@@ -28,6 +28,8 @@ import type {
   PullReport,
   RunForces,
   Segment,
+  StatsReport,
+  TotemKill,
 } from '@mplus/analysis';
 import type { ForcesTable, MdtDungeon } from '@mplus/data';
 import type { RunMeta } from '@mplus/parser';
@@ -54,6 +56,8 @@ export type {
   PullReport,
   RunForces,
   Segment,
+  StatsReport,
+  TotemKill,
   RunMeta,
 };
 
@@ -110,6 +114,13 @@ export interface RunAnalysis {
    * Not split per segment, for the same reason as the control list.
    */
   avoidable: AvoidableReport;
+  /**
+   * The stats tab's numbers: who stomped the totems, so far.
+   *
+   * Flat lists, each record carrying its segment, for the same reason as the
+   * control list.
+   */
+  stats: StatsReport;
   /**
    * Where every party member and engaged enemy was over the key, for the map.
    *

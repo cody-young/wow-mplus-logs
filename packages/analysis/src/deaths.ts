@@ -1,5 +1,5 @@
 import { isButton, isDefensive, isInertMarker } from '@mplus/data';
-import { Ev, EvFlag } from '@mplus/parser';
+import { Ev, EvFlag, environmentName } from '@mplus/parser';
 
 import { actorName, spellName, type AnalysisContext } from './context.js';
 import {
@@ -416,7 +416,9 @@ function buildReport(
         sourceIndex: sourceOwner,
         sourceName: isSelfDamage ? 'Environment' : actorName(context, sourceOwner),
         spellId,
-        spellName: spellName(context, spellId),
+        // An environmental row has no spell, so its name is what hurt: a fall
+        // reads "Falling" rather than "Melee".
+        spellName: isSelfDamage ? environmentName(store.extraSpellId[row]!) : spellName(context, spellId),
         amount: net,
         overkill: waste > 0 ? waste : 0,
         absorbed: store.absorbed[row]!,
