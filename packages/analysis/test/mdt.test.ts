@@ -30,6 +30,7 @@ const DUNGEON: MdtDungeon = {
     name: `Creature ${n}`,
     count: 4,
     isBoss: false,
+    displayId: null,
     clones: Array.from({ length: 30 }, (_, i) => i)
       .filter((i) => i % 4 === n)
       .map((i, k) => ({ index: k + 1, x: 300 + (i % 6) * 30, y: -200 - Math.floor(i / 6) * 30, sublevel: 1, group: null })),
@@ -143,6 +144,7 @@ function latticeRun(): { lattice: MdtDungeon; tracks: PositionTrack[] } {
         name: 'Lattice Guard',
         count: 1,
         isBoss: false,
+        displayId: null,
         clones: Array.from({ length: 40 }, (_, i) => ({
           index: i + 1,
           x: 300 + (i % 8) * 30,
@@ -246,6 +248,7 @@ function packRun(gapMs: number): { packs: MdtDungeon; tracks: PositionTrack[] } 
       name: `Pack Member ${n}`,
       count: 1,
       isBoss: false,
+      displayId: null,
       clones: corners.map(([u, v], g) => ({
         index: g + 1,
         x: u! + (n === 1 ? 8 : 0),
@@ -415,6 +418,7 @@ test('a pack waits only on the creatures that die', () => {
     name: 'Departing Add',
     count: 0,
     isBoss: false,
+    displayId: null,
     clones: [{ index: 1, x: 310, y: -210, sublevel: 1, group: 1 }],
   };
   const placement = placeOnMdt(report(tracks), { ...packs, enemies: [...packs.enemies, adds] }, []);

@@ -81,6 +81,7 @@ MDT.dungeonEnemies[dungeonIndex] = {
     ["id"] = 270400,
     ["count"] = 0,
     ["isBoss"] = true,
+    ["displayId"] = 123456,
     ["encounterID"] = 3100,
     ["instanceID"] = 1202,
     ["health"] = 90000000,
@@ -162,6 +163,9 @@ test('a dungeon file yields its spawns, floors and map art', () => {
   // A clone with no sublevel is on the first, as MDT draws it.
   assert.equal(dungeon!.enemies.find((enemy) => enemy.npcId === 270307)!.clones[0]!.sublevel, 1);
   assert.equal(dungeon!.enemies.find((enemy) => enemy.npcId === 270400)!.isBoss, true);
+  // The model a portrait is drawn from, when MDT names one.
+  assert.equal(dungeon!.enemies.find((enemy) => enemy.npcId === 270400)!.displayId, 123456);
+  assert.equal(chieftain.displayId, null);
 });
 
 test('a dungeon file that is cut short or is not a dungeon reads as none', () => {

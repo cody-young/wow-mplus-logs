@@ -293,6 +293,11 @@ export interface DesktopApi {
    * the name that was asked for, with unavailable names omitted.
    */
   resolveNamedIcons(names: string[]): Promise<Record<string, string>>;
+  /**
+   * Creature portraits for the map, keyed by display id (the model MDT names
+   * for each enemy), as whole-creature renders. Same contract as the icons.
+   */
+  resolvePortraits(displayIds: number[]): Promise<Record<number, string>>;
   onLog(handler: (summary: LogSummary) => void): () => void;
   onProgress(handler: (progress: ParseProgress) => void): () => void;
   onAnalysis(handler: (analysis: RunAnalysis) => void): () => void;

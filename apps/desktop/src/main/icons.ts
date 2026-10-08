@@ -324,3 +324,84 @@ export async function resolveNamed(names: string[]): Promise<Record<string, stri
   }
   return out;
 }
+
+/**
+ * Creature portraits, for the map's mob icons.
+ *
+ * Keyed by display id, the creature's model, which only MDT names: the log
+ * carries a creature id and nothing about what it looks like. Wowhead renders
+ * a thumbnail of every model, a 300px png of the whole creature on a clear
+ * background, under a folder named for the id's low byte. The renderer crops
+ * it to a face. Same rules as the icons: once per machine, offline means
+ * whatever is on disk, and a miss is "no portrait", never an error.
+ */
+const portraitUrls = new Map<number, string>();
+const portraitInflight = new Map<number, Promise<void>>();
+/** Ids the CDN had nothing for, this session only, as for named icons. */
+const portraitMisses = new Set<number>();
+
+async function portraitStore(): Promise<string> {
+  const folder = join(await store(), 'npc');
+  await mkdir(folder, { recursive: true });
+  return folder;
+}
+
+async function readPortrait(displayId: number): Promise<string | null> {
+  const cached = portraitUrls.get(displayId);
+  if (cached !== undefined) return cached;
+  try {
+    const bytes = await readFile(join(await portraitStore(), `${displayId}.png`));
+    const url = `data:image/png;base64,${bytes.toString('base64')}`;
+    portraitUrls.set(displayId, url);
+    return url;
+  } catch {
+    return null;
+  }
+}
+
+async function fetchPortrait(displayId: number): Promise<void> {
+  try {
+    const bytes = (await get(
+      `https://wow.zamimg.com/modelviewer/live/webthumbs/npc/${displayId & 0xff}/${displayId}.png`,
+      'bytes',
+    )) as Buffer;
+    await writeFile(join(await portraitStore(), `${displayId}.png`), bytes);
+    portraitUrls.set(displayId, `data:image/png;base64,${bytes.toString('base64')}`);
+  } catch {
+    portraitMisses.add(displayId);
+  }
+}
+
+/** Data URLs for creature portraits, keyed by display id, with misses omitted. */
+export async function resolvePortraits(displayIds: number[]): Promise<Record<number, string>> {
+  const wanted = [...new Set(displayIds)].filter((id) => Number.isInteger(id) && id > 0).slice(0, 200);
+
+  const missing: number[] = [];
+  for (const id of wanted) {
+    if (portraitMisses.has(id)) continue;
+    if ((await readPortrait(id)) === null && !offline()) missing.push(id);
+  }
+
+  let next = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(CONCURRENCY, missing.length) }, async () => {
+      for (let i = next++; i < missing.length; i = next++) {
+        const id = missing[i]!;
+        let job = portraitInflight.get(id);
+        if (job === undefined) {
+          job = fetchPortrait(id);
+          portraitInflight.set(id, job);
+        }
+        await job;
+        portraitInflight.delete(id);
+      }
+    }),
+  );
+
+  const out: Record<number, string> = {};
+  for (const id of wanted) {
+    const url = await readPortrait(id);
+    if (url !== null) out[id] = url;
+  }
+  return out;
+}

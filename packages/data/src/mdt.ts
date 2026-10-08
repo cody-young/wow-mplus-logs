@@ -162,6 +162,11 @@ export interface MdtEnemy {
   name: string;
   count: number;
   isBoss: boolean;
+  /**
+   * The creature's model, which is what a portrait of it is drawn from. Null
+   * when MDT gives none; the log has no way to name a model.
+   */
+  displayId: number | null;
   clones: MdtClone[];
 }
 
@@ -384,6 +389,7 @@ export function parseMdtDungeon(source: string): MdtDungeon | null {
         name: typeof name === 'string' ? name : String(npcId),
         count: num(record.get('count')) ?? 0,
         isBoss: record.get('isBoss') === true,
+        displayId: num(record.get('displayId')),
         clones,
       });
     }

@@ -180,3 +180,49 @@ export function useSpecIcons(): ReadonlyMap<string, string> {
   }
   return specMemo.icons;
 }
+
+/**
+ * Display id -> portrait data URL, or null for "asked, and there is none".
+ * Its own cache rather than the shared one: display ids and spell ids are both
+ * numbers, and the same number names a model and an unrelated spell.
+ */
+const portraitCache = new Map<number, string | null>();
+const portraitInflight = new Set<number>();
+
+async function requestPortraits(ids: readonly number[]): Promise<void> {
+  const api = bridge();
+  const wanted = ids.filter((id) => !portraitCache.has(id) && !portraitInflight.has(id));
+  if (wanted.length === 0 || api?.resolvePortraits === undefined) return;
+
+  for (const id of wanted) portraitInflight.add(id);
+  try {
+    const found = await api.resolvePortraits(wanted);
+    for (const id of wanted) portraitCache.set(id, found[id] ?? null);
+  } catch {
+    // Uncached, to be asked again, for the same reason as a failed icon batch.
+  } finally {
+    for (const id of wanted) portraitInflight.delete(id);
+    notify();
+  }
+}
+
+/**
+ * Creature portraits by display id, for the ids that have one. Like the
+ * icons, an id still resolving is absent and the map draws a plain dot.
+ */
+export function usePortraits(displayIds: readonly number[]): ReadonlyMap<number, string> {
+  const ids = [...new Set(displayIds)].filter((id) => Number.isInteger(id) && id > 0).sort((a, b) => a - b);
+  const key = ids.join(',');
+  useIconVersion();
+
+  useEffect(() => {
+    void requestPortraits(key === '' ? [] : key.split(',').map(Number));
+  }, [key]);
+
+  const out = new Map<number, string>();
+  for (const id of ids) {
+    const url = portraitCache.get(id);
+    if (typeof url === 'string') out.set(id, url);
+  }
+  return out;
+}

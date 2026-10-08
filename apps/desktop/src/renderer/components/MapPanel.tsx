@@ -4,6 +4,7 @@ import { SegmentKind, TrackKind, mdtExportString, mdtRoute, positionAt, routeUid
 import { MDT_CANVAS, MDT_TILES } from '@mplus/data';
 
 import { clock, integer, percent } from '../format.js';
+import { usePortraits } from '../icons.js';
 import { shortName, specOf } from '../specs.js';
 import { partyOf } from './RunRow.js';
 import type { MdtFloorFit, MdtPlacement, PositionTrack, RunAnalysis, Segment } from '../../shared.js';
@@ -23,6 +24,11 @@ import type { MdtFloorFit, MdtPlacement, PositionTrack, RunAnalysis, Segment } f
  * Pulls are drawn where their enemies stood before they were touched (each
  * track's `home`), not where they died: a dragged pack dies on top of the next
  * one, and a map of death spots would draw two pulls as one.
+ *
+ * As in MDT, each pull is one outline in a colour of its own around every mob
+ * it killed, and each mob is its portrait. On MDT's map a kill placed on a
+ * spawn is drawn on that spawn, so the outline sits on the art where MDT would
+ * draw it, and the spawns nothing was killed on are drawn grey.
  */
 
 interface Props {
@@ -58,11 +64,31 @@ interface Floor {
 interface PullShape {
   segment: Segment;
   uiMapId: number;
-  /**
-   * Enemy start points, world space, grouped into packs: points closer than
-   * `PACK_YARDS` to one another, chained. The largest pack is first.
-   */
-  packs: Point[][];
+  /** The enemies to draw, each with a `home` on `uiMapId`. */
+  mobs: PositionTrack[];
+}
+
+/** What MDT says a creature looks like, by creature id. */
+interface Model {
+  displayId: number | null;
+  boss: boolean;
+}
+
+/** A mob on the map, in canvas px. */
+interface MobIcon {
+  x: number;
+  y: number;
+  displayId: number | null;
+  boss: boolean;
+  /** The pull that killed it, or null for a spawn left standing. */
+  segmentId: number | null;
+}
+
+/** One pull's outline on a floor, in canvas px. */
+interface Hull {
+  pull: PullShape;
+  outline: Point[];
+  centre: Point;
 }
 
 /** Party colours by actor index, from spec. */
@@ -76,17 +102,19 @@ const TRAIL_MS = 15_000;
 const ENEMY_LINGER_MS = 5_000;
 /** Room around the drawn extent, as a fraction of its larger side. */
 const PAD = 0.05;
+/** How far a pull's outline stands off its mobs' icons, in px. */
+const HULL_PAD = 4;
 /**
- * Enemies this close, chained, are drawn as one pack.
- *
- * A segment is continuous combat, so a chain pull — three packs walked into
- * each other down a corridor — is one segment. One outline around all of it
- * is a wedge over every wall in between; one per pack is what a route
- * planner would draw.
+ * A mob icon's radius, in plane units: MDT canvas units on its map, yards off
+ * it. Bosses are drawn larger, as MDT draws them.
  */
-const PACK_YARDS = 18;
-/** How far a pull's outline stands off its enemies, in px. */
-const HULL_PAD = 9;
+const MOB_RADIUS = { mdt: 4.5, yards: 2.5, boss: 1.6 } as const;
+/** The least and most a mob icon's radius is on screen, in px, however far the map is zoomed. */
+const MOB_PX = { min: 5, max: 15 } as const;
+/** Portraits are cropped and scaled once to this many px square. */
+const PORTRAIT_PX = 64;
+/** Behind a portrait's clear background, dark on either theme as MDT's are. */
+const PORTRAIT_BG = '#1d2027';
 const MAX_HEIGHT_VH = 0.7;
 /** The least of MDT's canvas a floor shows, in its units, so a small floor keeps its surroundings. */
 const MDT_MIN_SPAN = 140;
@@ -123,6 +151,14 @@ export function MapPanel({ run, selectedSegment, onSelectSegment }: Props): Reac
   );
   const art = useMdtArt(useMdt ? run.mdt : null);
   const pulls = useMemo(() => pullShapes(run.segments, enemyTracks), [run.segments, enemyTracks]);
+  const colours = useMemo(() => pullColours(pulls), [pulls]);
+  // Off MDT's map too: a floor that did not fit still has MDT's creatures on it.
+  const models = useMemo(() => modelsOf(run.mdt), [run.mdt]);
+  const displayIds = useMemo(
+    () => [...models.values()].flatMap((model) => (model.displayId === null ? [] : [model.displayId])),
+    [models],
+  );
+  const portraits = usePortraitArt(usePortraits(displayIds));
 
   const durationMs = useMemo(() => {
     let end = Math.max(run.damage.durationMs, ...run.segments.map((segment) => segment.endTs));
@@ -254,6 +290,9 @@ export function MapPanel({ run, selectedSegment, onSelectSegment }: Props): Reac
         mdt={floor.fit === null ? null : run.mdt}
         t={t}
         pulls={pulls}
+        colours={colours}
+        models={models}
+        portraits={portraits}
         partyTracks={partyTracks}
         enemyTracks={enemyTracks}
         palette={palette}
@@ -472,6 +511,11 @@ interface CanvasProps {
   mdt: MdtPlacement | null;
   t: number;
   pulls: PullShape[];
+  /** Each pull's colour, by segment id. */
+  colours: ReadonlyMap<number, string>;
+  models: ReadonlyMap<number, Model>;
+  /** Cropped portraits by display id, as they load. */
+  portraits: ReadonlyMap<number, HTMLCanvasElement>;
   partyTracks: PositionTrack[];
   enemyTracks: PositionTrack[];
   palette: Palette;
@@ -515,6 +559,9 @@ function MapCanvas({
   mdt,
   t,
   pulls,
+  colours,
+  models,
+  portraits,
   partyTracks,
   enemyTracks,
   palette,
@@ -609,22 +656,58 @@ function MapCanvas({
     return () => element.removeEventListener('wheel', onWheel);
   }, [frame !== null]);
 
-  const hulls = useMemo(() => {
-    if (frame === null) return [];
-    return pulls
-      .filter((pull) => pull.uiMapId === floor.uiMapId)
-      .map((pull) => {
-        const packs = pull.packs.map((pack) => pack.map(([x, y]) => frame.px(x, y)));
-        const centres = packs.map(centroid);
-        return {
-          pull,
-          outlines: packs.map((pack) => inflate(convexHull(pack), HULL_PAD)),
-          centre: centres[0]!,
-          // Packs tied together, so a chain reads as one pull.
-          links: spanningTree(centres),
-        };
+  /** Icon radius in px for a mob, at this zoom. */
+  const radius = useCallback(
+    (boss: boolean): number => {
+      if (frame === null) return MOB_PX.min;
+      const r = (floor.fit === null ? MOB_RADIUS.yards : MOB_RADIUS.mdt) * frame.scale;
+      const clamped = Math.min(MOB_PX.max, Math.max(MOB_PX.min, r));
+      return boss ? clamped * MOB_RADIUS.boss : clamped;
+    },
+    [frame, floor.fit],
+  );
+
+  const { hulls, mobs } = useMemo(() => {
+    if (frame === null) return { hulls: [] as Hull[], mobs: [] as MobIcon[] };
+    const sublevel = floor.fit?.sublevel ?? null;
+    const mobs: MobIcon[] = [];
+    // On MDT's map, a kill placed on a spawn is drawn on it.
+    const spawned = new Map<number, Point>();
+    if (mdt !== null && sublevel !== null) {
+      const killed = new Map(mdt.matches.map((match) => [`${match.enemyIndex}:${match.cloneIndex}`, match.actor]));
+      for (const enemy of mdt.dungeon.enemies) {
+        for (const clone of enemy.clones) {
+          if (clone.sublevel !== sublevel) continue;
+          // MDT's y points up from the canvas top; the plane's v points down.
+          const at = frame.planePx(clone.x, -clone.y);
+          const actor = killed.get(`${enemy.index}:${clone.index}`);
+          if (actor !== undefined) spawned.set(actor, at);
+          else mobs.push({ x: at[0], y: at[1], displayId: enemy.displayId, boss: enemy.isBoss, segmentId: null });
+        }
+      }
+    }
+    const hulls: Hull[] = [];
+    for (const pull of pulls) {
+      if (pull.uiMapId !== floor.uiMapId) continue;
+      const corners: Point[] = [];
+      const points = pull.mobs.map((track): Point => {
+        const at = spawned.get(track.actor) ?? frame.px(track.home!.x, track.home!.y);
+        const model = models.get(track.npcId);
+        const boss = model?.boss ?? false;
+        mobs.push({ x: at[0], y: at[1], displayId: model?.displayId ?? null, boss, segmentId: pull.segment.id });
+        // The outline goes round the icons, not their centres, so a boss's
+        // larger icon is inside it too.
+        const r = radius(boss);
+        for (let i = 0; i < 8; i++) {
+          const angle = (i / 8) * Math.PI * 2;
+          corners.push([at[0] + Math.cos(angle) * r, at[1] + Math.sin(angle) * r]);
+        }
+        return at;
       });
-  }, [pulls, floor, frame]);
+      hulls.push({ pull, outline: inflate(convexHull(corners), HULL_PAD), centre: centroid(points) });
+    }
+    return { hulls, mobs };
+  }, [pulls, floor, frame, mdt, models, radius]);
 
   const bosses = useMemo(
     () => new Set(pulls.filter((pull) => pull.segment.kind === SegmentKind.BOSS).map((pull) => pull.segment.id)),
@@ -663,7 +746,6 @@ function MapCanvas({
         frame.height,
       );
     }
-    if (mdt !== null && floor.fit !== null) drawSpawns(ctx, mdt, floor.fit.sublevel, frame, colour);
 
     ctx.lineJoin = 'round';
     ctx.lineCap = 'round';
@@ -675,41 +757,38 @@ function MapCanvas({
     }
     ctx.globalAlpha = 1;
 
-    for (const { pull, outlines, links } of hulls) {
-      const boss = pull.segment.kind === SegmentKind.BOSS;
+    // MDT's art is busy and light, so pulls on it need more weight to read.
+    const weight = art !== null ? 1.6 : 1;
+    for (const { pull, outline } of hulls) {
       const selected = pull.segment.id === selectedSegment;
-      const base = colour(boss ? '--boss' : '--pull');
-      if (links.length > 0) {
-        ctx.beginPath();
-        for (const [from, to] of links) {
-          ctx.moveTo(from[0], from[1]);
-          ctx.lineTo(to[0], to[1]);
-        }
-        ctx.setLineDash([3, 4]);
-        ctx.globalAlpha = selected ? 0.9 : selectedSegment === null ? 0.5 : 0.2;
-        ctx.strokeStyle = selected ? colour('--text') : base;
-        ctx.lineWidth = 1;
-        ctx.stroke();
-        ctx.setLineDash([]);
-      }
+      const tint = colours.get(pull.segment.id) ?? colour('--pull');
       ctx.beginPath();
-      for (const outline of outlines) {
-        outline.forEach(([x, y], index) => (index === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y)));
-        ctx.closePath();
-      }
-      // MDT's art is busy and light, so pulls on it need more weight to read.
-      const weight = art !== null ? 1.8 : 1;
-      ctx.globalAlpha = (selected ? 0.32 : selectedSegment === null ? 0.16 : 0.07) * weight;
-      ctx.fillStyle = base;
+      outline.forEach(([x, y], index) => (index === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y)));
+      ctx.closePath();
+      ctx.globalAlpha = (selected ? 0.4 : selectedSegment === null ? 0.2 : 0.07) * weight;
+      ctx.fillStyle = tint;
       ctx.fill();
-      ctx.globalAlpha = Math.min(1, (selected ? 1 : selectedSegment === null ? 0.7 : 0.3) * weight);
-      ctx.strokeStyle = selected ? colour('--text') : base;
-      ctx.lineWidth = (selected ? 2 : 1.25) * (art !== null ? 1.4 : 1);
+      ctx.globalAlpha = selected ? 1 : selectedSegment === null ? 0.9 : 0.35;
+      ctx.strokeStyle = selected ? colour('--text') : tint;
+      ctx.lineWidth = selected ? 2.5 : 1.5;
       ctx.stroke();
     }
     ctx.globalAlpha = 1;
+
+    // Spawns left standing first, so a killed mob on top of one shows.
+    for (const mob of mobs) {
+      const left = mob.segmentId === null;
+      const dim = left || (selectedSegment !== null && mob.segmentId !== selectedSegment);
+      drawMob(ctx, mob, radius(mob.boss), {
+        art: mob.displayId === null ? null : (portraits.get(mob.displayId) ?? null),
+        ring: left ? null : (colours.get(mob.segmentId!) ?? colour('--pull')),
+        alpha: left ? 0.6 : dim ? 0.5 : 1,
+        grey: left,
+      });
+    }
+    ctx.globalAlpha = 1;
     return layer;
-  }, [frame, art, mdt, partyTracks, palette, floor, hulls, selectedSegment]);
+  }, [frame, art, partyTracks, palette, floor, hulls, mobs, colours, portraits, radius, selectedSegment]);
 
   useEffect(() => {
     const element = canvas.current;
@@ -736,10 +815,13 @@ function MapCanvas({
       const [x, y] = frame.px(at.x, at.y);
       const boss = bosses.has(track.segmentId);
       ctx.beginPath();
-      ctx.arc(x, y, boss ? 6 : 3.5, 0, Math.PI * 2);
-      ctx.fillStyle = boss ? colour('--boss') : colour('--danger');
-      ctx.globalAlpha = 0.85;
+      ctx.arc(x, y, boss ? 6 : 4, 0, Math.PI * 2);
+      ctx.fillStyle = colours.get(track.segmentId) ?? colour('--danger');
+      ctx.globalAlpha = 0.95;
       ctx.fill();
+      ctx.strokeStyle = 'rgba(0, 0, 0, 0.7)';
+      ctx.lineWidth = 1.25;
+      ctx.stroke();
     }
     ctx.globalAlpha = 1;
 
@@ -752,12 +834,18 @@ function MapCanvas({
       const label = boss ? '☠' : String(pull.segment.pullNumber);
       ctx.beginPath();
       ctx.arc(centre[0], centre[1], 9, 0, Math.PI * 2);
-      ctx.fillStyle = colour(boss ? '--boss' : '--pull');
+      ctx.fillStyle = colours.get(pull.segment.id) ?? colour(boss ? '--boss' : '--pull');
       ctx.fill();
-      ctx.fillStyle = '#fff';
-      ctx.font = '600 11px system-ui, sans-serif';
+      ctx.strokeStyle = 'rgba(0, 0, 0, 0.7)';
+      ctx.lineWidth = 1.25;
+      ctx.stroke();
+      // White on a dark edge reads on every hue the pulls are given.
+      ctx.font = '700 11px system-ui, sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
+      ctx.lineWidth = 2.5;
+      ctx.strokeText(label, centre[0], centre[1] + 0.5);
+      ctx.fillStyle = '#fff';
       ctx.fillText(label, centre[0], centre[1] + 0.5);
       if (forcesRequired > 0 && pull.segment.forces > 0) {
         ctx.font = '500 10px system-ui, sans-serif';
@@ -802,22 +890,20 @@ function MapCanvas({
       ctx.lineWidth = 1.5;
       ctx.stroke();
     }
-  }, [frame, backdrop, t, enemyTracks, partyTracks, palette, floor, hulls, bosses, selectedSegment, forcesRequired]);
+  }, [frame, backdrop, t, enemyTracks, partyTracks, palette, floor, hulls, colours, bosses, selectedSegment, forcesRequired]);
 
   /** The pull under a point: the smallest outline containing it, or the nearest label. */
   const pullAt = useCallback(
     (x: number, y: number): Segment | null => {
       let best: Segment | null = null;
       let bestArea = Infinity;
-      for (const { pull, outlines, centre } of hulls) {
+      for (const { pull, outline, centre } of hulls) {
         if (Math.hypot(centre[0] - x, centre[1] - y) <= 11) return pull.segment;
-        for (const outline of outlines) {
-          if (!inside(outline, x, y)) continue;
-          const area = polygonArea(outline);
-          if (area < bestArea) {
-            bestArea = area;
-            best = pull.segment;
-          }
+        if (!inside(outline, x, y)) continue;
+        const area = polygonArea(outline);
+        if (area < bestArea) {
+          bestArea = area;
+          best = pull.segment;
         }
       }
       return best;
@@ -925,40 +1011,131 @@ function MapCanvas({
 }
 
 /**
- * MDT's spawns on the floor: hollow where nothing was killed, filled where a
- * kill landed on one. The hollow ones are what the route skipped, or dragged
- * too far to tell.
+ * One mob: its portrait in a circle, ringed in its pull's colour. A spawn left
+ * standing is grey, the way MDT draws what a route skips. Without a portrait,
+ * still loading or with no MDT to name the model, it is a plain dot.
  */
-function drawSpawns(
+function drawMob(
   ctx: CanvasRenderingContext2D,
-  mdt: MdtPlacement,
-  sublevel: number,
-  frame: Frame,
-  colour: (name: string) => string,
+  mob: MobIcon,
+  r: number,
+  style: { art: HTMLCanvasElement | null; ring: string | null; alpha: number; grey: boolean },
 ): void {
-  const killed = new Set(mdt.matches.map((match) => `${match.enemyIndex}:${match.cloneIndex}`));
-  const r = Math.max(2, Math.min(4, frame.scale * 1.6));
-  ctx.lineWidth = 1;
-  for (const enemy of mdt.dungeon.enemies) {
-    for (const clone of enemy.clones) {
-      if (clone.sublevel !== sublevel) continue;
-      // MDT's y points up from the canvas top; the plane's v points down.
-      const [x, y] = frame.planePx(clone.x, -clone.y);
-      if (x < -r || y < -r || x > frame.width + r || y > frame.height + r) continue;
-      ctx.beginPath();
-      ctx.arc(x, y, enemy.isBoss ? r * 1.8 : r, 0, Math.PI * 2);
-      if (killed.has(`${enemy.index}:${clone.index}`)) {
-        ctx.globalAlpha = 0.55;
-        ctx.fillStyle = colour('--bg');
-        ctx.fill();
-      } else {
-        ctx.globalAlpha = 0.8;
-        ctx.strokeStyle = colour('--bg');
-        ctx.stroke();
-      }
+  ctx.save();
+  ctx.globalAlpha = style.alpha;
+  ctx.beginPath();
+  ctx.arc(mob.x, mob.y, r, 0, Math.PI * 2);
+  ctx.fillStyle = style.art !== null ? PORTRAIT_BG : (style.ring ?? '#8a8f99');
+  ctx.fill();
+  if (style.art !== null) {
+    ctx.save();
+    ctx.clip();
+    if (style.grey) ctx.filter = 'grayscale(1) brightness(0.8)';
+    ctx.drawImage(style.art, mob.x - r, mob.y - r, r * 2, r * 2);
+    ctx.restore();
+  }
+  ctx.strokeStyle = style.ring ?? 'rgba(0, 0, 0, 0.6)';
+  ctx.lineWidth = style.ring !== null ? 2 : 1;
+  ctx.stroke();
+  ctx.restore();
+}
+
+/**
+ * A colour for every pull, the same on every floor. Each step is the golden
+ * angle round the hue wheel, so pulls next to each other on the map, which
+ * are next to each other in the key, never come out alike.
+ */
+function pullColours(pulls: PullShape[]): ReadonlyMap<number, string> {
+  return new Map(
+    pulls.map((pull, index) => [pull.segment.id, `hsl(${Math.round((index * 137.508 + 200) % 360)}, 72%, 55%)`]),
+  );
+}
+
+function modelsOf(mdt: MdtPlacement | null): ReadonlyMap<number, Model> {
+  if (mdt === null) return new Map();
+  return new Map(mdt.dungeon.enemies.map((enemy) => [enemy.npcId, { displayId: enemy.displayId, boss: enemy.isBoss }]));
+}
+
+/** Cropped portraits by display id, shared by every run. */
+const portraitArt = new Map<number, Promise<HTMLCanvasElement | null>>();
+
+/** The portraits cropped to faces, as they finish. */
+function usePortraitArt(urls: ReadonlyMap<number, string>): ReadonlyMap<number, HTMLCanvasElement> {
+  const [art, setArt] = useState<ReadonlyMap<number, HTMLCanvasElement>>(new Map());
+  // The ids come sorted, so this stands for `urls`, which is new every render.
+  const key = [...urls.keys()].join(',');
+  useEffect(() => {
+    let cancelled = false;
+    void Promise.all(
+      [...urls].map(async ([id, url]) => {
+        let pending = portraitArt.get(id);
+        if (pending === undefined) {
+          pending = cropPortrait(url);
+          portraitArt.set(id, pending);
+        }
+        return [id, await pending] as const;
+      }),
+    ).then((loaded) => {
+      if (cancelled) return;
+      const next = new Map<number, HTMLCanvasElement>();
+      for (const [id, canvas] of loaded) if (canvas !== null) next.set(id, canvas);
+      setArt(next);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [key]);
+  return art;
+}
+
+/**
+ * A face out of a whole-creature render: a square as wide as the creature,
+ * from the top of a tall one, or all of a wide one. The render's soft glow and
+ * particles are see-through enough to leave out of the measure.
+ */
+async function cropPortrait(url: string): Promise<HTMLCanvasElement | null> {
+  const image = new Image();
+  image.src = url;
+  try {
+    await image.decode();
+  } catch {
+    return null;
+  }
+  const w = image.naturalWidth;
+  const h = image.naturalHeight;
+  const probe = document.createElement('canvas');
+  probe.width = w;
+  probe.height = h;
+  const pctx = probe.getContext('2d', { willReadFrequently: true });
+  if (pctx === null || w === 0 || h === 0) return null;
+  pctx.drawImage(image, 0, 0);
+  const { data } = pctx.getImageData(0, 0, w, h);
+  let minX = w;
+  let minY = h;
+  let maxX = -1;
+  let maxY = -1;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      if (data[(y * w + x) * 4 + 3]! < 128) continue;
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
     }
   }
-  ctx.globalAlpha = 1;
+  if (maxX < 0) return null;
+  const bw = maxX - minX + 1;
+  const bh = maxY - minY + 1;
+  const side = Math.min(Math.max(bw, bh * 0.55) * 1.1, Math.max(w, h));
+  const cx = (minX + maxX) / 2;
+  const cy = bh > side ? minY + side * 0.45 : (minY + maxY) / 2;
+  const out = document.createElement('canvas');
+  out.width = PORTRAIT_PX;
+  out.height = PORTRAIT_PX;
+  const ctx = out.getContext('2d');
+  if (ctx === null) return null;
+  ctx.drawImage(image, cx - side / 2, cy - side / 2, side, side, 0, 0, PORTRAIT_PX, PORTRAIT_PX);
+  return out;
 }
 
 /**
@@ -1173,36 +1350,9 @@ function pullShapes(segments: Segment[], enemies: PositionTrack[]): PullShape[] 
     const votes = new Map<number, number>();
     for (const track of used) votes.set(track.home!.uiMapId, (votes.get(track.home!.uiMapId) ?? 0) + 1);
     const uiMapId = [...votes].sort((a, b) => b[1] - a[1])[0]![0];
-    const points = used
-      .filter((track) => track.home!.uiMapId === uiMapId)
-      .map((track): Point => [track.home!.x, track.home!.y]);
-    shapes.push({ segment, uiMapId, packs: packsOf(points) });
+    shapes.push({ segment, uiMapId, mobs: used.filter((track) => track.home!.uiMapId === uiMapId) });
   }
   return shapes;
-}
-
-/** Single-linkage clusters at `PACK_YARDS`, largest first. */
-function packsOf(points: Point[]): Point[][] {
-  const parent = points.map((_, index) => index);
-  const find = (i: number): number => {
-    while (parent[i] !== i) i = parent[i] = parent[parent[i]!]!;
-    return i;
-  };
-  for (let i = 0; i < points.length; i++) {
-    for (let j = i + 1; j < points.length; j++) {
-      const a = points[i]!;
-      const b = points[j]!;
-      if (Math.hypot(a[0] - b[0], a[1] - b[1]) <= PACK_YARDS) parent[find(i)] = find(j);
-    }
-  }
-  const groups = new Map<number, Point[]>();
-  points.forEach((point, index) => {
-    const root = find(index);
-    const group = groups.get(root);
-    if (group === undefined) groups.set(root, [point]);
-    else group.push(point);
-  });
-  return [...groups.values()].sort((a, b) => b.length - a.length);
 }
 
 /** The floor most of the living party is on at t, or null before anyone is seen. */
@@ -1279,37 +1429,6 @@ function inflate(hull: Point[], by: number): Point[] {
     }
   }
   return out;
-}
-
-/**
- * The shortest set of lines joining every point (Prim's). A chain pull's packs
- * come out joined in the order they lie along the corridor, where a star from
- * the largest pack would criss-cross the map.
- */
-function spanningTree(points: Point[]): Array<[Point, Point]> {
-  const links: Array<[Point, Point]> = [];
-  if (points.length < 2) return links;
-  const joined = [points[0]!];
-  const rest = points.slice(1);
-  while (rest.length > 0) {
-    let best = Infinity;
-    let from = 0;
-    let to = 0;
-    joined.forEach((a, i) =>
-      rest.forEach((b, j) => {
-        const distance = Math.hypot(a[0] - b[0], a[1] - b[1]);
-        if (distance < best) {
-          best = distance;
-          from = i;
-          to = j;
-        }
-      }),
-    );
-    const next = rest.splice(to, 1)[0]!;
-    links.push([joined[from]!, next]);
-    joined.push(next);
-  }
-  return links;
 }
 
 function centroid(points: Point[]): Point {

@@ -81,6 +81,7 @@ const DUNGEON: MdtDungeon = {
     name: `Creature ${index}`,
     count: 4,
     isBoss: false,
+    displayId: null,
     clones: [1, 2, 3].map((clone) => ({ index: clone, x: 0, y: 0, sublevel: 2, group: null })),
   })),
 };

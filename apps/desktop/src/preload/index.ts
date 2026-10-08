@@ -67,6 +67,8 @@ const api: DesktopApi = {
     ipcRenderer.invoke('mplus:spellDescriptions', spellIds) as Promise<Record<number, string>>,
   resolveNamedIcons: (names) =>
     ipcRenderer.invoke('mplus:namedIcons', names) as Promise<Record<string, string>>,
+  resolvePortraits: (displayIds) =>
+    ipcRenderer.invoke('mplus:portraits', displayIds) as Promise<Record<number, string>>,
   onLog: (handler) => subscribe(handlers.log, handler),
   onProgress: (handler) => subscribe(handlers.progress, handler),
   onAnalysis: (handler) => subscribe(handlers.analysis, handler),
