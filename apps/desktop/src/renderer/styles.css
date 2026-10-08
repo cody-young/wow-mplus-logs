@@ -952,11 +952,14 @@ button.badge-chips:hover:not(:disabled) { background: var(--panel-raised); borde
 @keyframes badge-settle { from { transform: translateY(-6px); opacity: 0; } to { transform: none; opacity: 1; } }
 
 /* Awards: the podium */
-.podium-wrap { position: relative; }
-.mvp-line { text-align: center; margin: 4px 0 10px; font-size: 18px; font-weight: 600; color: var(--boss); animation: badge-pop 0.6s cubic-bezier(0.2, 1.6, 0.4, 1); }
+/* Third, then second, then first, each step rising before its name pops; the MVP line and confetti follow. */
+.podium-wrap { position: relative; --podium-gap: 0.9s; --mvp-at: calc(var(--podium-gap) * 2 + 0.7s); }
+.mvp-line { text-align: center; margin: 4px 0 10px; font-size: 18px; font-weight: 600; color: var(--boss); animation: badge-pop 0.6s cubic-bezier(0.2, 1.6, 0.4, 1) var(--mvp-at) both; }
 .podium { display: flex; justify-content: center; align-items: flex-end; gap: 8px; }
-.podium-step { display: flex; flex-direction: column; align-items: center; gap: 6px; width: 150px; min-width: 0; }
-.podium-who { display: flex; align-items: center; gap: 5px; max-width: 100%; font-weight: 600; }
+.podium-step { display: flex; flex-direction: column; align-items: center; gap: 6px; width: 150px; min-width: 0; --at: 0s; }
+.podium-step.place-2 { --at: var(--podium-gap); }
+.podium-step.place-1 { --at: calc(var(--podium-gap) * 2); }
+.podium-who { display: flex; align-items: center; gap: 5px; max-width: 100%; font-weight: 600; animation: badge-pop 0.5s cubic-bezier(0.2, 1.6, 0.4, 1) calc(var(--at) + 0.35s) both; }
 .podium-block {
   display: flex;
   flex-direction: column;
@@ -968,11 +971,11 @@ button.badge-chips:hover:not(:disabled) { background: var(--panel-raised); borde
   background: var(--panel-raised);
   border: 1px solid var(--border);
   border-bottom: none;
-  animation: podium-rise 0.6s ease-out both;
+  animation: podium-rise 0.5s ease-out var(--at) both;
 }
 .place-1 .podium-block { height: 86px; background: linear-gradient(180deg, #4a3c1f, var(--panel-raised)); border-color: var(--boss); }
-.place-2 .podium-block { height: 62px; animation-delay: 0.15s; }
-.place-3 .podium-block { height: 44px; animation-delay: 0.3s; }
+.place-2 .podium-block { height: 62px; }
+.place-3 .podium-block { height: 44px; }
 .podium-place { font-size: 22px; font-weight: 700; color: var(--text); line-height: 1; }
 .place-1 .podium-place { color: var(--boss); }
 .podium-points { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }

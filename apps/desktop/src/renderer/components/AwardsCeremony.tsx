@@ -177,7 +177,10 @@ function BadgeTip({
   );
 }
 
-/** Second, first, third, the way a podium stands, then everyone else. */
+/**
+ * Second, first, third, the way a podium stands, then everyone else. The steps
+ * rise third, second, first, and the MVP line and confetti wait for first.
+ */
 function Podium({ awards }: { awards: Awards }): React.JSX.Element {
   const { standings, mvp } = awards;
   const order = [standings[1], standings[0], standings[2]].filter((entry): entry is MvpStanding => entry !== undefined);
@@ -189,7 +192,7 @@ function Podium({ awards }: { awards: Awards }): React.JSX.Element {
             key={i}
             style={{
               left: `${(i * 37) % 100}%`,
-              animationDelay: `${(i * 53) % 900}ms`,
+              animationDelay: `calc(var(--mvp-at) + ${(i * 53) % 900}ms)`,
               background: CONFETTI_COLORS[i % CONFETTI_COLORS.length],
               transform: `rotate(${(i * 47) % 360}deg)`,
             }}
@@ -249,8 +252,18 @@ function Podium({ awards }: { awards: Awards }): React.JSX.Element {
   );
 }
 
+/** Five points tops a category in a full group, so 5/4/3 are its gold, silver and bronze. */
+const POINT_MEDALS: Record<number, string> = { 5: '🥇', 4: '🥈', 3: '🥉' };
+
 function pointsTitle(entry: MvpStanding): string {
-  return entry.lines.map((line) => `${line.category}: ${line.points}`).join('\n') || 'No points';
+  return (
+    entry.lines
+      .map((line) => {
+        const medal = POINT_MEDALS[line.points];
+        return `${line.category}: ${line.points}${medal ? ` ${medal}` : ''}`;
+      })
+      .join('\n') || 'No points'
+  );
 }
 
 const CONFETTI_COLORS = ['#d4a24a', '#6ea8fe', '#e05c5c', '#5cc98a', '#c27ce0', '#f0e1a0'];
