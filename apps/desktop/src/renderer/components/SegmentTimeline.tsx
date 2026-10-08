@@ -1,5 +1,6 @@
 import { SegmentKind, type RunForces, type Segment } from '@mplus/analysis';
 
+import { segmentColours } from '../colours.js';
 import { clock, integer, percent } from '../format.js';
 
 interface Props {
@@ -59,6 +60,8 @@ function mobs(segment: Segment): string {
 export function SegmentTimeline({ segments, durationMs, forces, selectedId, onSelect }: Props): React.JSX.Element {
   const span = Math.max(durationMs, 1);
   const byId = new Map(segments.map((segment) => [segment.id, segment]));
+  // The map's colours, so a pull is the same pull in both.
+  const colours = segmentColours(segments);
   const bosses = pack(segments.filter((segment) => segment.kind === SegmentKind.BOSS), span * 0.0035);
   const pulls = pack(segments.filter((segment) => segment.kind === SegmentKind.PULL), span * 0.0035);
 
@@ -84,7 +87,15 @@ export function SegmentTimeline({ segments, durationMs, forces, selectedId, onSe
         key={segment.id}
         type="button"
         className={`block${boss ? ' boss' : ''}${tallied ? ' tallied' : ''}${selectedId === segment.id ? ' selected' : ''}`}
-        style={{ left: `${left}%`, width: `${width}%`, top: 2 + row * ROW_PITCH, height: BLOCK_H }}
+        style={
+          {
+            left: `${left}%`,
+            width: `${width}%`,
+            top: 2 + row * ROW_PITCH,
+            height: BLOCK_H,
+            '--tint': colours.get(segment.id),
+          } as React.CSSProperties
+        }
         onClick={() => onSelect(selectedId === segment.id ? null : segment.id)}
         title={
           `${boss ? 'Boss' : `Pull ${segment.pullNumber}`}: ${segment.label}\n` +

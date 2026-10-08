@@ -17,6 +17,10 @@
   --purge: #3987e5;
   --soothe: #d95926;
   --cleanse: #199e70;
+  /* How strongly a class or pull colour is laid down as a fill: muted, so a
+     row of them doesn't shout, but well short of washed out. Hover and
+     selection go to full strength. */
+  --tint-strength: 0.75;
   --row: 28px;
   font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   font-size: 14px;
@@ -166,8 +170,9 @@ button.primary:hover:not(:disabled) { background: #325894; }
   /* top and height come from the row the block was packed into. */
   border-radius: 3px;
   border: 1px solid transparent;
-  background: var(--pull);
-  opacity: 0.68;
+  /* --tint is the segment's own colour, the one the map draws it in. */
+  background: var(--tint, var(--pull));
+  opacity: var(--tint-strength);
   overflow: hidden;
   white-space: nowrap;
   font-size: 11px;
@@ -196,12 +201,9 @@ button.primary:hover:not(:disabled) { background: #325894; }
 /*
   `button.block`, not `.block`: a block is a button, and `button:hover:not(…)`
   outranks a lone class — so hovering a pull used to paint it the generic
-  button grey while a boss, matched by two classes, kept its gold. Hover is
-  the same colour at full strength, for both.
+  button grey. Hover keeps the block's own colour and adds the outline.
 */
-button.block:hover { opacity: 1; border-color: var(--text); background: var(--pull); }
-.block.boss { background: var(--boss); }
-button.block.boss:hover { background: var(--boss); }
+button.block:hover { opacity: 1; border-color: var(--text); background: var(--tint, var(--pull)); }
 .block.selected { opacity: 1; border-color: var(--text); }
 .axis { display: flex; justify-content: space-between; margin-top: 4px; font-size: 11px; color: var(--dim); font-variant-numeric: tabular-nums; }
 
@@ -286,16 +288,18 @@ tr.actor:hover td { background: var(--panel-raised); }
 .barcell { position: relative; overflow: hidden; }
 /* A gauge behind the name rather than a fixed-width stub: the column is now
    whatever the numeric columns leave over, so the bar has to scale with it. */
-.bar { position: absolute; left: 0; top: 0; height: 100%; border-radius: 2px; opacity: 0.4; }
+.bar { position: absolute; left: 0; top: 0; height: 100%; border-radius: 2px; opacity: var(--tint-strength); }
 .pname { overflow: hidden; text-overflow: ellipsis; }
-.barcell span { position: relative; z-index: 1; }
+/* Outlined, because the pale class colours (priest, rogue, monk) would
+   swallow light text without it, even muted. */
+.barcell span { position: relative; z-index: 1; text-shadow: 0 0 2px #000, 0 0 2px #000, 0 1px 1px #000; }
 tr.spell td { height: 24px; color: var(--muted); font-size: 13px; background: #13131b; }
-/* The same gauge on an ability row, dimmer and scaled to the player's own
-   biggest ability: an expanded row answers "what did this player's damage
-   consist of", which is a comparison among their abilities, not against the
-   party. Dimmer so the party-wide bars still read first. */
-tr.spell .bar { opacity: 0.26; }
-tr.spell:hover .bar { opacity: 0.42; }
+/* The same gauge on an ability row, scaled to the player's own biggest
+   ability: an expanded row answers "what did this player's damage consist
+   of", which is a comparison among their abilities, not against the party.
+   Dimmer so the party-wide bars still read first. */
+tr.spell .bar { opacity: calc(var(--tint-strength) * 0.65); }
+tr.spell:hover .bar { opacity: var(--tint-strength); }
 tr.spell:hover td { background: #191923; }
 tr.spell td.left { padding-left: 28px; }
 tr.spell .name { color: var(--text); }
@@ -842,7 +846,7 @@ button.link {
   text-decoration: underline; cursor: pointer; font: inherit;
 }
 button.link:hover:not(:disabled) { background: none; color: inherit; }
-.parse { font-weight: 600; font-size: 11px; margin-right: 8px; font-variant-numeric: tabular-nums; }
+.parse { font-weight: 600; font-variant-numeric: tabular-nums; }
 
 /* Stats */
 .stat-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }

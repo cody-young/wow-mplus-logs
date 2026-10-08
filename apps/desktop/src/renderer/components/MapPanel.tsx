@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { SegmentKind, TrackKind, mdtExportString, mdtRoute, positionAt, routeUid, toMdt } from '@mplus/analysis';
 import { MDT_CANVAS, MDT_TILES } from '@mplus/data';
 
+import { segmentColours } from '../colours.js';
 import { clock, integer, percent } from '../format.js';
 import { usePortraits } from '../icons.js';
 import { shortName, specOf } from '../specs.js';
@@ -153,7 +154,7 @@ export function MapPanel({ run, selectedSegment, onSelectSegment }: Props): Reac
   );
   const art = useMdtArt(useMdt ? run.mdt : null);
   const pulls = useMemo(() => pullShapes(run.segments, enemyTracks), [run.segments, enemyTracks]);
-  const colours = useMemo(() => pullColours(pulls), [pulls]);
+  const colours = useMemo(() => segmentColours(run.segments), [run.segments]);
   // Off MDT's map too: a floor that did not fit still has MDT's creatures on it.
   const models = useMemo(() => modelsOf(run.mdt), [run.mdt]);
   const displayIds = useMemo(
@@ -767,12 +768,12 @@ function MapCanvas({
       ctx.beginPath();
       outline.forEach(([x, y], index) => (index === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y)));
       ctx.closePath();
-      ctx.globalAlpha = (selected ? 0.4 : selectedSegment === null ? 0.2 : 0.07) * weight;
+      ctx.globalAlpha = (selected ? 0.4 : selectedSegment === null ? 0.28 : 0.18) * weight;
       ctx.fillStyle = tint;
       ctx.fill();
-      ctx.globalAlpha = selected ? 1 : selectedSegment === null ? 0.9 : 0.35;
+      ctx.globalAlpha = selected || selectedSegment === null ? 1 : 0.8;
       ctx.strokeStyle = selected ? colour('--text') : tint;
-      ctx.lineWidth = selected ? 2.5 : 1.5;
+      ctx.lineWidth = selected ? 2.5 : 2;
       ctx.stroke();
     }
     ctx.globalAlpha = 1;
@@ -784,7 +785,7 @@ function MapCanvas({
       drawMob(ctx, mob, radius(mob.boss), {
         art: mob.displayId === null ? null : (portraits.get(mob.displayId) ?? null),
         ring: left ? null : (colours.get(mob.segmentId!) ?? colour('--pull')),
-        alpha: left ? 0.6 : dim ? 0.5 : 1,
+        alpha: left ? 0.6 : dim ? 0.8 : 1,
         grey: left,
       });
     }
@@ -832,7 +833,7 @@ function MapCanvas({
       const boss = pull.segment.kind === SegmentKind.BOSS;
       const selected = pull.segment.id === selectedSegment;
       const dim = selectedSegment !== null && !selected;
-      ctx.globalAlpha = dim ? 0.45 : 1;
+      ctx.globalAlpha = dim ? 0.8 : 1;
       const label = boss ? '☠' : String(pull.segment.pullNumber);
       ctx.beginPath();
       ctx.arc(centre[0], centre[1], 9, 0, Math.PI * 2);
@@ -1040,17 +1041,6 @@ function drawMob(
   ctx.lineWidth = style.ring !== null ? 2 : 1;
   ctx.stroke();
   ctx.restore();
-}
-
-/**
- * A colour for every pull, the same on every floor. Each step is the golden
- * angle round the hue wheel, so pulls next to each other on the map, which
- * are next to each other in the key, never come out alike.
- */
-function pullColours(pulls: PullShape[]): ReadonlyMap<number, string> {
-  return new Map(
-    pulls.map((pull, index) => [pull.segment.id, `hsl(${Math.round((index * 137.508 + 200) % 360)}, 72%, 55%)`]),
-  );
 }
 
 function modelsOf(mdt: MdtPlacement | null): ReadonlyMap<number, Model> {

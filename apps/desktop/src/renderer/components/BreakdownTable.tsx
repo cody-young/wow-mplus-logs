@@ -20,7 +20,7 @@ interface Props {
    */
   defaultExpanded?: boolean;
   /**
-   * Warcraft Logs parses by actor index, drawn beside the rate. Only for the
+   * Warcraft Logs parses by actor index, in a column of their own. Only for the
    * whole key: a parse ranks the run, and beside one pull's numbers it would
    * read as that pull's.
    */
@@ -180,7 +180,7 @@ export function BreakdownTable({ report, mode, defaultExpanded = false, parses }
   const rate = mode === 'healing' ? 'HPS' : mode === 'taken' ? 'DTPS' : 'DPS';
   const columns = spellColumns(mode, report.durationMs);
   /** Span of the player table, which the expanded block sits across. */
-  const playerColumns = mode === 'done' ? 6 : 5;
+  const playerColumns = (mode === 'done' ? 6 : 5) + (parses === undefined ? 0 : 1);
 
   // Only what is on screen: a run has thousands of spell ids and the expanded
   // rows are a handful of them.
@@ -232,7 +232,8 @@ export function BreakdownTable({ report, mode, defaultExpanded = false, parses }
       <table className="breakdown players">
         <colgroup>
           <col />
-          <col style={{ width: parses === undefined ? 84 : 120 }} />
+          {parses === undefined ? null : <col style={{ width: 56 }} />}
+          <col style={{ width: 84 }} />
           <col style={{ width: 84 }} />
           <col style={{ width: 68 }} />
           <col style={{ width: 92 }} />
@@ -241,6 +242,7 @@ export function BreakdownTable({ report, mode, defaultExpanded = false, parses }
         <thead>
           <tr>
             <th className="left">Player</th>
+            {parses === undefined ? null : <th>Parse</th>}
             <th>{rate}</th>
             <th>Total</th>
             <th>Share</th>
@@ -274,10 +276,12 @@ export function BreakdownTable({ report, mode, defaultExpanded = false, parses }
                       <span className="spec">{spec.name}</span>
                     </span>
                   </td>
-                  <td>
-                    <ParseBadge parse={parses?.[actor.actorIndex]} />
-                    {short(actor.perSecond)}
-                  </td>
+                  {parses === undefined ? null : (
+                    <td>
+                      <ParseBadge parse={parses[actor.actorIndex]} />
+                    </td>
+                  )}
+                  <td>{short(actor.perSecond)}</td>
                   <td>{short(actor.total)}</td>
                   <td>{percent(actor.share)}</td>
                   <td style={{ color: 'var(--muted)' }}>{short(actor.wasted)}</td>
