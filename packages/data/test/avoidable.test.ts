@@ -50,7 +50,7 @@ test('a tank frontal is marked as one, and a ground effect is not', () => {
 });
 
 test("a burst's own debuff is an aura, not a damage id on the list", () => {
-  assert.deepEqual([...ownAuras()], [1308865]);
+  assert.deepEqual([...ownAuras()], [1308865, 1242869]);
   for (const aura of ownAuras()) assert.equal(avoidable(aura), undefined);
 });
 

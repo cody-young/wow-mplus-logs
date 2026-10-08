@@ -127,7 +127,12 @@ const DUNGEONS: readonly Dungeon[] = [
       { id: 1235795, name: 'Shattering Frostspike', why: 'Sentinel of Winter spike either side of the boss' },
       { id: 1247030, name: 'Poison Spear Volley', why: 'Grizzled Warbringer spear circles' },
       { id: 1247367, name: 'Earthquake', why: 'Loa Speaker Nanea puddle' },
-      { id: 1242887, name: 'Echoing Maul', why: "Nalorakk's echo landing on a marked spot" },
+      {
+        id: 1242887,
+        name: 'Echoing Maul',
+        unlessOwn: 1242869,
+        why: "Stood on another player's Echoing Maul mark. It marks three, and lands on each as the 4s mark comes off; across 14 keys 143 hits were on the marked and 4 on someone beside them",
+      },
       {
         id: 1255577,
         name: 'Spectral Slash',
