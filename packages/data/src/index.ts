@@ -51,6 +51,7 @@ export {
   type AvoidableSpell,
 } from './avoidable.js';
 export { buttonCount, isButton } from './buttons.js';
+export { castingCounts, channelMs, gcdMs } from './casting.js';
 export {
   Control,
   controlCount,

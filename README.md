@@ -351,8 +351,11 @@ nothing in the game is. A triggered strike has none of the three, because the
 talent that triggers it owns the rate. `scripts/spell-presses.mjs` reads those
 three columns out of `SpellCategories.db2`, `SpellCooldowns.db2` and
 `SpellCategory.db2` and writes `packages/data/src/buttons.ts`: 40k spells, ids
-only. The three downloads come to ~4MB, so unlike its sibling this one is cheap
-to re-run.
+only. It also writes `packages/data/src/casting.ts`, each spell's global
+cooldown and each channel's length, which the casting rebuild behind the
+cast badges uses to tell a proc from a press and to know a channel when it
+sees one; that takes `SpellMisc.db2` as well, a ~45MB download, where the
+button table alone needs ~4MB.
 
 Across two real logs it drops exactly the right rows and nothing else:
 Crusading Strikes, Charged Blast, Soul Fragment, a rogue's Fatebound Coin flip,
@@ -853,7 +856,7 @@ npm run report -- <log> [n]   # segments, breakdowns, interrupts and deaths
 npm run ui-smoke -- <log> [n] # server-render every view against a real run
 npm run shot -- <log> [--view deaths] [--death 0]   # screenshot a view
 npm run spell-effects         # rebuild the spell tables from Blizzard's DB2
-npm run spell-presses         # rebuild the button table from Blizzard's DB2
+npm run spell-presses         # rebuild the button and casting tables from Blizzard's DB2
 ```
 
 `ui-smoke` is how the UI is verified without launching Electron: it runs the real

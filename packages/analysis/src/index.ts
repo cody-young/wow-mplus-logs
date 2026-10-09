@@ -4,6 +4,7 @@
  * Portable like the parser: no Node builtins, so the same reports run in the
  * desktop app's utility process and in a browser worker.
  */
+export { castingReport, type CastBar, type CastingActor, type CastingReport } from './casting.js';
 export {
   abilityName,
   actorName,

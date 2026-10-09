@@ -88,6 +88,7 @@ const checkOnly = args.includes('--check');
 const keep = args.includes('--keep');
 
 const outButtons = fileURLToPath(new URL('../packages/data/src/buttons.ts', import.meta.url));
+const outCasting = fileURLToPath(new URL('../packages/data/src/casting.ts', import.meta.url));
 
 const build = flag('build') ?? (await liveBuild());
 
@@ -142,9 +143,18 @@ let frontier = 0;
   }
 }
 
+/**
+ * Spell id -> the global cooldown it triggers, in ms, for the casting table.
+ *
+ * A spell can have a row per difficulty, and only the base row (difficulty 0)
+ * is a player's: the others retune a boss ability for one mode.
+ */
+const gcds = new Map();
+
 {
   const { rows, at } = await table('SpellCooldowns', [
     'SpellID',
+    'DifficultyID',
     'StartRecoveryTime',
     'RecoveryTime',
     'CategoryRecoveryTime',
@@ -152,6 +162,8 @@ let frontier = 0;
   for (const fields of rows) {
     const id = Number(fields[at.SpellID]);
     if (id > frontier) frontier = id;
+    const gcd = Number(fields[at.StartRecoveryTime]);
+    if (gcd > 0 && (Number(fields[at.DifficultyID]) === 0 || !gcds.has(id))) gcds.set(id, gcd);
     if (Number(fields[at.StartRecoveryTime]) > 0) {
       buttons.add(id);
       reasons.gcdTime++;
@@ -166,6 +178,64 @@ let frontier = 0;
     }
   }
 }
+
+/**
+ * Channeled spells, and how long a channel runs before haste.
+ *
+ * The flag is one of two bits in the second attribute word (the game's
+ * SPELL_ATTR1_CHANNELED_1 and _2; either makes a channel), and the length is
+ * the spell's duration, by way of SpellDuration. Read off the data rather than
+ * trusted from memory: every channel in CHANNELS below carries a bit, and none
+ * of the hard casts and instants does.
+ *
+ * The combat log needs this because it says when a channel starts — a
+ * SPELL_CAST_SUCCESS, the same as an instant — and nothing at all about how
+ * long the player then stood there channeling it.
+ */
+const CHANNELED = 0x4 | 0x40;
+const CHANNELS = [
+  { id: 15407, why: 'Mind Flay' },
+  { id: 740, why: 'Tranquility' },
+  { id: 113656, why: 'Fists of Fury' },
+  { id: 356995, why: 'Disintegrate' },
+  { id: 257044, why: 'Rapid Fire' },
+  { id: 473728, why: 'Void Ray — 3s, clipped to 1.5s in a real key' },
+];
+const NOT_CHANNELS = [
+  { id: 116, why: 'Frostbolt — a hard cast' },
+  { id: 1329, why: 'Mutilate — an instant' },
+  { id: 205448, why: 'Void Bolt — an instant' },
+];
+const channels = new Map();
+{
+  const durations = new Map();
+  {
+    const { rows, at } = await table('SpellDuration', ['ID', 'Duration']);
+    for (const fields of rows) durations.set(Number(fields[at.ID]), Math.max(0, Number(fields[at.Duration])));
+  }
+  // The biggest of the downloads, at ~45MB, for one bit and one index a spell.
+  const { rows, at } = await table('SpellMisc', ['SpellID', 'DifficultyID', 'Attributes_1', 'DurationIndex']);
+  for (const fields of rows) {
+    if ((Number(fields[at.Attributes_1]) & CHANNELED) === 0) continue;
+    const id = Number(fields[at.SpellID]);
+    // A player's channel is a press, so it is on the GCD. Without this the
+    // bits also bring in twenty thousand creature spells and the triggered
+    // halves of channels, and a channel nobody can press needs no length.
+    if (!gcds.has(id)) continue;
+    if (Number(fields[at.DifficultyID]) !== 0 && channels.has(id)) continue;
+    channels.set(id, durations.get(Number(fields[at.DurationIndex])) ?? 0);
+  }
+}
+const wrongChannel = [
+  ...CHANNELS.filter(({ id }) => !channels.has(id)).map(({ id, why }) => `${id} is a channel and the bit missed it: ${why}`),
+  ...NOT_CHANNELS.filter(({ id }) => channels.has(id)).map(({ id, why }) => `${id} is not a channel and the bit kept it: ${why}`),
+];
+for (const line of wrongChannel) console.error(line);
+if (wrongChannel.length > 0) {
+  console.error('The attribute word moved or the bits changed meaning. Fix it before committing.');
+  process.exit(1);
+}
+console.log(`${gcds.size} spells on a global cooldown, ${channels.size} channels`);
 
 const ids = [...buttons].sort((a, b) => a - b);
 console.log(
@@ -189,19 +259,24 @@ if (wrongPress.length > 0 || wrongProc.length > 0) {
   process.exit(1);
 }
 
-const source = render(ids, frontier, reasons, build);
+const outputs = [
+  [outButtons, render(ids, frontier, reasons, build)],
+  [outCasting, renderCasting(gcds, channels, frontier, build)],
+];
 if (checkOnly) {
-  const have = existsSync(outButtons) ? readFileSync(outButtons, 'utf8') : '';
-  if (have === source) {
+  const stale = outputs.filter(([path, source]) => (existsSync(path) ? readFileSync(path, 'utf8') : '') !== source);
+  if (stale.length === 0) {
     console.log(`up to date for build ${build}`);
     process.exit(0);
   }
-  console.error(`${outButtons} is out of date for build ${build}`);
+  for (const [path] of stale) console.error(`${path} is out of date for build ${build}`);
   console.error('Run: node scripts/spell-presses.mjs');
   process.exit(1);
 }
-writeFileSync(outButtons, source);
-console.log(`wrote ${outButtons} (${(source.length / 1024).toFixed(1)}KB) for build ${build}`);
+for (const [path, source] of outputs) {
+  writeFileSync(path, source);
+  console.log(`wrote ${path} (${(source.length / 1024).toFixed(1)}KB) for build ${build}`);
+}
 
 async function liveBuild() {
   const response = await fetch('https://wago.tools/api/builds');
@@ -373,6 +448,118 @@ export function isButton(spellId: number): boolean {
 export function buttonCount(): number {
   table ??= decode();
   return table.size;
+}
+`;
+}
+
+/**
+ * The casting table as a module: each spell's global cooldown, and each
+ * channel's length.
+ *
+ * Same delta encoding as the button table, with the value after a `~` where
+ * there is one. 1.5s is three in four of the GCDs, so it is the default and
+ * goes unwritten; a channel always writes its length, 0 where the data has
+ * none (it runs until something stops it).
+ */
+function renderCasting(gcds, channels, frontier, version) {
+  const encode = (map, fallback) => {
+    let previous = 0;
+    return [...map.keys()]
+      .sort((a, b) => a - b)
+      .map((id) => {
+        const delta = (id - previous).toString(36);
+        previous = id;
+        const value = map.get(id);
+        return value === fallback ? delta : `${delta}~${value.toString(36)}`;
+      })
+      .join('.');
+  };
+  const counts = new Map();
+  for (const gcd of gcds.values()) counts.set(gcd, (counts.get(gcd) ?? 0) + 1);
+  const common = [...counts]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 4)
+    .map(([gcd, count]) => ` *   ${String(count).padStart(6)}  at ${gcd}ms`);
+  const witnesses = CHANNELS.map(({ id, why }) => ` *   ${String(id).padStart(7)}  ${why}, ${channels.get(id)}ms`);
+  return `/**
+ * How long a cast holds a player up: each spell's global cooldown, and each
+ * channel's length. The two facts Active % needs and the combat log lacks.
+ *
+ * GENERATED — do not edit. Rebuild with \`node scripts/spell-presses.mjs\`.
+ * Built from SpellCooldowns.db2, SpellMisc.db2 and SpellDuration.db2, retail
+ * build ${version}, via wago.tools.
+ *
+ * The log says when a cast began and ended if it had a cast bar. An instant
+ * is one SPELL_CAST_SUCCESS, and nothing says whether it put the player on a
+ * global cooldown — an interrupt and a trinket do not, a Riptide does — or
+ * for how long. A channel opens with the same single row and says nothing of
+ * how long it ran. Both answers are in the game's data.
+ *
+ * These are base values, before haste and before the spec passives that
+ * shorten a whole class's GCD: Tiger Palm reads 1.5s here and is 1s in a
+ * Windwalker's hands. Active time measures the GCD a player actually had from
+ * their own casting, and uses these to know which casts had one at all.
+ *
+ * ${gcds.size} spells on a global cooldown, most commonly:
+ *
+${common.join('\n')}
+ *
+ * ${channels.size} channels, among them:
+ *
+${witnesses.join('\n')}
+ *
+ * Only ids and milliseconds are stored: no names, no descriptions, no art.
+ */
+
+const GCDS =
+  '${chunk(encode(gcds, 1500))}';
+
+const CHANNELS =
+  '${chunk(encode(channels, -1))}';
+
+/** The highest spell id this build had. See buttons.ts. */
+const FRONTIER = ${frontier};
+
+let gcdTable: Map<number, number> | null = null;
+let channelTable: Map<number, number> | null = null;
+
+function decode(text: string, fallback: number): Map<number, number> {
+  const built = new Map<number, number>();
+  let id = 0;
+  for (const entry of text.split('.')) {
+    const tilde = entry.indexOf('~');
+    id += parseInt(tilde < 0 ? entry : entry.slice(0, tilde), 36);
+    built.set(id, tilde < 0 ? fallback : parseInt(entry.slice(tilde + 1), 36));
+  }
+  return built;
+}
+
+/**
+ * The global cooldown a spell triggers, in ms, before haste. 0 for a spell
+ * off the GCD — and for one newer than this table: a new proc read as a 1.5s
+ * press would fill a player's whole key with casting, where a new button read
+ * as off the GCD costs them a sliver of it until the table is rebuilt.
+ */
+export function gcdMs(spellId: number): number {
+  if (spellId > FRONTIER) return 0;
+  gcdTable ??= decode(GCDS, 1500);
+  return gcdTable.get(spellId) ?? 0;
+}
+
+/**
+ * Whether the spell is channeled, and for how long before haste: the length
+ * in ms, 0 for a channel the data gives no length, or -1 for no channel.
+ */
+export function channelMs(spellId: number): number {
+  channelTable ??= decode(CHANNELS, -1);
+  return channelTable.get(spellId) ?? -1;
+}
+
+/** Table sizes, for the test, which asserts neither is empty. */
+export function castingCounts(): { gcds: number; channels: number } {
+  gcdTable ??= decode(GCDS, 1500);
+  channelTable ??= decode(CHANNELS, -1);
+  return { gcds: gcdTable.size, channels: channelTable.size };
 }
 `;
 }

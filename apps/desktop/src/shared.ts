@@ -11,6 +11,7 @@ import type {
   AvoidableHit,
   AvoidableReport,
   BreakdownReport,
+  CastingReport,
   ControlApplication,
   ControlReport,
   DeathReport,
@@ -39,6 +40,7 @@ export type {
   AvoidableHit,
   AvoidableReport,
   BreakdownReport,
+  CastingReport,
   ControlApplication,
   ControlReport,
   DeathReport,
@@ -81,6 +83,8 @@ export interface RunAnalysis {
   damage: BreakdownReport;
   taken: BreakdownReport;
   healing: BreakdownReport;
+  /** What each player pressed over the key, and every cast bar: for the badges. */
+  casting: CastingReport;
   deaths: DeathReport[];
   /**
    * Every interrupt pressed and every cast stopped, as two flat lists.

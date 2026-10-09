@@ -17,6 +17,7 @@ import { parentPort } from 'node:worker_threads';
 import {
   avoidableReport,
   buildSegments,
+  castingReport,
   contextFor,
   crowdControlReport,
   damageReport,
@@ -107,6 +108,7 @@ function analyze(active: LogSession, run: Run, live: boolean): RunAnalysis {
     damage: damageReport(context, segments),
     taken: damageReport(context, segments, { direction: 'taken' }),
     healing: healingReport(context, segments),
+    casting: castingReport(context, segments),
     deaths: deathReports(context, segments),
     interrupts: interruptReport(context, segments),
     control: crowdControlReport(context, segments),

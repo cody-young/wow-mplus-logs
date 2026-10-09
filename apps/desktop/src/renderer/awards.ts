@@ -204,6 +204,22 @@ const PARANOID_SHARE = 0.25;
 const LUCK_MIN_RATIO = 1.15;
 const LUCK_MIN_EXPECTED = 10;
 
+/**
+ * Cast bars it takes to be judged on giving up on them, and the share of them
+ * given up it takes to be a roast. Across twenty keys a hard caster gave up on
+ * 1 to 11% of 150 to 800 bars, and most keys' worst was 8 to 10%, so it takes
+ * more than that to be more than the worst of five. A melee's handful of bars
+ * says nothing.
+ */
+const COMMITMENT_MIN_BARS = 100;
+const COMMITMENT_MIN_SHARE = 0.1;
+
+/**
+ * Presses a minute it takes for Button Masher's sillier name. Most of a party
+ * runs 30 to 45; a tank or a feral at 55 to 72.
+ */
+const MASHER_GAP_APM = 60;
+
 /** How long a death has to take, from the first hit in its window, for a heal to have had a chance. */
 const SLOW_DEATH_MS = 5000;
 
@@ -355,6 +371,35 @@ export function awardsFor(run: RunAnalysis): Awards | null {
   );
   const percent = (fraction: number): string => `${Math.round(fraction * 100)}%`;
 
+  // Buttons a minute, over the key.
+  const minutes = Math.max(run.casting.durationMs / 60_000, 1 / 60);
+  const casting = new Map(run.casting.actors.map((entry) => [entry.actorIndex, entry]));
+  const apm = new Map(run.casting.actors.map((entry) => [entry.actorIndex, entry.presses / minutes]));
+  // Casts given up on, as a share of the cast bars they had: a demonology
+  // warlock has five times a shaman's bars, and five times the chances. Not
+  // channels, which are clipped on purpose.
+  const barsOf = (index: number): number => casting.get(index)?.bars.filter((bar) => !bar.channel).length ?? 0;
+  const abandoned = new Map(
+    run.casting.actors.map((entry) => {
+      const bars = barsOf(entry.actorIndex);
+      return [entry.actorIndex, bars >= COMMITMENT_MIN_BARS ? entry.cancelled / bars : 0];
+    }),
+  );
+  // Killed by something avoidable while a cast was still going: the cast
+  // began before the blow, and the death ended it. Only deaths the run counts,
+  // so a raid's wipe is not a field of martyrs.
+  const counted = cutoff === null ? run.deaths : run.deaths.slice(0, cutoff);
+  const martyrdoms = run.avoidable.covered
+    ? run.avoidable.hits.filter((hit) => {
+        if (!hit.fatal) return false;
+        if (!counted.some((death) => death.actorIndex === hit.actorIndex && death.ts >= hit.ts)) return false;
+        return (casting.get(hit.actorIndex)?.bars ?? []).some(
+          (bar) => bar.died && bar.start <= hit.ts && hit.ts <= bar.end,
+        );
+      })
+    : [];
+  const martyr = count(martyrdoms, (hit) => hit.actorIndex);
+
   const candidates: Badge[] = [];
   /**
    * A badge, if anyone earns it. `values` and `best` decide the winners among
@@ -472,6 +517,29 @@ export function awardsFor(run: RunAnalysis): Awards | null {
     'most',
     (index) => `${plural(lockouts.get(index) ?? 0, 'cast')} cut off`,
   );
+  badge(
+    { key: 'rather-die', title: "I'd Rather Die", icon: '⚰️', roast: true, blurb: 'Died to avoidable damage rather than stop casting.' },
+    martyr,
+    'most',
+    (index) => {
+      const n = martyr.get(index) ?? 0;
+      const last = martyrdoms.filter((hit) => hit.actorIndex === index).at(-1);
+      return last === undefined ? plural(n, 'death') : `${plural(n, 'death')} mid-cast, last to ${last.spellName}`;
+    },
+  );
+  badge(
+    { key: 'commitment', title: 'Commitment Issues', icon: '💔', roast: true, blurb: 'Gave up on the most casts partway through.' },
+    abandoned,
+    'most',
+    (index) => {
+      const bars = barsOf(index);
+      return bars < COMMITMENT_MIN_BARS ? '—' : `${integer(casting.get(index)?.cancelled ?? 0)} of ${plural(bars, 'cast')} abandoned`;
+    },
+    {
+      eligible: (index) => (abandoned.get(index) ?? 0) >= COMMITMENT_MIN_SHARE,
+      gap: { title: 'Runaway Bride', blurb: 'Abandoned casts twice as often as anyone else.', times: 2 },
+    },
+  );
   // Among the rest of the party: taking hits is the tank's job.
   badge(
     { key: 'threat', title: "I'm a Threat", icon: '🎯', roast: true, blurb: 'Took the most melee hits of anyone but the tank.' },
@@ -573,6 +641,13 @@ export function awardsFor(run: RunAnalysis): Awards | null {
     'most',
     (index) => plural(cc.get(index) ?? 0, 'cast'),
     { gap: { title: 'Medusa', blurb: 'Pressed twice the crowd control of anyone else.', times: 2, min: 8 } },
+  );
+  badge(
+    { key: 'apm', title: 'Button Masher', icon: '🎹', roast: false, blurb: 'Pressed the most buttons a minute.' },
+    apm,
+    'most',
+    (index) => `${integer(Math.round(apm.get(index) ?? 0))} APM`,
+    { gap: { title: 'Pro Gamer', blurb: 'Pressed half again as many buttons a minute as anyone else.', times: 1.5, min: MASHER_GAP_APM } },
   );
   badge(
     { key: 'kicks', title: 'Kick Machine', icon: '🦵', roast: false, blurb: 'Stopped the most casts.' },
