@@ -858,9 +858,7 @@ button.link {
 button.link:hover:not(:disabled) { background: none; color: inherit; }
 .parse { font-weight: 600; font-variant-numeric: tabular-nums; }
 
-/* Stats */
-.stat-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
-.stat-card { background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 12px 14px; }
+/* Awards tab */
 .stat-title {
   margin: 0 0 4px;
   font-size: 13px;
@@ -868,21 +866,7 @@ button.link:hover:not(:disabled) { background: none; color: inherit; }
   letter-spacing: 0.6px;
   color: var(--boss);
 }
-.stat-rows { list-style: none; margin: 0; padding: 0; }
-.stat-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 80px 36px;
-  align-items: center;
-  gap: 8px;
-  height: var(--row);
-}
-.stat-row.zero .pname, .stat-row.zero .stat-value { color: var(--dim) !important; }
 .stat-crown { color: var(--boss); font-size: 13px; }
-.stat-bar { height: 6px; background: var(--panel-raised); border-radius: 3px; overflow: hidden; }
-.stat-bar > span { display: block; height: 100%; background: var(--muted); border-radius: 3px; }
-.stat-row.leader .stat-bar > span { background: var(--boss); }
-.stat-value { text-align: right; font-variant-numeric: tabular-nums; }
-.stat-cards { margin-top: 14px; }
 
 /* Awards: the header chips */
 button.badge-chips {

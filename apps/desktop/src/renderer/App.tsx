@@ -601,7 +601,6 @@ export function App(): React.JSX.Element {
               ) : shown === 'stats' ? (
                 <StatsPanel
                   key={run.runId}
-                  stats={stats}
                   party={partyOf(run)}
                   awards={awards}
                   autoplay={!celebrated.current.has(run.runId)}
