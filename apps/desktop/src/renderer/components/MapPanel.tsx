@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import { SegmentKind, TrackKind, mdtExportString, mdtRoute, positionAt, routeUid, toMdt } from '@mplus/analysis';
-import { MDT_CANVAS, MDT_TILES } from '@mplus/data';
+import { MDT_CANVAS, MDT_TILES, type MdtEnemy } from '@mplus/data';
 
 import { segmentColours } from '../colours.js';
-import { clock, integer, percent } from '../format.js';
+import { clock, integer, percent, short } from '../format.js';
 import { usePortraits } from '../icons.js';
 import { shortName, specOf } from '../specs.js';
 import { partyOf } from './RunRow.js';
@@ -83,6 +83,29 @@ interface MobIcon {
   boss: boolean;
   /** The pull that killed it, or null for a spawn left standing. */
   segmentId: number | null;
+  /** The log's enemy, or null for a spawn left standing. */
+  track: PositionTrack | null;
+  /** MDT's spawn, when the icon stands on one. */
+  spawn: Spawn | null;
+}
+
+interface Spawn {
+  enemy: MdtEnemy;
+  /** MDT's pack number, or null for a spawn MDT does not group. */
+  group: number | null;
+}
+
+/** An enemy under the pointer, in canvas px. */
+interface EnemyHover {
+  x: number;
+  /** The top and bottom of its icon, which the tip sits above or below. */
+  top: number;
+  bottom: number;
+  boss: boolean;
+  track: PositionTrack | null;
+  spawn: Spawn | null;
+  /** True for a dot drawn where the enemy stands at the playhead, rather than where it started. */
+  live: boolean;
 }
 
 /** One pull's outline on a floor, in canvas px. */
@@ -129,6 +152,8 @@ const MAX_ZOOM = 8;
 const ZOOM_STEP = 1.25;
 /** How far the pointer moves, in px, before a press on the map is a drag rather than a click. */
 const DRAG_PX = 4;
+/** The least radius, in px, a live enemy dot answers a hover in, since the dot itself is small. */
+const LIVE_HIT_PX = 7;
 
 export function MapPanel({ run, selectedSegment, onSelectSegment }: Props): React.JSX.Element {
   const { positions } = run;
@@ -675,7 +700,7 @@ function MapCanvas({
     const sublevel = floor.fit?.sublevel ?? null;
     const mobs: MobIcon[] = [];
     // On MDT's map, a kill placed on a spawn is drawn on it.
-    const spawned = new Map<number, Point>();
+    const spawned = new Map<number, { at: Point; spawn: Spawn }>();
     if (mdt !== null && sublevel !== null) {
       const killed = new Map(mdt.matches.map((match) => [`${match.enemyIndex}:${match.cloneIndex}`, match.actor]));
       for (const enemy of mdt.dungeon.enemies) {
@@ -684,8 +709,19 @@ function MapCanvas({
           // MDT's y points up from the canvas top; the plane's v points down.
           const at = frame.planePx(clone.x, -clone.y);
           const actor = killed.get(`${enemy.index}:${clone.index}`);
-          if (actor !== undefined) spawned.set(actor, at);
-          else mobs.push({ x: at[0], y: at[1], displayId: enemy.displayId, boss: enemy.isBoss, segmentId: null });
+          const spawn = { enemy, group: clone.group };
+          if (actor !== undefined) spawned.set(actor, { at, spawn });
+          else {
+            mobs.push({
+              x: at[0],
+              y: at[1],
+              displayId: enemy.displayId,
+              boss: enemy.isBoss,
+              segmentId: null,
+              track: null,
+              spawn,
+            });
+          }
         }
       }
     }
@@ -694,10 +730,19 @@ function MapCanvas({
       if (pull.uiMapId !== floor.uiMapId) continue;
       const corners: Point[] = [];
       const points = pull.mobs.map((track): Point => {
-        const at = spawned.get(track.actor) ?? frame.px(track.home!.x, track.home!.y);
+        const placed = spawned.get(track.actor);
+        const at = placed?.at ?? frame.px(track.home!.x, track.home!.y);
         const model = models.get(track.npcId);
         const boss = model?.boss ?? false;
-        mobs.push({ x: at[0], y: at[1], displayId: model?.displayId ?? null, boss, segmentId: pull.segment.id });
+        mobs.push({
+          x: at[0],
+          y: at[1],
+          displayId: model?.displayId ?? null,
+          boss,
+          segmentId: pull.segment.id,
+          track,
+          spawn: placed?.spawn ?? null,
+        });
         // The outline goes round the icons, not their centres, so a boss's
         // larger icon is inside it too.
         const r = radius(boss);
@@ -716,6 +761,7 @@ function MapCanvas({
     () => new Set(pulls.filter((pull) => pull.segment.kind === SegmentKind.BOSS).map((pull) => pull.segment.id)),
     [pulls],
   );
+  const segments = useMemo(() => new Map(pulls.map((pull) => [pull.segment.id, pull.segment])), [pulls]);
 
   /**
    * The parts that do not move with the playhead, drawn once per floor and
@@ -809,16 +855,12 @@ function MapCanvas({
 
     // Enemies alive at t: engaged, and neither dead nor gone quiet.
     for (const track of enemyTracks) {
-      const n = track.ts.length;
-      if (n === 0 || track.ts[0]! > t) continue;
-      const died = track.deaths[0];
-      if (died !== undefined ? died <= t : track.ts[n - 1]! + ENEMY_LINGER_MS < t) continue;
-      const at = positionAt(track, t);
-      if (at === null || at.uiMapId !== floor.uiMapId) continue;
+      const at = livePosition(track, t, floor.uiMapId);
+      if (at === null) continue;
       const [x, y] = frame.px(at.x, at.y);
       const boss = bosses.has(track.segmentId);
       ctx.beginPath();
-      ctx.arc(x, y, boss ? 6 : 4, 0, Math.PI * 2);
+      ctx.arc(x, y, liveRadius(boss), 0, Math.PI * 2);
       ctx.fillStyle = colours.get(track.segmentId) ?? colour('--danger');
       ctx.globalAlpha = 0.95;
       ctx.fill();
@@ -914,7 +956,43 @@ function MapCanvas({
     [hulls],
   );
 
-  const [hover, setHover] = useState<Segment | null>(null);
+  /**
+   * The enemy under a point: a live dot first, since they are drawn on top,
+   * then the icon drawn last, which is the one on top where icons overlap.
+   */
+  const enemyAt = useCallback(
+    (x: number, y: number): EnemyHover | null => {
+      if (frame === null) return null;
+      let best: EnemyHover | null = null;
+      let bestDistance = Infinity;
+      for (const track of enemyTracks) {
+        const at = livePosition(track, t, floor.uiMapId);
+        if (at === null) continue;
+        const [px, py] = frame.px(at.x, at.y);
+        const boss = bosses.has(track.segmentId);
+        const r = liveRadius(boss);
+        const distance = Math.hypot(px - x, py - y);
+        if (distance > Math.max(r, LIVE_HIT_PX) || distance >= bestDistance) continue;
+        bestDistance = distance;
+        best = { x: px, top: py - r, bottom: py + r, boss, track, spawn: null, live: true };
+      }
+      if (best !== null) return best;
+      for (let i = mobs.length - 1; i >= 0; i--) {
+        const mob = mobs[i]!;
+        const r = radius(mob.boss);
+        if (Math.hypot(mob.x - x, mob.y - y) > r) continue;
+        return { x: mob.x, top: mob.y - r, bottom: mob.y + r, boss: mob.boss, track: mob.track, spawn: mob.spawn, live: false };
+      }
+      return null;
+    },
+    [frame, enemyTracks, t, floor.uiMapId, bosses, mobs, radius],
+  );
+
+  // Kept as the pointer rather than as what is under it, so a dot that walks
+  // under a still pointer during a replay, or out from under it, is followed.
+  const [pointer, setPointer] = useState<Point | null>(null);
+  const hover = pointer === null ? null : pullAt(...pointer);
+  const enemy = pointer === null ? null : enemyAt(...pointer);
   const local = (event: React.MouseEvent<HTMLCanvasElement>): [number, number] => {
     const rect = event.currentTarget.getBoundingClientRect();
     return [event.clientX - rect.left, event.clientY - rect.top];
@@ -935,9 +1013,15 @@ function MapCanvas({
             style={{
               width: frame.width,
               height: frame.height,
-              cursor: dragging ? 'grabbing' : hover !== null ? 'pointer' : zoom !== null ? 'grab' : 'default',
+              cursor: dragging
+                ? 'grabbing'
+                : hover !== null || enemy?.track != null
+                  ? 'pointer'
+                  : zoom !== null
+                    ? 'grab'
+                    : 'default',
             }}
-            title={hover !== null && !dragging ? pullTitle(hover, forcesRequired) : ''}
+            title={hover !== null && enemy === null && !dragging ? pullTitle(hover, forcesRequired) : ''}
             onPointerDown={(event) => {
               dragged.current = false;
               if (zoom === null || event.button !== 0) return;
@@ -953,7 +1037,7 @@ function MapCanvas({
               if (!start.moved) {
                 start.moved = true;
                 setDragging(true);
-                setHover(null);
+                setPointer(null);
               }
               setZoom(clampZoom(frame.base, { ...zoom, u: start.u - dx / frame.scale, v: start.v - dy / frame.scale }));
             }}
@@ -967,21 +1051,34 @@ function MapCanvas({
             }}
             onMouseMove={(event) => {
               if (drag.current?.moved) return;
-              setHover(pullAt(...local(event)));
+              setPointer(local(event));
             }}
-            onMouseLeave={() => setHover(null)}
+            onMouseLeave={() => setPointer(null)}
             onClick={(event) => {
               if (dragged.current) return;
-              const segment = pullAt(...local(event));
+              // An enemy picks its own pull, which a dragged one may stand outside of.
+              const at = local(event);
+              const own = enemyAt(...at)?.track?.segmentId;
+              const segment = (own === undefined ? undefined : segments.get(own)) ?? pullAt(...at);
               if (segment === null) return;
               onSelectSegment(segment.id === selectedSegment ? null : segment.id);
             }}
             onDoubleClick={(event) => {
               // A double click on empty map zooms in there; on a pull it is two clicks.
               const at = local(event);
-              if (pullAt(...at) === null) zoomAbout(ZOOM_STEP * ZOOM_STEP, ...at);
+              if (pullAt(...at) === null && enemyAt(...at) === null) zoomAbout(ZOOM_STEP * ZOOM_STEP, ...at);
             }}
           />
+          {enemy !== null && !dragging ? (
+            <EnemyTip
+              hover={enemy}
+              t={t}
+              width={frame.width}
+              segment={enemy.track === null ? null : (segments.get(enemy.track.segmentId) ?? null)}
+              colours={colours}
+              forcesRequired={forcesRequired}
+            />
+          ) : null}
           <div className="map-zoom" aria-label="Zoom">
             <button
               type="button"
@@ -1041,6 +1138,104 @@ function drawMob(
   ctx.lineWidth = style.ring !== null ? 2 : 1;
   ctx.stroke();
   ctx.restore();
+}
+
+/**
+ * What is known of one enemy: its pull, what it was worth, its health, and
+ * when it was fought. A spawn the route skipped has only what MDT says of it.
+ */
+function EnemyTip({
+  hover,
+  t,
+  width,
+  segment,
+  colours,
+  forcesRequired,
+}: {
+  hover: EnemyHover;
+  t: number;
+  /** The map's width, which the tip is kept inside. */
+  width: number;
+  segment: Segment | null;
+  colours: ReadonlyMap<number, string>;
+  forcesRequired: number;
+}): React.JSX.Element {
+  const tip = useRef<HTMLDivElement>(null);
+  const [place, setPlace] = useState({ nudge: 0, below: false });
+  // Centred above the enemy, slid back inside the map at its edges, and below
+  // the enemy when it is too near the top for the tip to fit over it.
+  useLayoutEffect(() => {
+    const element = tip.current;
+    if (element === null) return;
+    const w = element.offsetWidth;
+    const h = element.offsetHeight;
+    const nudge = Math.min(Math.max(hover.x, w / 2), Math.max(width - w / 2, w / 2)) - hover.x;
+    const below = hover.top - h - 6 < 0;
+    setPlace((current) => (current.nudge === nudge && current.below === below ? current : { nudge, below }));
+  }, [hover.x, hover.top, width]);
+
+  const { track, spawn } = hover;
+  const name = track?.name ?? spawn?.enemy.name ?? 'Unknown enemy';
+  const group = track === null ? undefined : segment?.roster.find((candidate) => candidate.npcId === track.npcId);
+  const died = track?.deaths[0];
+  const share = (count: number): string =>
+    forcesRequired > 0 ? `${integer(count)} (${percent(count / forcesRequired)})` : integer(count);
+  // A kill's worth is what the forces table gave it; a skipped spawn's is MDT's.
+  const count = track === null ? (spawn?.enemy.count ?? 0) : died !== undefined ? (group?.forcesEach ?? 0) : 0;
+  const hp = track !== null && hover.live ? hpAt(track, t) : null;
+  const maxHp = group?.maxHp ?? 0;
+
+  return (
+    <div
+      ref={tip}
+      className={`tip${place.below ? ' below' : ''}`}
+      style={{ left: hover.x + place.nudge, top: place.below ? hover.bottom : hover.top }}
+      role="tooltip"
+    >
+      <div className="tip-body">
+        <strong>
+          {name}
+          {hover.boss ? <span className="dim"> · boss</span> : null}
+        </strong>
+        {segment !== null ? (
+          <span style={{ color: colours.get(segment.id) }}>
+            {segment.kind === SegmentKind.BOSS ? segment.label : `Pull ${segment.pullNumber} — ${segment.label}`}
+          </span>
+        ) : track === null ? (
+          <span className="dim">
+            Not pulled{spawn?.group != null ? ` · MDT pack ${spawn.group}` : ''}
+          </span>
+        ) : null}
+        <dl className="tip-rows">
+          {count > 0 ? (
+            <>
+              <dt>Forces</dt>
+              <dd>{share(count)}</dd>
+            </>
+          ) : null}
+          {hp !== null ? (
+            <>
+              <dt>Health</dt>
+              <dd>{maxHp > 0 ? `${short((maxHp * hp) / 100)} · ${hp}%` : `${hp}%`}</dd>
+            </>
+          ) : maxHp > 0 ? (
+            <>
+              <dt>Max health</dt>
+              <dd>{short(maxHp)}</dd>
+            </>
+          ) : null}
+          {track !== null && track.ts.length > 0 ? (
+            <>
+              <dt>Engaged</dt>
+              <dd>{clock(track.ts[0]!)}</dd>
+              <dt>Died</dt>
+              <dd>{died !== undefined ? clock(died) : '—'}</dd>
+            </>
+          ) : null}
+        </dl>
+      </div>
+    </div>
+  );
 }
 
 function modelsOf(mdt: MdtPlacement | null): ReadonlyMap<number, Model> {
@@ -1186,6 +1381,38 @@ function isDeadAt(track: PositionTrack, t: number): boolean {
   if (last === -Infinity) return false;
   // Any sample after the death, up to t, means they were back.
   return !track.ts.some((ts) => ts > last && ts <= t);
+}
+
+/**
+ * Where an enemy stands at t on a floor: engaged by then, and neither dead nor
+ * gone quiet. Null when it is not on the map at t.
+ */
+function livePosition(track: PositionTrack, t: number, uiMapId: number): { x: number; y: number } | null {
+  const n = track.ts.length;
+  if (n === 0 || track.ts[0]! > t) return null;
+  const died = track.deaths[0];
+  if (died !== undefined ? died <= t : track.ts[n - 1]! + ENEMY_LINGER_MS < t) return null;
+  const at = positionAt(track, t);
+  return at === null || at.uiMapId !== uiMapId ? null : at;
+}
+
+/** A live enemy dot's radius, in px. */
+function liveRadius(boss: boolean): number {
+  return boss ? 6 : 4;
+}
+
+/** An enemy's health at t, as a whole percentage, or null when its last sample carried none. */
+function hpAt(track: PositionTrack, t: number): number | null {
+  if (track.ts.length === 0 || track.ts[0]! > t) return null;
+  let lo = 0;
+  let hi = track.ts.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >>> 1;
+    if (track.ts[mid]! <= t) lo = mid;
+    else hi = mid - 1;
+  }
+  const hp = track.hpPct[lo]!;
+  return hp === 255 ? null : hp;
 }
 
 /** Strokes one track's samples on one floor between two times, broken wherever it left the floor. */
