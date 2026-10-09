@@ -386,6 +386,30 @@ disproportionately the interesting ones.
 
 [wago]: https://wago.tools
 
+## Active %, the way Warcraft Logs counts it
+
+The damage and healing tables have an Active column, and it is Warcraft Logs'
+own rule, not a model of casting: the gaps between a player's consecutive rows
+in that table, summed, leaving out any gap longer than ten seconds, over the
+length of the key or pull. A hit alone in its window counts nothing; two hits
+nine seconds apart count nine seconds. Pets fill their owner's gaps, and on the
+healing table an absorb shield coming off counts as a row too (the
+SPELL_AURA_REMOVED lines that end in what the shield had left).
+
+It was found by asking Warcraft Logs rather than by fitting. Its table API
+returns `activeTime` for any window and any filter, so a window holding one
+cast came back 0ms, and a filter of one ability came back exactly the gap sum
+of that ability's events. Then, across 50 player-keys of eleven uploaded +12s,
+this app's figures against theirs: healing within 0.02 points on all 50, damage
+within 0.1 points on 46. The other four are one key where a pack was still
+neutral when the party opened on it: Warcraft Logs ignores damage to a unit not
+yet hostile, the log keeps no unit flags per row here, and it cost those four
+up to 1.6 points.
+
+The figure differs by table, which is why it lives on each one: the same
+elemental shaman was active for 1,075s of damage, 1,104s of casts and 295s of
+healing in one key.
+
 ## Interrupts, and what a whiff actually is
 
 The interrupts tab answers two questions that the log answers from opposite

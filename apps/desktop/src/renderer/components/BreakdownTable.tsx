@@ -3,7 +3,7 @@ import { Fragment, useState } from 'react';
 import type { ActorBreakdown, BreakdownReport, SpellBreakdown } from '@mplus/analysis';
 
 import type { WclParse } from '../../shared.js';
-import { integer, percent, short } from '../format.js';
+import { clock, integer, percent, short } from '../format.js';
 import { useSpellIcons } from '../icons.js';
 import { shortName, specOf } from '../specs.js';
 import { SpecIcon } from './SpecIcon.js';
@@ -179,8 +179,13 @@ export function BreakdownTable({ report, mode, defaultExpanded = false, parses }
   const peak = report.actors[0]?.total ?? 1;
   const rate = mode === 'healing' ? 'HPS' : mode === 'taken' ? 'DTPS' : 'DPS';
   const columns = spellColumns(mode, report.durationMs);
+  /**
+   * Active %, as Warcraft Logs shows it beside damage and healing. Not on
+   * `taken`, where the rows are what was done to them.
+   */
+  const active = mode !== 'taken';
   /** Span of the player table, which the expanded block sits across. */
-  const playerColumns = (mode === 'done' ? 6 : 5) + (parses === undefined ? 0 : 1);
+  const playerColumns = (mode === 'done' ? 6 : 5) + (parses === undefined ? 0 : 1) + (active ? 1 : 0);
 
   // Only what is on screen: a run has thousands of spell ids and the expanded
   // rows are a handful of them.
@@ -236,6 +241,7 @@ export function BreakdownTable({ report, mode, defaultExpanded = false, parses }
           <col style={{ width: 84 }} />
           <col style={{ width: 84 }} />
           <col style={{ width: 68 }} />
+          {active ? <col style={{ width: 64 }} /> : null}
           <col style={{ width: 92 }} />
           {mode === 'done' ? <col style={{ width: 132 }} /> : null}
         </colgroup>
@@ -246,6 +252,7 @@ export function BreakdownTable({ report, mode, defaultExpanded = false, parses }
             <th>{rate}</th>
             <th>Total</th>
             <th>Share</th>
+            {active ? <th>Active</th> : null}
             <th>{mode === 'healing' ? 'Overheal' : 'Overkill'}</th>
             {mode === 'done' ? <th>Support</th> : null}
           </tr>
@@ -284,6 +291,11 @@ export function BreakdownTable({ report, mode, defaultExpanded = false, parses }
                   <td>{short(actor.perSecond)}</td>
                   <td>{short(actor.total)}</td>
                   <td>{percent(actor.share)}</td>
+                  {active ? (
+                    <td>
+                      <ActiveCell activeMs={actor.activeMs} durationMs={report.durationMs} mode={mode} />
+                    </td>
+                  ) : null}
                   <td style={{ color: 'var(--muted)' }}>{short(actor.wasted)}</td>
                   {/*
                     Which side of the support transfer this player is on. Both
@@ -515,6 +527,28 @@ function ParseBadge({ parse }: { parse: WclParse | undefined }): React.JSX.Eleme
   return (
     <span className="parse" style={{ color: parseColor(shown) }} title={detail}>
       {Math.floor(shown)}
+    </span>
+  );
+}
+
+/**
+ * How much of the window a player was active: all of it but the stretches of
+ * over ten seconds without a row in this table. Warcraft Logs' rule, to the
+ * millisecond, so the two read alike. See `ACTIVE_GAP_MS` in the analysis.
+ */
+function ActiveCell({
+  activeMs,
+  durationMs,
+  mode,
+}: {
+  activeMs: number;
+  durationMs: number;
+  mode: Props['mode'];
+}): React.JSX.Element {
+  const doing = mode === 'healing' ? 'healing' : 'dealing damage';
+  return (
+    <span title={`Active for ${clock(activeMs)} of ${clock(durationMs)}: all but the stretches of over 10 seconds without ${doing}`}>
+      {percent(activeMs / Math.max(durationMs, 1))}
     </span>
   );
 }

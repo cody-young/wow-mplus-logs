@@ -344,6 +344,16 @@ export const enum EvFlag {
    * held up the mirror.
    */
   REFLECTED = 1 << 11,
+  /**
+   * A SPELL_AURA_REMOVED that ends in an amount: an absorb shield coming off,
+   * with what it had left.
+   *
+   * Only shields write that field — Frost Shield, Blood Shield, Shroud of
+   * Purgatory — and nothing else marks a shield as one. Warcraft Logs counts
+   * these rows as healing activity, so active time on a healing table needs
+   * them: a death knight's was 67 seconds short of theirs without.
+   */
+  SHIELD = 1 << 12,
 }
 
 /**

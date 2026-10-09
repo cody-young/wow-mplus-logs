@@ -721,11 +721,12 @@ export class CombatLogParser {
       }
       case Ev.SPELL_AURA_REMOVED:
       case Ev.SPELL_AURA_BROKEN: {
-        // The same auraType field, with nothing after it worth reading. Set on
+        // The same auraType field, and after it only a shield's leftover. Set on
         // the removal as well as the application because a recap's window can
         // open on an aura that was already up: the line taking it away is then
         // the only one that says what it was.
         if (isBuffField(line, offsets, suffixStart, count)) flags |= EvFlag.BUFF;
+        if (code === Ev.SPELL_AURA_REMOVED && suffixStart + 1 < count) flags |= EvFlag.SHIELD;
         break;
       }
       default:

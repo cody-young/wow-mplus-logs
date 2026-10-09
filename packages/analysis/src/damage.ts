@@ -121,6 +121,8 @@ export interface ActorBreakdown {
   perSecond: number;
   /** Fraction of the report total, 0..1. */
   share: number;
+  /** Ms of the window the actor was active, by Warcraft Logs' rule. See `ACTIVE_GAP_MS`. */
+  activeMs: number;
   spells: SpellBreakdown[];
 }
 
@@ -194,6 +196,29 @@ interface ActorAcc {
    */
   misses: Map<number, number>;
   auras: Map<number, AuraAcc>;
+  activeMs: number;
+  /** The last row counted for this actor, for `activeMs`. */
+  lastTs: number;
+}
+
+/**
+ * Active time, the way Warcraft Logs counts it: the gaps between an actor's
+ * consecutive rows in the table, summed, leaving out any gap longer than this.
+ *
+ * Nothing about casting or the global cooldown. A row alone in its window
+ * counts nothing, and two hits nine seconds apart count nine seconds. Checked
+ * against Warcraft Logs' own figures by asking it for tiny windows and single
+ * abilities, then for 50 player-keys of eleven uploaded +12s: on the damage
+ * and healing tables both, it is this, to the millisecond. So a column of
+ * Active % reads the same here as there, and means the same: the share of the
+ * key the player never went ten seconds without doing anything that table
+ * counts.
+ */
+const ACTIVE_GAP_MS = 10_000;
+
+function touch(acc: ActorAcc, ts: number): void {
+  if (ts - acc.lastTs <= ACTIVE_GAP_MS) acc.activeMs += ts - acc.lastTs;
+  acc.lastTs = ts;
 }
 
 /**
@@ -345,6 +370,8 @@ function build(
         casts: new Map(),
         misses: new Map(),
         auras: new Map(),
+        activeMs: 0,
+        lastTs: -Infinity,
       };
       accs.set(index, acc);
     }
@@ -550,6 +577,9 @@ function build(
     if (isMiss || isAura) {
       if (subjectFriendly && (flags & EvFlag.SUPPORT) === 0) {
         const subjectAcc = accFor(subject);
+        // A shield coming off is healing activity, though not healing. See
+        // EvFlag.SHIELD.
+        if (mode === 'healing' && flags & EvFlag.SHIELD) touch(subjectAcc, store.ts[row]!);
         const spellId = store.spellId[row]!;
         if (isMiss) {
           // Only a real avoid. An absorbed or blocked hit is logged as a miss
@@ -638,6 +668,7 @@ function build(
 
     const acc = accFor(subject);
     acc.total += net;
+    touch(acc, store.ts[row]!);
     acc.raw += amount;
     acc.wasted += wasted(waste);
 
@@ -708,6 +739,7 @@ function build(
         supportReceived: acc.supportReceived,
         perSecond: acc.total / seconds,
         share: total > 0 ? acc.total / total : 0,
+        activeMs: acc.activeMs,
         spells: buildSpells(context, acc, durationMs),
       };
     })
