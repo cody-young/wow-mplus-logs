@@ -481,11 +481,11 @@ export function awardsFor(run: RunAnalysis): Awards | null {
       const by = pickedBy.get(index);
       return by === undefined ? plural(n, 'pick') : `${plural(n, 'pick')}, mostly ${by}`;
     },
-    { gap: { title: 'Main Character', blurb: 'Picked out by random mechanics half again as often as anyone else.', times: 1.5, min: 8 } },
+    { gap: { title: 'Main Character', blurb: 'Picked out by random mechanics 50% more often than anyone else.', times: 1.5, min: 8 } },
   );
 
   // Last of the dps, and well behind the next: a dps a little short of the
-  // others is most keys, so it takes the next one doing half again as much.
+  // others is most keys, so it takes the next one doing 50% more.
   // Among the dps only, since the tank and healer are always behind them.
   const dpsDamage = dpsField.map((member) => damage.get(member.actorIndex) ?? 0).sort((a, b) => a - b);
   if (dpsField.length >= 3 && dpsDamage[1]! >= 1.5 * dpsDamage[0]!) {
@@ -557,7 +557,7 @@ export function awardsFor(run: RunAnalysis): Awards | null {
     debuffs,
     'most',
     (index) => plural(debuffs.get(index) ?? 0, 'debuff'),
-    { field: nonTanks, gap: { title: 'Patient Zero', blurb: 'Wore half again the debuffs of anyone but the tank.', times: 1.5 } },
+    { field: nonTanks, gap: { title: 'Patient Zero', blurb: 'Wore 50% more debuffs than anyone but the tank.', times: 1.5 } },
   );
   badge(
     { key: 'neglected', title: "Healer's Enemy", icon: '🚑', roast: true, blurb: 'Died slowly, and not one heal from the healer on the way down.' },
@@ -647,7 +647,7 @@ export function awardsFor(run: RunAnalysis): Awards | null {
     apm,
     'most',
     (index) => `${integer(Math.round(apm.get(index) ?? 0))} APM`,
-    { gap: { title: 'Pro Gamer', blurb: 'Pressed half again as many buttons a minute as anyone else.', times: 1.5, min: MASHER_GAP_APM } },
+    { gap: { title: 'APM Machine', blurb: 'Pressed 50% more buttons a minute than anyone else.', times: 1.5, min: MASHER_GAP_APM } },
   );
   badge(
     { key: 'kicks', title: 'Kick Machine', icon: '🦵', roast: false, blurb: 'Stopped the most casts.' },
