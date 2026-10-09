@@ -9,6 +9,7 @@
  */
 import { renderToString } from 'react-dom/server';
 
+import { AurasPanel } from '../src/renderer/components/AurasPanel.js';
 import { AvoidablePanel } from '../src/renderer/components/AvoidablePanel.js';
 import { BreakdownTable } from '../src/renderer/components/BreakdownTable.js';
 import { DeathTimeline } from '../src/renderer/components/DeathTimeline.js';
@@ -26,6 +27,7 @@ import { SpecIcon } from '../src/renderer/components/SpecIcon.js';
 import { StatsPanel } from '../src/renderer/components/StatsPanel.js';
 import { UpdateFooter } from '../src/renderer/components/UpdateFooter.js';
 import {
+  shareAuras,
   shareAvoidable,
   shareBreakdown,
   shareControl,
@@ -124,6 +126,15 @@ export function render(analysis: RunAnalysis): Record<string, string> {
     // The application log, open for the same reason the press log above is.
     controlLog: renderToString(<ControlPanel control={analysis.control} defaultExpanded />),
     dispels: renderToString(<DispelsPanel dispels={analysis.dispels} />),
+    // The first player's auras over the whole key, as the tab opens.
+    auras: renderToString(
+      <AurasPanel
+        auras={analysis.auras.auras}
+        party={partyOf(analysis)}
+        from={0}
+        to={analysis.damage.durationMs}
+      />,
+    ),
     // Every section's log open, for the same reason.
     dispelLog: renderToString(<DispelsPanel dispels={analysis.dispels} defaultExpanded />),
     avoidable: renderToString(<AvoidablePanel avoidable={analysis.avoidable} />),
@@ -161,6 +172,12 @@ export function render(analysis: RunAnalysis): Record<string, string> {
     shareInterrupts: shareInterrupts(analysis.interrupts, { meta: analysis.meta, segment: null }),
     shareControl: shareControl(analysis.control, { meta: analysis.meta, segment: null }),
     shareDispels: shareDispels(analysis.dispels, { meta: analysis.meta, segment: null }),
+    shareAuras: shareAuras(
+      analysis.auras,
+      partyOf(analysis),
+      [0, analysis.damage.durationMs],
+      { meta: analysis.meta, segment: null },
+    ),
     shareAvoidable: shareAvoidable(analysis.avoidable, { meta: analysis.meta, segment: null }),
     shareDeaths: shareDeaths(analysis.deaths, { meta: analysis.meta, segment: null }),
     shareStats: shareStats(analysis.stats, partyOf(analysis), { meta: analysis.meta, segment: null }, awardsFor(analysis)),

@@ -4,6 +4,7 @@
  * Portable like the parser: no Node builtins, so the same reports run in the
  * desktop app's utility process and in a browser worker.
  */
+export { auraReport, aurasIn, type AuraReport, type AuraRow, type AuraUptime } from './auras.js';
 export { castingReport, type CastBar, type CastingActor, type CastingReport } from './casting.js';
 export {
   abilityName,

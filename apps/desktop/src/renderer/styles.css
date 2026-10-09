@@ -1017,3 +1017,19 @@ button.badge-chips:hover:not(:disabled) { background: var(--panel-raised); borde
   .ceremony *, .ceremony *::before { animation: none !important; }
   .confetti { display: none; }
 }
+
+/* Auras. The party picker reads as the tab's own sub-tabs: one player at a
+   time, the chosen one raised. */
+.aura-party { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 16px; }
+.aura-member { display: inline-flex; align-items: center; gap: 7px; padding: 4px 10px; background: transparent; }
+.aura-member.active { background: #1b2231; border-color: #3a5f9f; }
+.swatch.buff, .aura-span.buff { background: var(--good); }
+.swatch.debuff, .aura-span.debuff { background: var(--danger); }
+.aura-name { overflow: hidden; text-overflow: ellipsis; }
+.aura-table td.left { overflow: hidden; }
+/* The window end to end, with each span placed by time: a gap in a buff is a
+   gap in the strip, which a percentage alone cannot show. */
+.aura-strip { position: relative; height: 12px; background: var(--panel-raised); border-radius: 2px; overflow: hidden; }
+.aura-span { position: absolute; top: 0; bottom: 0; min-width: 1px; opacity: 0.8; }
+.aura-table tr:hover .aura-span { opacity: 1; }
+.aura-more { margin-top: 8px; font-size: 12px; }

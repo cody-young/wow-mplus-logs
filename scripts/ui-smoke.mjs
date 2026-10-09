@@ -631,6 +631,23 @@ if (!analysis.live) {
 }
 console.log(`  (stats share:\n${views.shareStats.split('\n').map((line) => `    ${line}`).join('\n')})`);
 
+// --- Auras -------------------------------------------------------------------
+{
+  const first = partyOf(analysis)[0]?.actorIndex;
+  const worn = analysis.auras.auras.filter((entry) => entry.actorIndex === first);
+  check('auras view has a button per party member',
+    countOf(views.auras, 'class="aura-member') === analysis.meta.party.length,
+    `${countOf(views.auras, 'class="aura-member')} for ${analysis.meta.party.length}`);
+  check('auras view has a buffs and a debuffs section',
+    countOf(views.auras, 'class="dispel-section"') === 2);
+  check('the first player wore some auras', worn.length > 0, `${worn.length}`);
+  check('every span in the report is ordered and inside the key',
+    analysis.auras.auras.every((entry) => entry.spans.every((ts, i, all) =>
+      ts >= 0 && ts <= analysis.damage.durationMs + 1 && (i === 0 || ts >= all[i - 1]))));
+  check('aura share lines fit in chat', views.shareAuras.split('\n').every((line) => line.length <= 255));
+}
+console.log(`  (auras share:\n${views.shareAuras.split('\n').map((line) => `    ${line}`).join('\n')})`);
+
 // --- Dispels -----------------------------------------------------------------
 check('empty dispel view says so', views.emptyDispels.includes('No dispels'));
 const removed = analysis.dispels.dispels;

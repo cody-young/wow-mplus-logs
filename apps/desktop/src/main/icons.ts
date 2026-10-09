@@ -24,6 +24,10 @@
  * Superiority Assister shows on hover. It is kept from the call that already
  * happens for the icon, in its own file beside the index, so spells looked up
  * before descriptions were kept are asked once more and never again.
+ *
+ * Its name is kept the same way, for the one place the log leaves a spell
+ * unnamed: an aura on a COMBATANT_INFO line, which is an id and nothing else.
+ * A flask up for the whole key is never otherwise written down.
  */
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -44,6 +48,8 @@ let index: Index | null = null;
 let indexDirty = false;
 let descriptions: Descriptions | null = null;
 let descriptionsDirty = false;
+let names: Descriptions | null = null;
+let namesDirty = false;
 /** Icon name -> data URL. The hot path, so disk is touched once per name. */
 const dataUrls = new Map<string, string>();
 const inflight = new Map<number, Promise<void>>();
@@ -123,6 +129,35 @@ async function saveDescriptions(): Promise<void> {
   }
 }
 
+async function loadNames(): Promise<Descriptions> {
+  if (names !== null) return names;
+  try {
+    const raw = await readFile(join(await store(), 'names.json'), 'utf8');
+    const parsed: unknown = JSON.parse(raw);
+    names = typeof parsed === 'object' && parsed !== null ? (parsed as Descriptions) : {};
+  } catch {
+    names = {};
+  }
+  return names;
+}
+
+async function saveNames(): Promise<void> {
+  if (!namesDirty || names === null) return;
+  namesDirty = false;
+  try {
+    await writeFile(join(await store(), 'names.json'), JSON.stringify(names), 'utf8');
+  } catch {
+    // Same as the index: unwritten just means asked again next run.
+  }
+}
+
+/** A spell name from a remote response, as plain text of a sane length, or null. */
+function safeSpellName(name: unknown): string | null {
+  if (typeof name !== 'string') return null;
+  const text = name.replace(/<[^>]*>/g, '').trim();
+  return text === '' ? null : text.slice(0, 120);
+}
+
 const ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ' };
 
 /**
@@ -182,9 +217,11 @@ async function fetchOne(spellId: number): Promise<void> {
   const tooltip = (await get(
     `https://nether.wowhead.com/tooltip/spell/${spellId}?dataEnv=1&locale=0`,
     'json',
-  )) as { icon?: unknown; tooltip?: unknown } | null;
+  )) as { icon?: unknown; tooltip?: unknown; name?: unknown } | null;
   (await loadDescriptions())[String(spellId)] = describe(tooltip?.tooltip);
   descriptionsDirty = true;
+  (await loadNames())[String(spellId)] = safeSpellName(tooltip?.name);
+  namesDirty = true;
   const name = safeName(tooltip?.icon);
   if (name === null) {
     // A real answer with no icon in it: remember the miss so it is never asked
@@ -249,6 +286,7 @@ async function fetchAll(spellIds: readonly number[]): Promise<void> {
   );
   await saveIndex();
   await saveDescriptions();
+  await saveNames();
 }
 
 /**
@@ -259,6 +297,23 @@ async function fetchAll(spellIds: readonly number[]): Promise<void> {
 export async function resolveDescriptions(spellIds: number[]): Promise<Record<number, string>> {
   const wanted = [...new Set(spellIds)].filter((id) => Number.isInteger(id) && id > 0).slice(0, 400);
   const known = await loadDescriptions();
+  await fetchAll(offline() ? [] : wanted.filter((id) => !(String(id) in known)));
+
+  const out: Record<number, string> = {};
+  for (const id of wanted) {
+    const text = known[String(id)];
+    if (typeof text === 'string') out[id] = text;
+  }
+  return out;
+}
+
+/**
+ * Spell names, keyed by spell id, for ids the log never named. Same contract
+ * as `resolveDescriptions`.
+ */
+export async function resolveSpellNames(spellIds: number[]): Promise<Record<number, string>> {
+  const wanted = [...new Set(spellIds)].filter((id) => Number.isInteger(id) && id > 0).slice(0, 400);
+  const known = await loadNames();
   await fetchAll(offline() ? [] : wanted.filter((id) => !(String(id) in known)));
 
   const out: Record<number, string> = {};

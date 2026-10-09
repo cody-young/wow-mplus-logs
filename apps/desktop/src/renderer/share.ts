@@ -1,5 +1,6 @@
 import {
   SegmentKind,
+  aurasIn,
   summarizeAvoidable,
   summarizeCrowdControl,
   summarizeDispels,
@@ -9,6 +10,7 @@ import {
 import { clock, integer, percent, runTitle, short, wipeCutoff } from './format.js';
 import { shortName } from './specs.js';
 import type {
+  AuraReport,
   AvoidableReport,
   BreakdownReport,
   ControlReport,
@@ -149,6 +151,36 @@ export function shareDispels(report: DispelReport, scope: ShareScope): string {
   }
   return join(lines);
 }
+
+/**
+ * Each player's longest-held buffs, one line apiece.
+ *
+ * Only the named ones: an aura the log gave only an id is named by a lookup
+ * the view makes, and a chat line has no way to wait for it.
+ */
+export function shareAuras(
+  report: AuraReport,
+  party: readonly PartyMember[],
+  range: readonly [number, number],
+  scope: ShareScope,
+): string {
+  const span = Math.max(1, range[1] - range[0]);
+  const lines = [heading('Buff uptime', scope)];
+  for (const member of party) {
+    const buffs = aurasIn(report.auras, member.actorIndex, range[0], range[1])
+      .filter((row) => row.buff && row.name !== '')
+      .slice(0, AURA_LINE);
+    if (buffs.length === 0) continue;
+    lines.push(
+      fit(`${shortName(member.name)}: ${buffs.map((row) => `${row.name} ${percent(row.upMs / span)}`).join(', ')}`),
+    );
+  }
+  if (lines.length === 1) lines.push('No buffs.');
+  return join(lines);
+}
+
+/** Buffs per player in the copied text, which is about what one chat line holds. */
+const AURA_LINE = 6;
 
 export function shareStats(
   report: StatsReport,

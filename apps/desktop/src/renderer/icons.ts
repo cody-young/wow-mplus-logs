@@ -32,6 +32,9 @@ const inflight = new Set<Key>();
 /** Spell id -> description, or null for "asked, and there is none". */
 const descriptionCache = new Map<number, string | null>();
 const descriptionInflight = new Set<number>();
+/** Spell id -> name, for the ids the log never named. */
+const nameCache = new Map<number, string | null>();
+const nameInflight = new Set<number>();
 const subscribers = new Set<(version: number) => void>();
 let version = 0;
 
@@ -72,20 +75,23 @@ async function request(keys: readonly Key[], kind: 'spell' | 'named'): Promise<v
   }
 }
 
-/** Same as `request`, for descriptions. */
-async function requestDescriptions(ids: readonly number[]): Promise<void> {
+/** Same as `request`, for descriptions — and for names, which share the shape. */
+async function requestDescriptions(ids: readonly number[], kind: 'description' | 'name' = 'description'): Promise<void> {
   const api = bridge();
-  const wanted = ids.filter((id) => !descriptionCache.has(id) && !descriptionInflight.has(id));
-  if (wanted.length === 0 || api?.resolveDescriptions === undefined) return;
+  const into = kind === 'description' ? descriptionCache : nameCache;
+  const busy = kind === 'description' ? descriptionInflight : nameInflight;
+  const wanted = ids.filter((id) => !into.has(id) && !busy.has(id));
+  const resolve = kind === 'description' ? api?.resolveDescriptions : api?.resolveSpellNames;
+  if (wanted.length === 0 || resolve === undefined) return;
 
-  for (const id of wanted) descriptionInflight.add(id);
+  for (const id of wanted) busy.add(id);
   try {
-    const found = await api.resolveDescriptions(wanted);
-    for (const id of wanted) descriptionCache.set(id, found[id] ?? null);
+    const found = await resolve(wanted);
+    for (const id of wanted) into.set(id, found[id] ?? null);
   } catch {
     // Uncached, to be asked again, for the same reason as a failed icon batch.
   } finally {
-    for (const id of wanted) descriptionInflight.delete(id);
+    for (const id of wanted) busy.delete(id);
     notify();
   }
 }
@@ -144,6 +150,27 @@ export function useSpellDescriptions(spellIds: readonly number[]): ReadonlyMap<n
   const out = new Map<number, string>();
   for (const id of ids) {
     const text = descriptionCache.get(id);
+    if (typeof text === 'string') out.set(id, text);
+  }
+  return out;
+}
+
+/**
+ * Names for spells the log gave only an id, with the same contract as the
+ * descriptions: absent until resolved, and absent for good offline.
+ */
+export function useSpellNames(spellIds: readonly number[]): ReadonlyMap<number, string> {
+  const ids = [...new Set(spellIds)].filter((id) => Number.isInteger(id) && id > 0).sort((a, b) => a - b);
+  const key = ids.join(',');
+  useIconVersion();
+
+  useEffect(() => {
+    void requestDescriptions(key === '' ? [] : key.split(',').map(Number), 'name');
+  }, [key]);
+
+  const out = new Map<number, string>();
+  for (const id of ids) {
+    const text = nameCache.get(id);
     if (typeof text === 'string') out.set(id, text);
   }
   return out;

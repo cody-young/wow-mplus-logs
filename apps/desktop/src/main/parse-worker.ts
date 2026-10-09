@@ -15,6 +15,7 @@ import { createReadStream, statSync, watch, type FSWatcher } from 'node:fs';
 import { parentPort } from 'node:worker_threads';
 
 import {
+  auraReport,
   avoidableReport,
   buildSegments,
   castingReport,
@@ -114,6 +115,7 @@ function analyze(active: LogSession, run: Run, live: boolean): RunAnalysis {
     control: crowdControlReport(context, segments),
     dispels: dispelReport(context, segments),
     avoidable: key === null ? { hits: [], covered: false } : avoidableReport(context, segments),
+    auras: auraReport(context, segments),
     stats: statsReport(context, segments),
     positions,
     mdt: mdtDungeon === undefined ? null : placeOnMdt(positions, mdtDungeon),

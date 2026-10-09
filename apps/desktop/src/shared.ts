@@ -8,6 +8,8 @@
  */
 import type {
   ActorBreakdown,
+  AuraReport,
+  AuraUptime,
   AvoidableHit,
   AvoidableReport,
   BreakdownReport,
@@ -37,6 +39,8 @@ import type { RunMeta } from '@mplus/parser';
 
 export type {
   ActorBreakdown,
+  AuraReport,
+  AuraUptime,
   AvoidableHit,
   AvoidableReport,
   BreakdownReport,
@@ -118,6 +122,13 @@ export interface RunAnalysis {
    * Not split per segment, for the same reason as the control list.
    */
   avoidable: AvoidableReport;
+  /**
+   * When each buff and debuff was on each party member, as spans.
+   *
+   * Not split per segment, for the same reason as the control list: the view
+   * clips the spans to the pull selected.
+   */
+  auras: AuraReport;
   /**
    * The awards tab's numbers: who stomped the totems, so far.
    *
@@ -295,6 +306,11 @@ export interface DesktopApi {
    * omitted, and it never rejects.
    */
   resolveDescriptions(spellIds: number[]): Promise<Record<number, string>>;
+  /**
+   * Spell names, keyed by spell id, for the auras a COMBATANT_INFO line lists
+   * by id alone. Same lookup and contract as the descriptions.
+   */
+  resolveSpellNames(spellIds: number[]): Promise<Record<number, string>>;
   /**
    * The same, for art asked for by texture name rather than by spell id — the
    * spec icons, which are not spells and so have no id to look up. Keyed by

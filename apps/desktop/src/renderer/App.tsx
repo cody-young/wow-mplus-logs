@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { SegmentKind } from '@mplus/analysis';
 
+import { AurasPanel } from './components/AurasPanel.js';
 import { AvoidablePanel } from './components/AvoidablePanel.js';
 import { BreakdownTable } from './components/BreakdownTable.js';
 import { WclBar } from './components/WclBar.js';
@@ -21,6 +22,7 @@ import { UpdateFooter, useUpdates } from './components/UpdateFooter.js';
 import { awardsFor, badgesOf, type Badge } from './awards.js';
 import { difficultyName, integer, percent, runClock, short, wipeCutoff } from './format.js';
 import {
+  shareAuras,
   shareAvoidable,
   shareBreakdown,
   shareControl,
@@ -37,6 +39,7 @@ type Tab =
   | 'damage'
   | 'taken'
   | 'healing'
+  | 'auras'
   | 'interrupts'
   | 'control'
   | 'dispels'
@@ -249,6 +252,15 @@ export function App(): React.JSX.Element {
     };
   }, [run, selectedSegment]);
 
+  /**
+   * The window the auras tab cuts its spans to: the pull selected, else the
+   * whole key.
+   */
+  const auraWindow = useMemo((): [number, number] => {
+    if (segment !== null) return [segment.startTs, segment.endTs];
+    return [0, run?.damage.durationMs ?? 0];
+  }, [run, segment]);
+
   /** The post-game awards, for the whole run whatever pull is selected. */
   const awards = useMemo(() => (run === null ? null : awardsFor(run)), [run]);
 
@@ -324,6 +336,8 @@ export function App(): React.JSX.Element {
         return shareBreakdown(reports.taken, 'taken', scope);
       case 'healing':
         return shareBreakdown(reports.healing, 'healing', scope);
+      case 'auras':
+        return shareAuras(run.auras, partyOf(run), auraWindow, scope);
       case 'interrupts':
         return shareInterrupts(interrupts, scope);
       case 'control':
@@ -510,6 +524,7 @@ export function App(): React.JSX.Element {
                   ['damage', 'Damage done'],
                   ['taken', 'Damage taken'],
                   ['healing', 'Healing'],
+                  ['auras', 'Auras'],
                   [
                     'interrupts',
                     `Interrupts${interrupts.stops.length > 0 ? ` (${interrupts.stops.length})` : ''}`,
@@ -599,6 +614,14 @@ export function App(): React.JSX.Element {
                   wipeAfter={wipeCutoff(run.meta, deaths)}
                   clean={raid ? 'Nobody died this pull.' : 'Clean key.'}
                   showWhere={!raid}
+                />
+              ) : shown === 'auras' ? (
+                <AurasPanel
+                  key={run.runId}
+                  auras={run.auras.auras}
+                  party={partyOf(run)}
+                  from={auraWindow[0]}
+                  to={auraWindow[1]}
                 />
               ) : shown === 'interrupts' ? (
                 <InterruptsPanel

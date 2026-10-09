@@ -1,4 +1,5 @@
 import type { ActorTable } from './actors.js';
+import { looksLikeGuid } from './events.js';
 import { CombatLogParser, type ChallengeEndInfo, type ChallengeStartInfo, type CombatantInfo, type EncounterInfo, type LogVersionInfo, type MapChangeInfo, type ParserOptions } from './parser.js';
 import { EventStore } from './store.js';
 
@@ -192,8 +193,26 @@ export interface Run {
    * rate, a death recap or a damage total.
    */
   prePull: EventStore | null;
+  /**
+   * What each party member had on them when the run opened, from the aura list
+   * on their first COMBATANT_INFO of it.
+   *
+   * The only record of an aura that went up before the key and stays up all
+   * of it. A flask, a rune, Fortitude cast in town: none of them writes a line
+   * while the key runs, so without this they have no uptime at all rather than
+   * all of it.
+   */
+  openingAuras: OpeningAura[];
   /** Shared across runs: actor identity is stable within a log file. */
   actors: ActorTable;
+}
+
+/** One aura a party member had on them at the start of a run. */
+export interface OpeningAura {
+  actorIndex: number;
+  spellId: number;
+  /** Who put it there, or -1 when the log names someone it has not seen yet. */
+  sourceIndex: number;
 }
 
 export interface SessionHooks {
@@ -453,6 +472,7 @@ export class LogSession {
       meta,
       store,
       prePull,
+      openingAuras: [],
       actors: this.parser.actors,
     };
     this.current = run;
@@ -523,7 +543,17 @@ export class LogSession {
   private recordCombatant(info: CombatantInfo): void {
     const run = this.current;
     if (run === null) return;
-    if (!run.meta.party.includes(info.actor.index)) run.meta.party.push(info.actor.index);
+    if (run.meta.party.includes(info.actor.index)) return;
+    run.meta.party.push(info.actor.index);
+    // Only the first line per member: a key repeats COMBATANT_INFO at every
+    // boss, by which time anything on the list has been seen going up.
+    for (const [source, spellId] of combatantAuras(info.raw)) {
+      run.openingAuras.push({
+        actorIndex: info.actor.index,
+        spellId,
+        sourceIndex: this.parser.actors.get(source)?.index ?? -1,
+      });
+    }
   }
 
   private enterMap(info: MapChangeInfo): void {
@@ -585,4 +615,28 @@ export class LogSession {
       success: info.success,
     });
   }
+}
+
+/**
+ * The aura list on a COMBATANT_INFO line, as (caster GUID, spell id) pairs.
+ *
+ * It is the line's last bracketed array, and the only one with no brackets
+ * nested inside it, so it is found from the end. Entries have been written as
+ * `GUID,spellId` and, as of 12.1.0, `GUID,spellId,stacks`, so each GUID starts
+ * an entry and the number after it is the spell, whatever follows.
+ */
+export function combatantAuras(raw: string): Array<[string, number]> {
+  const open = raw.lastIndexOf('[');
+  const close = raw.indexOf(']', open);
+  if (open < 0 || close < 0) return [];
+  const fields = raw.slice(open + 1, close).split(',');
+  const out: Array<[string, number]> = [];
+  for (let i = 0; i + 1 < fields.length; i++) {
+    const field = fields[i]!;
+    if (!looksLikeGuid(field)) continue;
+    const spellId = Number(fields[i + 1]);
+    if (Number.isInteger(spellId) && spellId > 0) out.push([field, spellId]);
+    i++;
+  }
+  return out;
 }
