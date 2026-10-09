@@ -105,6 +105,25 @@ const SCRIPTED = [
 ];
 
 /**
+ * Buffs the data files under a survival aura that are not what anybody means
+ * by a defensive: they sit on a player all key, so a death recap that lists
+ * them lists them on every death.
+ *
+ * SCRIPTED's mirror image, and held to the same rule — short, and each entry
+ * read off the data. The obvious general rule does not work: Earth Shield and
+ * Fortitude carry MOD_DAMAGE_PERCENT_TAKEN at 0, a slot a talent fills, but so
+ * do Feint, Cloak of Shadows, Shield Block and Defensive Stance, whose real
+ * value is scripted. Dropping zeroes would have dropped those with them.
+ */
+const NOT_DEFENSIVE = [
+  { id: 974, why: 'Earth Shield — MOD_DAMAGE_PERCENT_TAKEN(0), filled by a talent' },
+  { id: 383648, why: 'Earth Shield, the copy on the shaman — same three effects' },
+  { id: 21562, why: 'Power Word: Fortitude — MOD_DAMAGE_PERCENT_TAKEN(0), filled by a talent' },
+  { id: 207400, why: 'Ancestral Vigor, the talent — MOD_INCREASE_HEALTH_PERCENT(0)' },
+  { id: 207498, why: 'Ancestral Vigor — +10% health on whoever the shaman heals' },
+];
+
+/**
  * The effect that stops a cast.
  *
  * 68 is SPELL_EFFECT_INTERRUPT_CAST, read off the data rather than trusted
@@ -406,6 +425,7 @@ const categoriesHeader = categoriesCsv.slice(0, categoriesCsv.indexOf('\n')).spl
 const categoryColumns = {
   spell: categoriesHeader.indexOf('SpellID'),
   dispelType: categoriesHeader.indexOf('DispelType'),
+for (const { id } of NOT_DEFENSIVE) flags.delete(id);
 };
 if (categoryColumns.spell < 0 || categoryColumns.dispelType < 0) {
   console.error(`SpellCategories.csv has no SpellID/DispelType column. Columns: ${categoriesHeader.join(', ')}`);

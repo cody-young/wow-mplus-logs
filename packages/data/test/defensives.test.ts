@@ -60,6 +60,11 @@ test('the noise a real key is full of stays out', () => {
     [61295, 'Riptide'],
     [1459, 'Arcane Intellect'],
     [2983, 'Sprint'],
+    // Buffs that carry a survival aura and are up all key anyway.
+    [974, 'Earth Shield'],
+    [383648, 'Earth Shield'],
+    [21562, 'Power Word: Fortitude'],
+    [207498, 'Ancestral Vigor'],
   ];
   for (const [spellId, name] of noise) {
     assert.equal(isDefensive(spellId), false, `${name} (${spellId}) is not a defensive`);
