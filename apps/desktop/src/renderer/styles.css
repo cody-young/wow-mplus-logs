@@ -890,9 +890,10 @@ button.badge-chips:hover:not(:disabled) { background: var(--panel-raised); borde
 .badge-chip.mvp { color: var(--boss); font-size: 15px; margin-right: 2px; }
 
 /* Awards: the ceremony */
+/* No overflow clipping: the shelf's hover tips have to reach past the panel's
+   edge. The confetti clips itself. */
 .ceremony {
   position: relative;
-  overflow: hidden;
   background: linear-gradient(180deg, #1c1810 0%, var(--panel) 70%);
   border: 1px solid #4a3c1f;
   border-radius: 8px;
