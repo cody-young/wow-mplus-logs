@@ -809,7 +809,7 @@ export function awardsFor(run: RunAnalysis): Awards | null {
 
   // The glory, building to the MVP.
   badge(
-    { key: 'lust', title: 'Haste for the Haste Gods', icon: '🥁', roast: false, blurb: 'Pressed the most Bloodlust.' },
+    { key: 'lust', title: 'Haste for the Haste Gods', icon: '🥁', roast: false, blurb: 'Gave the party the most Bloodlust.' },
     lusts,
     'most',
     (index) => plural(lusts.get(index) ?? 0, 'lust'),

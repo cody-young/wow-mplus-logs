@@ -58,7 +58,7 @@ import { SegmentKind, segmentAt, type SegmentIndex } from './segments.js';
  * is the summoned adds and the critters that move nobody's bar. Bosses' adds
  * are left out, because killing those is the fight.
  *
- * The rest are counts the log states outright: Bloodlusts pressed, deaths
+ * The rest are counts the log states outright: Bloodlusts given, deaths
  * cheated, Ankhs, casts an enemy interrupted, spells reflected, debuffs taken
  * debuffs put on enemies, and healing on the rest of the party with its
  * overhealing. Taunts, Power Infusions kept for oneself and given, externals, combat
@@ -185,7 +185,11 @@ export interface StatsReport {
   biggestHits: BigHit[];
   /** Every time a mechanic that picks at random picked one of the party, in order. */
   picks: Pick[];
-  /** Every Bloodlust and its kind the party pressed, in order. */
+  /**
+   * Every Bloodlust and its kind the party gave itself, in order: a press
+   * only counts when its buff landed on someone, so of two pressed together
+   * only the first, and a press into a sated party not at all.
+   */
   lusts: Moment[];
   /** Every time one of the party cheated death, in order. */
   cheats: Moment[];
@@ -234,6 +238,14 @@ const TANK_SPECS: ReadonlySet<number> = new Set([250, 581, 104, 268, 66, 73]);
  * Primal Rage is the pet's cast, which is its owner's like every other.
  */
 const LUSTS: ReadonlySet<number> = new Set([2825, 32182, 80353, 264667, 390386]);
+
+/**
+ * How far apart a Bloodlust press and its buff landing can be and still be
+ * the one press. The caster's own copy is logged in the millisecond before
+ * the cast, everyone else's within some tens after; a press into a sated
+ * party lands nothing at all, and is no Bloodlust.
+ */
+const LUST_LANDS_MS = 1000;
 
 /**
  * The auras that mean a player should be dead and is not, as they land on
@@ -380,6 +392,10 @@ export function statsReport(context: AnalysisContext, segments: SegmentIndex): S
     };
   };
   const lusts: Moment[] = [];
+  /** Player -> when their Bloodlust last landed on one of the party. */
+  const lustLanded = new Map<number, number>();
+  /** Player -> their Bloodlust press still waiting for its buff to land. */
+  const lustPressed = new Map<number, Moment>();
   const cheats: Moment[] = [];
   const ankhs: Moment[] = [];
   const lockouts: Moment[] = [];
@@ -512,7 +528,11 @@ export function statsReport(context: AnalysisContext, segments: SegmentIndex): S
     if (code === Ev.SPELL_CAST_SUCCESS) {
       if (!ours(src)) continue;
       const actor = actors.attribute(src);
-      if (LUSTS.has(spellId)) lusts.push(moment(row, actor, spellId));
+      if (LUSTS.has(spellId)) {
+        const pressed = moment(row, actor, spellId);
+        if (pressed.ts - (lustLanded.get(actor) ?? -Infinity) <= LUST_LANDS_MS) lusts.push(pressed);
+        else lustPressed.set(actor, pressed);
+      }
       else if (spellId === ANKH) ankhs.push(moment(row, actor, spellId));
       else if (TAUNTS.has(spellId)) taunts.push(moment(row, actor, spellId));
       else if (DASHES.has(spellId)) dashes.push(moment(row, actor, spellId));
@@ -552,6 +572,16 @@ export function statsReport(context: AnalysisContext, segments: SegmentIndex): S
     if (code === Ev.SPELL_AURA_APPLIED) {
       if (!(store.flags[row]! & EvFlag.BUFF) && ours(src) && enemy(dst)) tallies.get(actors.attribute(src))!.debuffsApplied++;
       if (!segments.party.has(dst)) continue;
+      if (LUSTS.has(spellId) && ours(src)) {
+        const actor = actors.attribute(src);
+        const ts = store.ts[row]!;
+        lustLanded.set(actor, ts);
+        const pressed = lustPressed.get(actor);
+        if (pressed !== undefined) {
+          lustPressed.delete(actor);
+          if (ts - pressed.ts <= LUST_LANDS_MS) lusts.push(pressed);
+        }
+      }
       if (CHEAT_AURAS.has(spellId)) cheats.push(moment(row, dst, spellId));
       if (DEFENSIVES.has(spellId) && src === dst) defensives.push(moment(row, dst, spellId));
       if (spellId === GATEWAY) gateways.push(moment(row, dst, spellId));

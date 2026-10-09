@@ -1849,6 +1849,7 @@ function enemySwing(seconds: number, src: string, srcName: string, dst: string, 
 test('the moments the log states outright are each counted for the right player', () => {
   const caster = creature(1004, 10);
   const stats = statsWith([
+    aura(100, HEALER, 'Heals', HEALER, 'Heals', 32182, 'Heroism', true, { dstFlags: '0x511', buff: true }),
     cast(100, HEALER, 'Heals', 32182, 'Heroism'),
     cast(101, HEALER, 'Heals', 21169, 'Reincarnation'),
     // A save leaves its mark on whoever was saved.
@@ -1870,6 +1871,26 @@ test('the moments the log states outright are each counted for the right player'
   // The fixture's own enemy interrupt of a Vivify is one too; the Kick is not.
   assert.deepEqual(who(stats.lockouts), [['Heals', 'Vivify'], ['Dee', 'Lava Burst']], 'named by the cast it stopped');
   assert.deepEqual(who(stats.reflects), [['Tank', 'Fireball']]);
+});
+
+test('a Bloodlust counts only once it lands, so of two pressed together the first wins', () => {
+  const lust = (seconds: number, src: string, srcName: string, dst: string, dstName: string): string =>
+    aura(seconds, src, srcName, dst, dstName, 2825, 'Bloodlust', true, { dstFlags: '0x511', buff: true });
+  const stats = statsWith([
+    // The caster's own copy comes just before the cast, the party's just after.
+    lust(100, HEALER, 'Heals', HEALER, 'Heals'),
+    cast(100, HEALER, 'Heals', 2825, 'Bloodlust'),
+    lust(100.02, HEALER, 'Heals', TANK, 'Tank'),
+    // A beat behind, into a party now sated: nothing lands.
+    cast(100.15, DPS, 'Dee', 80353, 'Time Warp'),
+    // A sated caster still gives it to the rest.
+    cast(400, DPS, 'Dee', 80353, 'Time Warp'),
+    aura(400.02, DPS, 'Dee', TANK, 'Tank', 80353, 'Time Warp', true, { dstFlags: '0x511', buff: true }),
+  ]);
+  assert.deepEqual(
+    stats.lusts.map((entry) => [entry.name, entry.spellName]),
+    [['Heals', 'Bloodlust'], ['Dee', 'Time Warp']],
+  );
 });
 
 test('the class moments: taunts, infusions, externals, rezzes, rides, defensives, immunities, gateways and dashes', () => {
