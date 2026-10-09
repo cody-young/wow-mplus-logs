@@ -60,7 +60,7 @@ function subscribe<T>(set: Set<Handler<T>>, handler: Handler<T>): () => void {
 const api: DesktopApi = {
   pickLog: () => ipcRenderer.invoke('mplus:pickLog') as Promise<string | null>,
   watchLog: () => ipcRenderer.invoke('mplus:watchLog') as Promise<string | null>,
-  open: (path, tail) => ipcRenderer.invoke('mplus:open', path, tail) as Promise<void>,
+  open: (path, tail) => ipcRenderer.invoke('mplus:open', path, tail) as Promise<{ mdtSearched: string[] }>,
   resolveIcons: (spellIds) =>
     ipcRenderer.invoke('mplus:icons', spellIds) as Promise<Record<number, string>>,
   resolveDescriptions: (spellIds) =>

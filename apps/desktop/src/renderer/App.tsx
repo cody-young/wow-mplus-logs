@@ -110,7 +110,11 @@ export function App(): React.JSX.Element {
     setProgress(null);
     setBusy(true);
     setSummary({ path, sizeBytes: 0, advancedLogging: null, buildVersion: '' });
-    await window.mplus.open(path, tail);
+    const { mdtSearched } = await window.mplus.open(path, tail);
+    // The map tab falls back to the log's coordinates without a word, so say here where MDT was looked for.
+    if (mdtSearched.length > 0) {
+      console.warn(`MDT not found for ${path}; looked in:\n  ${mdtSearched.join('\n  ')}`);
+    }
   };
 
   /**

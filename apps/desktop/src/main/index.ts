@@ -242,9 +242,10 @@ ipcMain.handle('mplus:open', async (_event, path: string, tail: boolean) => {
   // the table from its first pass, and re-running a 200 MB key to attach the
   // forces values afterwards costs far more than the scan does. It reads a
   // dozen files beside the log, so this is milliseconds.
-  const { table, iconsFrom, mdt } = await loadForces(path);
+  const { table, iconsFrom, mdt, searched } = await loadForces(path);
   mdtDirectory = iconsFrom;
   send({ type: 'open', path, tail, forces: table, mdt });
+  return { mdtSearched: searched };
 });
 
 void app.whenReady().then(async () => {

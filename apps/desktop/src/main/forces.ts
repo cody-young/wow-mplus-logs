@@ -159,6 +159,8 @@ export interface ForcesLoad {
   iconsFrom: string | null;
   /** Every dungeon MDT has a map of; empty without MDT. */
   mdt: MdtDungeon[];
+  /** The folders MDT was looked for in when it was not found; empty when it was. */
+  searched: string[];
 }
 
 /**
@@ -181,11 +183,7 @@ export async function loadForces(logPath: string | null): Promise<ForcesLoad> {
     for (const dungeon of dungeons) {
       dungeon.teleportSpellId = found.teleports.get(dungeon.challengeModeId) ?? 0;
     }
-    return { table, iconsFrom: directory, mdt: [...found.dungeons.values()] };
+    return { table, iconsFrom: directory, mdt: [...found.dungeons.values()], searched: [] };
   }
-  // The map tab falls back to the log's coordinates without a word, so say here where MDT was looked for.
-  if (logPath !== null) {
-    console.warn(`MDT not found above ${dirname(logPath)}; looked in:\n  ${mdtCandidates(logPath).join('\n  ')}`);
-  }
-  return { table, iconsFrom: null, mdt: [] };
+  return { table, iconsFrom: null, mdt: [], searched: mdtCandidates(logPath) };
 }

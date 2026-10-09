@@ -278,7 +278,11 @@ export interface DesktopApi {
    * Null when there is nothing to watch and they dismissed the picker.
    */
   watchLog(): Promise<string | null>;
-  open(path: string, tail: boolean): Promise<void>;
+  /**
+   * Starts reading `path`. `mdtSearched` lists the folders MDT was looked for
+   * in when none held it, and is empty when it was found.
+   */
+  open(path: string, tail: boolean): Promise<{ mdtSearched: string[] }>;
   /**
    * Spell icons as data URLs, keyed by spell id. Ids with no icon available
    * are omitted, so the result is exactly what the UI can draw. Never
