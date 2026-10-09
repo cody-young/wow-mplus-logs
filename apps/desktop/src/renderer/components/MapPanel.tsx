@@ -317,6 +317,7 @@ export function MapPanel({ run, selectedSegment, onSelectSegment }: Props): Reac
         art={floor.fit === null ? null : (art.get(floor.fit.sublevel) ?? null)}
         mdt={floor.fit === null ? null : run.mdt}
         t={t}
+        replaying={t < durationMs}
         pulls={pulls}
         colours={colours}
         models={models}
@@ -538,6 +539,8 @@ interface CanvasProps {
   /** The run's MDT placement, when this floor is drawn on MDT's map. */
   mdt: MdtPlacement | null;
   t: number;
+  /** True while the playhead is short of the end, when a pulled mob's icon gives way to its live dot. */
+  replaying: boolean;
   pulls: PullShape[];
   /** Each pull's colour, by segment id. */
   colours: ReadonlyMap<number, string>;
@@ -586,6 +589,7 @@ function MapCanvas({
   art,
   mdt,
   t,
+  replaying,
   pulls,
   colours,
   models,
@@ -757,6 +761,17 @@ function MapCanvas({
     return { hulls, mobs };
   }, [pulls, floor, frame, mdt, models, radius]);
 
+  // Mid-replay, a mob pulled by the playhead is drawn as its live dot, not
+  // its icon. The cut-off steps only at a pull, so the backdrop is redrawn
+  // once a pull rather than once a frame.
+  const pullTimes = useMemo(
+    () => [...new Set(mobs.flatMap((mob) => (mob.track === null ? [] : [pulledAt(mob)])))].sort((a, b) => a - b),
+    [mobs],
+  );
+  let pulledBy = -Infinity;
+  if (replaying) for (const ts of pullTimes) if (ts <= t) pulledBy = ts;
+  const shown = useCallback((mob: MobIcon): boolean => pulledAt(mob) > pulledBy, [pulledBy]);
+
   const bosses = useMemo(
     () => new Set(pulls.filter((pull) => pull.segment.kind === SegmentKind.BOSS).map((pull) => pull.segment.id)),
     [pulls],
@@ -826,6 +841,7 @@ function MapCanvas({
 
     // Spawns left standing first, so a killed mob on top of one shows.
     for (const mob of mobs) {
+      if (!shown(mob)) continue;
       const left = mob.segmentId === null;
       const dim = left || (selectedSegment !== null && mob.segmentId !== selectedSegment);
       drawMob(ctx, mob, radius(mob.boss), {
@@ -837,7 +853,7 @@ function MapCanvas({
     }
     ctx.globalAlpha = 1;
     return layer;
-  }, [frame, art, partyTracks, palette, floor, hulls, mobs, colours, portraits, radius, selectedSegment]);
+  }, [frame, art, partyTracks, palette, floor, hulls, mobs, shown, colours, portraits, radius, selectedSegment]);
 
   useEffect(() => {
     const element = canvas.current;
@@ -979,13 +995,14 @@ function MapCanvas({
       if (best !== null) return best;
       for (let i = mobs.length - 1; i >= 0; i--) {
         const mob = mobs[i]!;
+        if (!shown(mob)) continue;
         const r = radius(mob.boss);
         if (Math.hypot(mob.x - x, mob.y - y) > r) continue;
         return { x: mob.x, top: mob.y - r, bottom: mob.y + r, boss: mob.boss, track: mob.track, spawn: mob.spawn, live: false };
       }
       return null;
     },
-    [frame, enemyTracks, t, floor.uiMapId, bosses, mobs, radius],
+    [frame, enemyTracks, t, floor.uiMapId, bosses, mobs, shown, radius],
   );
 
   // Kept as the pointer rather than as what is under it, so a dot that walks
@@ -1395,6 +1412,11 @@ function livePosition(track: PositionTrack, t: number, uiMapId: number): { x: nu
   if (died !== undefined ? died <= t : track.ts[n - 1]! + ENEMY_LINGER_MS < t) return null;
   const at = positionAt(track, t);
   return at === null || at.uiMapId !== uiMapId ? null : at;
+}
+
+/** When a mob was pulled: its first sample. A spawn left standing never was. */
+function pulledAt(mob: MobIcon): number {
+  return mob.track?.ts[0] ?? Infinity;
 }
 
 /** A live enemy dot's radius, in px. */
