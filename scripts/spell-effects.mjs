@@ -196,6 +196,23 @@ const CONTROLS = [
 ];
 
 /**
+ * The implicit target that means an effect lands on the caster and nobody
+ * else: TARGET_UNIT_CASTER, as TrinityCore's SharedDefines.h names it.
+ *
+ * A control effect aimed there is the caster holding itself still, not
+ * control of anything, and the log cannot tell the two apart because it
+ * names the spell rather than the effect. The Antoran Inquisitor's Mind Sear
+ * (1280457) is the case that found it: a periodic trigger on the enemy and a
+ * MOD_ROOT on the Inquisitor while it channels. Counted by spell, every tick
+ * of its channel read as a root on the boss it was searing, which was 10,105
+ * applications across a month of keys, on bosses that cannot be rooted at
+ * all. Over the same logs it was the only aura the party put on an enemy
+ * that this rule removes. 5,185 spells leave the table, nearly all of them
+ * NPCs rooting or stunning themselves for a cast.
+ */
+const TARGET_UNIT_CASTER = 1;
+
+/**
  * The effects that make a spell a dispel.
  *
  * 38 is SPELL_EFFECT_DISPEL, whose misc value is the dispel type it removes,
@@ -295,6 +312,7 @@ const columns = {
   spell: header.indexOf('SpellID'),
   effect: header.indexOf('Effect'),
   trigger: header.indexOf('EffectTriggerSpell'),
+  target: header.indexOf('ImplicitTarget_0'),
 };
 const missing = Object.entries(columns)
   .filter(([, at]) => at < 0)
@@ -304,7 +322,7 @@ if (missing.length > 0) {
   console.error('The table was renamed or restructured; the aura list needs re-reading before this can run.');
   process.exit(1);
 }
-const { aura: auraAt, spell: spellAt, effect: effectAt, trigger: triggerAt } = columns;
+const { aura: auraAt, spell: spellAt, effect: effectAt, trigger: triggerAt, target: targetAt } = columns;
 
 // Every value in this table is a number, so splitting on commas is safe and an
 // order of magnitude faster than a real CSV reader over 629k rows.
@@ -343,7 +361,8 @@ for (const line of csv.split('\n')) {
   if (bit !== undefined) flags.set(id, (flags.get(id) ?? 0) | bit);
 
   const control = controlWanted.get(fields[auraAt]);
-  if (control !== undefined) controlFlags.set(id, (controlFlags.get(id) ?? 0) | control);
+  const onSelf = Number(fields[targetAt]) === TARGET_UNIT_CASTER;
+  if (control !== undefined && !onSelf) controlFlags.set(id, (controlFlags.get(id) ?? 0) | control);
 
   const triggered = Number(fields[triggerAt]);
   if (PROC_TRIGGER_AURAS.has(Number(fields[auraAt])) && triggered > 0) {
