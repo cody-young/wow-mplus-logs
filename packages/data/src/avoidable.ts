@@ -75,6 +75,12 @@ export interface AvoidableSpell {
    * an aura that carries the same id as its damage.
    */
   unlessAfter?: { cast: number; ms: number };
+  /**
+   * Who to name as the source when the log names nobody. Some puddles are
+   * logged as dealt by no unit at all, though everyone in the key knows whose
+   * they are.
+   */
+  source?: string;
   /** What the player did wrong, for whoever edits this next. */
   why: string;
 }
@@ -95,12 +101,12 @@ const DUNGEONS: readonly Dungeon[] = [
       { id: 1306669, name: 'Toxic Breath', tank: true, why: 'Twinfang Harrower frontal, starts on the tank and rotates' },
       { id: 1307915, name: 'Ravenous Stomp', why: "Rav'i's falling stalactites" },
       { id: 1296069, name: 'Regurgitate', why: "Rav'i's acid waves" },
-      { id: 1307532, name: 'Bloodletting', why: 'Bloodletter blood puddles' },
+      { id: 1307532, name: 'Bloodletting', source: 'Bloodletter', why: 'Bloodletter blood puddles' },
       { id: 1300083, name: 'Burrowing Charge', why: 'The Writhing Coil burrow path' },
       { id: 1300044, name: 'Venom Jet', why: 'The Writhing Coil frontal' },
       { id: 1295073, name: 'Virulent Whirl', why: 'Ascendant Serpent roaming tornadoes' },
       { id: 1294958, name: 'Noxious Spray', tank: true, why: 'Ascendant Serpent tank frontal' },
-      { id: 1301230, name: 'Bloodletting', why: "Zul'jan's blood puddles" },
+      { id: 1301230, name: 'Bloodletting', source: "Zul'jan", why: "Zul'jan's blood puddles" },
       { id: 1301114, name: 'Axegrinder', why: "Zul'jan's spinning axes" },
       {
         id: 1309398,

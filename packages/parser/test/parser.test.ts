@@ -155,6 +155,15 @@ test("advanced block yields its subject's mana, when their power is mana", () =>
   assert.equal(run.store.mana[runic], -1, 'runic power is not mana');
 });
 
+test('a bare nil name is no name, not the word', () => {
+  const nobody = '0000000000000000';
+  const line = `9/30/2026 18:50:40.000-4  SPELL_DAMAGE,${nobody},nil,0x80000000,0x80000000,${PLAYER},"A",0x511,0x0,1,"S",0x1,500,500,-1,1,0,0,0,nil,nil,nil`;
+  const lines = LOG_TEXT.split('\n');
+  lines.splice(lines.findIndex((entry) => entry.includes('CHALLENGE_MODE_END')), 0, line);
+  const session = parseAll(lines.join('\n'));
+  assert.equal(session.parser.interner.resolve(session.parser.actors.get(nobody)!.nameId), '');
+});
+
 test('heals separate effective amount from overhealing', () => {
   const run = onlyRun(parseAll(LOG_TEXT));
   const heal = rows(run, Ev.SPELL_HEAL)[0]!;

@@ -81,6 +81,15 @@ export function fieldStr(line: string, out: Int32Array, index: number): string {
   return line.slice(s, e);
 }
 
+/**
+ * A unit's name. The log writes a missing one as a bare nil — no quotes,
+ * which is how it differs from a unit actually called "nil" — and a missing
+ * name reads as none rather than as the word.
+ */
+export function fieldName(line: string, out: Int32Array, index: number): string {
+  return fieldIsNil(line, out, index) ? '' : fieldStr(line, out, index);
+}
+
 /** Field text with quotes left intact — for arrays and tuples passed through verbatim. */
 export function fieldRaw(line: string, out: Int32Array, index: number): string {
   return line.slice(out[index << 1]!, out[(index << 1) | 1]!);

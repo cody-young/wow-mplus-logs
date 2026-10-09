@@ -62,6 +62,7 @@ export {
   fieldInt,
   fieldIsArray,
   fieldIsNil,
+  fieldName,
   fieldRaw,
   fieldStr,
   parseIntAt,

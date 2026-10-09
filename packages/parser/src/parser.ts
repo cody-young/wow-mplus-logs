@@ -25,6 +25,7 @@ import {
   fieldHex,
   fieldInt,
   fieldIsArray,
+  fieldName,
   fieldRaw,
   fieldStr,
   splitFields,
@@ -465,8 +466,8 @@ export class CombatLogParser {
 
     const sourceGuid = fieldStr(line, offsets, 0);
     const destGuid = fieldStr(line, offsets, 4);
-    const source = this.actors.touch(sourceGuid, fieldStr(line, offsets, 1), fieldHex(line, offsets, 2));
-    const dest = this.actors.touch(destGuid, fieldStr(line, offsets, 5), fieldHex(line, offsets, 6));
+    const source = this.actors.touch(sourceGuid, fieldName(line, offsets, 1), fieldHex(line, offsets, 2));
+    const dest = this.actors.touch(destGuid, fieldName(line, offsets, 5), fieldHex(line, offsets, 6));
 
     const prefixWidth = prefixFieldCount(name);
     const prefixStart = BASE_FIELD_COUNT;

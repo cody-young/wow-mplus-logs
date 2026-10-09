@@ -141,7 +141,7 @@ export function avoidableReport(context: AnalysisContext, segments: SegmentIndex
       specId,
       spellId,
       spellName: spellName(context, spellId),
-      sourceName: src >= 0 ? actorName(context, src) : '',
+      sourceName: (src >= 0 ? actorName(context, src) : '') || (entry.source ?? ''),
       amount: effective(store.amount[row]!, store.waste[row]!),
       fatal: store.waste[row]! > 0,
       segmentId: segmentId >= 0 ? segmentId : segmentAt(segments, ts),
