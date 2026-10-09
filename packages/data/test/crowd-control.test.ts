@@ -70,6 +70,22 @@ test('a slow is not crowd control', () => {
   assert.equal(isCrowdControl(370898), false, 'Permeating Chill is not control');
 });
 
+test('a knockback is control, read off its effect rather than an aura', () => {
+  // A knockback writes no aura, so the seven aura numbers never saw one.
+  // These carry KNOCK_BACK (98) or KNOCK_BACK_DEST (144) and nothing the aura
+  // half of the table knows, which is why each is a knockback and only that.
+  const knockbacks: [number, string][] = [
+    [157980, 'Supernova'],
+    [51490, 'Thunderstorm'],
+    [61391, 'Typhoon'],
+    [357214, 'Wing Buffet'],
+    [368970, 'Tail Swipe'],
+  ];
+  for (const [spellId, name] of knockbacks) {
+    assert.equal(controlKinds(spellId), Control.KNOCKBACK, `${name} (${spellId}) is a knockback`);
+  }
+});
+
 test('the table is the size of the game, not of a spec', () => {
   const size = controlCount();
   // Generated at 11,995: the player buttons plus every NPC spell that shares

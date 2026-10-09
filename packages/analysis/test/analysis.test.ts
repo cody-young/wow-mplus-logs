@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { forcesFor } from '@mplus/data';
+import { Control, forcesFor } from '@mplus/data';
 import { LogSession, type Run } from '@mplus/parser';
 
 import {
@@ -54,6 +54,7 @@ import {
   heal,
   hit,
   interrupt,
+  missed,
   taken,
 } from './fixture.js';
 
@@ -1147,6 +1148,61 @@ test('a pull filters control the way it filters everything else', () => {
   );
   assert.equal(inPull.casts, 1);
   assert.equal(inPull.ms, 30_000);
+});
+
+/**
+ * The fixture with a Supernova and a Thunderstorm thrown in before the key ends.
+ *
+ * Spliced into a copy rather than into the fixture, because every one of these
+ * is also damage and the fixture's damage totals are asserted elsewhere.
+ */
+function knockbacks(): ControlReport {
+  const lines = LOG_TEXT.split('\n');
+  const end = lines.findIndex((line) => line.includes('CHALLENGE_MODE_END'));
+  const nova = { spellId: 157980, spellName: 'Supernova' };
+  const storm = { spellId: 51490, spellName: 'Thunderstorm' };
+  lines.splice(
+    end,
+    0,
+    // One Supernova, three enemies: all a knockback writes is the hit.
+    hit(80, DPS, 'Dee', creature(2001, 1), 'Thrown', 100, nova),
+    hit(80, DPS, 'Dee', creature(2001, 2), 'Thrown', 100, nova),
+    hit(80, DPS, 'Dee', creature(2001, 3), 'Thrown', 100, nova),
+    // A boss it could not move. A miss threw nothing.
+    missed(80, DPS, 'Dee', creature(2001, 4), 'Unmoved', 157980, 'Supernova', 'IMMUNE'),
+    // One Thunderstorm, one enemy, two rows: the damage and its own slow.
+    hit(85, HEALER, 'Heals', creature(2001, 5), 'Thrown', 100, storm),
+    aura(85, HEALER, 'Heals', creature(2001, 5), 'Thrown', 51490, 'Thunderstorm', true),
+    // An enemy's knockback on the party is not the party's control.
+    hit(86, creature(2001, 6), 'Thrower', TANK, 'Tank', 100, { ...nova, srcFlags: '0xa48', dstFlags: '0x511' }),
+  );
+  const session = new LogSession({ assumedYear: 2026 });
+  session.pushText(lines.join('\n'));
+  session.end();
+  const context = contextFor(session, session.runs[0]!);
+  return crowdControlReport(context, buildSegments(context));
+}
+
+test('a knockback counts as control, from its hits, with no seconds', () => {
+  // Supernova writes no aura, so before knockbacks were read off the hit it
+  // was missing from the chart entirely.
+  const report = knockbacks();
+  const thrown = report.applications.filter((entry) => (entry.kinds & Control.KNOCKBACK) !== 0);
+  const nova = thrown.filter((entry) => entry.spellId === 157980);
+  assert.equal(nova.length, 3, 'three enemies thrown; the immune boss and the enemy\'s own are not');
+  assert.equal(new Set(nova.map((entry) => entry.castId)).size, 1, 'one press');
+  assert.ok(nova.every((entry) => entry.durationMs === 0 && entry.end === 'knocked'));
+  assert.deepEqual(controlKindNames(nova[0]!.kinds), ['knockback']);
+
+  const storm = thrown.filter((entry) => entry.spellId === 51490);
+  assert.equal(storm.length, 1, 'the damage and the slow are one enemy thrown once');
+
+  const summary = summarizeCrowdControl(report.applications);
+  const dee = summary.actors.find((actor) => actor.name.startsWith('Dee'))!;
+  const supernova = dee.abilities.find((ability) => ability.spellId === 157980)!;
+  assert.equal(supernova.casts, 1);
+  assert.equal(supernova.targets, 3);
+  assert.equal(supernova.ms, 0);
 });
 
 test('what a control does to the unit comes off the table, not the name', () => {

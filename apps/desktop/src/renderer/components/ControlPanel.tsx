@@ -41,6 +41,11 @@ const ENDINGS: ReadonlyArray<{ key: ControlEnd; label: string; why: string }> = 
     why: 'The same control was reapplied before it came off, so this one ended where the next began.',
   },
   {
+    key: 'knocked',
+    label: 'knocked back',
+    why: 'Thrown rather than held. A knockback leaves no aura in the log, only the hit, so it counts as a cast and a target but never as seconds.',
+  },
+  {
     key: 'open',
     label: 'never came off',
     why: 'The log never reports it ending — the unit despawned, or the key ended with it still held. Credited with the longest the same control was seen to last here, so it is a floor rather than a guess.',
@@ -80,7 +85,7 @@ export function ControlPanel({
       <div className="empty">
         <h2>No crowd control</h2>
         <p>
-          Nobody stunned, feared, rooted, silenced or sheeped anything here — or what they pressed
+          Nobody stunned, feared, rooted, silenced, sheeped or knocked back anything here — or what they pressed
           caught nothing, which leaves no trace in the log.
         </p>
       </div>
@@ -225,7 +230,9 @@ export function ControlPanel({
                                   </span>
                                 </td>
                                 <td className="left">{application.targetName}</td>
-                                <td className="left">{seconds(application.durationMs)}</td>
+                                <td className="left">
+                                  {application.end === 'knocked' ? '—' : seconds(application.durationMs)}
+                                </td>
                                 <td className="left">{endText(application)}</td>
                               </tr>
                             ))}
@@ -306,6 +313,9 @@ function endText(application: ControlApplication): React.JSX.Element {
   }
   if (application.end === 'broken') {
     return <span style={{ color: 'var(--danger)' }}>broken early</span>;
+  }
+  if (application.end === 'knocked') {
+    return <span style={{ color: 'var(--dim)' }}>knocked back</span>;
   }
   if (application.end === 'died') {
     return <span style={{ color: 'var(--good)' }}>died held</span>;

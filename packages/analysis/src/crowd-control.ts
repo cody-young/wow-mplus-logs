@@ -34,6 +34,12 @@ import type { SegmentIndex } from './segments.js';
  * is pairing presses to auras across two different spell ids, which is a table
  * of its own and buys one number.
  *
+ * Knockbacks are the exception to all of that, because they write no aura:
+ * Supernova is a cast and a SPELL_DAMAGE on everything it threw, and nothing
+ * else. For those the hit is the application — one per enemy per press, with
+ * no seconds, since a knockback is over the moment it lands. They count as
+ * casts and targets and never move the bar.
+ *
  * The seconds are worth more than they look, because the log says how each one
  * ended. A poly that ran its course and a poly somebody shot two seconds in
  * are the same cast and the same target, and only `ControlEnd` tells them
@@ -57,6 +63,11 @@ export type ControlEnd =
   | 'died'
   /** A new application replaced it: the same control pressed again. */
   | 'refreshed'
+  /**
+   * A knockback, which writes no aura and so has no end: the unit was thrown,
+   * and the hit that threw it is the whole trace. Always zero seconds.
+   */
+  | 'knocked'
   /**
    * The log never took it off.
    *
@@ -194,6 +205,68 @@ export function crowdControlReport(
     }
   };
 
+  /** One application, grouped into its press. */
+  const record = (
+    row: number,
+    src: number,
+    dst: number,
+    spellId: number,
+    kinds: number,
+    ts: number,
+    end: ControlEnd,
+  ): ControlApplication => {
+    const actor = actors.attribute(src);
+    const pressKey = `${actor}:${spellId}`;
+    const previous = presses.get(pressKey);
+    let castId: number;
+    if (previous !== undefined && ts - previous.ts <= castMs) {
+      castId = previous.castId;
+    } else {
+      castId = nextCastId++;
+    }
+    presses.set(pressKey, { castId, ts });
+
+    const application: ControlApplication = {
+      ts,
+      actorIndex: actor,
+      name: actorName(context, actor),
+      specId: actors.at(actor)?.specId ?? -1,
+      petName: actor === src ? '' : actorName(context, src),
+      spellId,
+      spellName: spellName(context, spellId),
+      kinds,
+      targetIndex: dst,
+      targetName: actorName(context, dst),
+      durationMs: 0,
+      end,
+      castId,
+      segmentId: segments.segmentOf(row),
+    };
+    applications.push(application);
+    return application;
+  };
+
+  /**
+   * Enemies already credited to a knockback press, as `castId:unit`. One throw
+   * can write several rows on one unit — Thunderstorm's damage and its slow —
+   * and each enemy is one target however many rows its throw took.
+   */
+  const thrown = new Set<string>();
+
+  const knock = (row: number, src: number, dst: number, spellId: number, ts: number): void => {
+    const pressKey = `${actors.attribute(src)}:${spellId}`;
+    const previous = presses.get(pressKey);
+    if (previous !== undefined && ts - previous.ts <= castMs) {
+      const seen = `${previous.castId}:${dst}`;
+      if (thrown.has(seen)) {
+        previous.ts = ts;
+        return;
+      }
+    }
+    const application = record(row, src, dst, spellId, Control.KNOCKBACK, ts, 'knocked');
+    thrown.add(`${application.castId}:${dst}`);
+  };
+
   for (let row = 0; row < store.count; row++) {
     const code = store.code[row]!;
     const ts = store.ts[row]!;
@@ -214,41 +287,20 @@ export function crowdControlReport(
         if (!ours(src) || dst < 0 || ours(dst)) break;
         const kinds = controlKinds(spellId);
         if (kinds === 0) break;
+        // A knockback's own slow — Thunderstorm, Typhoon — is the hit's
+        // business below, not an aura with seconds to measure.
+        if (kinds === Control.KNOCKBACK) {
+          knock(row, src, dst, spellId, ts);
+          break;
+        }
 
-        const actor = actors.attribute(src);
         const key = `${dst}:${spellId}`;
         // A refresh is the same control pressed again, so the aura that was up
         // is closed and counted before the new one opens. Left open instead,
         // the second application would be dropped and the press with it.
         close(key, ts, 'refreshed');
 
-        const pressKey = `${actor}:${spellId}`;
-        const previous = presses.get(pressKey);
-        let castId: number;
-        if (previous !== undefined && ts - previous.ts <= castMs) {
-          castId = previous.castId;
-        } else {
-          castId = nextCastId++;
-        }
-        presses.set(pressKey, { castId, ts });
-
-        const application: ControlApplication = {
-          ts,
-          actorIndex: actor,
-          name: actorName(context, actor),
-          specId: actors.at(actor)?.specId ?? -1,
-          petName: actor === src ? '' : actorName(context, src),
-          spellId,
-          spellName: spellName(context, spellId),
-          kinds,
-          targetIndex: dst,
-          targetName: actorName(context, dst),
-          durationMs: 0,
-          end: 'open',
-          castId,
-          segmentId: segments.segmentOf(row),
-        };
-        applications.push(application);
+        const application = record(row, src, dst, spellId, kinds, ts, 'open');
         open.set(key, { application, startTs: ts });
         let keys = onUnit.get(dst);
         if (keys === undefined) {
@@ -256,6 +308,18 @@ export function crowdControlReport(
           onUnit.set(dst, keys);
         }
         keys.add(key);
+        break;
+      }
+
+      // A knockback's only trace. A miss is left out: an immune boss was not
+      // thrown, and a parry or dodge threw nothing either.
+      case Ev.SPELL_DAMAGE: {
+        const src = store.srcActor[row]!;
+        const dst = store.dstActor[row]!;
+        const spellId = store.spellId[row]!;
+        if (!ours(src) || dst < 0 || ours(dst)) break;
+        if (controlKinds(spellId) !== Control.KNOCKBACK) break;
+        knock(row, src, dst, spellId, ts);
         break;
       }
 
@@ -531,5 +595,6 @@ export function controlKindNames(kinds: number): string[] {
   if ((kinds & Control.FEAR) !== 0) names.push('fear');
   if ((kinds & Control.SILENCE) !== 0) names.push('silence');
   if ((kinds & Control.ROOT) !== 0) names.push('root');
+  if ((kinds & Control.KNOCKBACK) !== 0) names.push('knockback');
   return names;
 }

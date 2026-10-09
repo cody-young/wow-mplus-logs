@@ -594,9 +594,11 @@ if (controlled.length > 0) {
   check('every application names its target',
     controlled.every((entry) => entry.targetName === '' ||
       views.controlLog.includes(escapeHtml(entry.targetName))));
+  // A knockback was thrown rather than held, and says so with a dash.
+  const durations = countOf(views.controlLog, 's</td>') + countOf(views.controlLog, '—</td>');
   check('every application says how long it was held',
-    countOf(views.controlLog, 's</td>') >= controlled.length,
-    `${countOf(views.controlLog, 's</td>')} durations for ${controlled.length} applications`);
+    durations >= controlled.length,
+    `${durations} durations for ${controlled.length} applications`);
   // The same deliberate exception as the whiff chips: each ending needs a
   // sentence, so the chips carry a native title.
   check('every ending chip explains itself',

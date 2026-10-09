@@ -215,6 +215,23 @@ const CONTROLS = [
 ];
 
 /**
+ * The effects that throw a unit, which are control with no aura to measure.
+ *
+ * 98 is SPELL_EFFECT_KNOCK_BACK and 144 is SPELL_EFFECT_KNOCK_BACK_DEST, as
+ * TrinityCore names them, and each has witnesses in the data: Thunderstorm
+ * (51490), Typhoon as it lands (61391) and Wing Buffet (357214) carry 98;
+ * Supernova (157980) and Tail Swipe (368970) carry 144.
+ *
+ * Kept apart from CONTROLS because the log is the other way round for them.
+ * A knockback writes no aura at all — Supernova is a SPELL_CAST_SUCCESS and a
+ * SPELL_DAMAGE on everything it threw, and nothing else — so the evidence is
+ * the hit rather than an application, and there is no duration to read. Left
+ * out, every knockback in the game was invisible to the control chart.
+ */
+const KNOCKBACK_EFFECTS = new Set([98, 144]);
+const KNOCKBACK = { kind: 'knockback', flag: 32 };
+
+/**
  * The implicit target that means an effect lands on the caster and nobody
  * else: TARGET_UNIT_CASTER, as TrinityCore's SharedDefines.h names it.
  *
@@ -382,6 +399,9 @@ for (const line of csv.split('\n')) {
   const control = controlWanted.get(fields[auraAt]);
   const onSelf = Number(fields[targetAt]) === TARGET_UNIT_CASTER;
   if (control !== undefined && !onSelf) controlFlags.set(id, (controlFlags.get(id) ?? 0) | control);
+  if (KNOCKBACK_EFFECTS.has(Number(fields[effectAt])) && !onSelf) {
+    controlFlags.set(id, (controlFlags.get(id) ?? 0) | KNOCKBACK.flag);
+  }
 
   const triggered = Number(fields[triggerAt]);
   if (PROC_TRIGGER_AURAS.has(Number(fields[auraAt])) && triggered > 0) {
@@ -405,6 +425,7 @@ for (const line of csv.split('\n')) {
   }
 }
 for (const { id, flag: bit } of SCRIPTED) flags.set(id, (flags.get(id) ?? 0) | bit);
+for (const { id } of NOT_DEFENSIVE) flags.delete(id);
 
 const ids = [...flags.keys()].sort((a, b) => a - b);
 const controlIds = [...controlFlags.keys()].sort((a, b) => a - b);
@@ -425,7 +446,6 @@ const categoriesHeader = categoriesCsv.slice(0, categoriesCsv.indexOf('\n')).spl
 const categoryColumns = {
   spell: categoriesHeader.indexOf('SpellID'),
   dispelType: categoriesHeader.indexOf('DispelType'),
-for (const { id } of NOT_DEFENSIVE) flags.delete(id);
 };
 if (categoryColumns.spell < 0 || categoryColumns.dispelType < 0) {
   console.error(`SpellCategories.csv has no SpellID/DispelType column. Columns: ${categoriesHeader.join(', ')}`);
@@ -448,7 +468,7 @@ const enrageIds = [...enrages].sort((a, b) => a - b);
 console.log(
   `${dispelIds.length} dispels; ${categoryRows - 1} category rows → ${enrageIds.length} enrage auras`,
 );
-for (const { kind, flag: bit } of dedupe(CONTROLS)) {
+for (const { kind, flag: bit } of [...dedupe(CONTROLS), KNOCKBACK]) {
   console.log(`  ${kind.padEnd(10)} ${controlIds.filter((id) => (controlFlags.get(id) & bit) !== 0).length}`);
 }
 
@@ -860,7 +880,7 @@ function chunk(text) {
  * is the thing the panel groups by.
  */
 function renderControl(ids, flags, version) {
-  const kinds = dedupe(CONTROLS);
+  const kinds = [...dedupe(CONTROLS), KNOCKBACK];
   const lists = kinds.map(({ kind, flag: bit }) => {
     const members = ids.filter((id) => (flags.get(id) & bit) !== 0);
     let previous = 0;
@@ -898,6 +918,12 @@ ${witnesses.join('\n')}
  * Stun and root have two aura numbers each, and the second is not spare:
  * Asphyxiate carries 298 alone and Entangling Roots carries 455 alone.
  *
+ * Knockbacks are the one kind read off an effect rather than an aura —
+ * KNOCK_BACK (98) and KNOCK_BACK_DEST (144), witnessed by Thunderstorm and
+ * Supernova — because a knockback writes no aura. The log shows it only as the
+ * spell's hit on each unit it threw, so it has targets and casts but no
+ * seconds held.
+ *
  * Slows are not here, which is the decision that shapes the table. A slow is
  * not being taken out of the fight, and MOD_DECREASE_SPEED cannot tell a Ring
  * of Frost from a paladin standing in their own Consecration. On one real
@@ -916,7 +942,7 @@ ${witnesses.join('\n')}
  * ${ids.length} spells. Only ids are stored: no names, no descriptions, no art.
  */
 
-/** What a control aura does to the unit. A spell can do several. */
+/** What a control spell does to the unit. A spell can do several. */
 export const Control = {
 ${kinds.map(({ kind, flag: bit }) => `  ${kind.toUpperCase()}: ${bit},`).join('\n')}
 } as const;
