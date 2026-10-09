@@ -352,17 +352,18 @@ function wellFormed(run: unknown): run is WclRunQuery {
 }
 
 /**
- * A found key is answered from memory for the session, and a miss for a few
- * minutes, so moving between keys costs nothing. `fresh` skips a remembered
- * miss: the renderer's backoff, and the reader's own "Check again", must
- * actually ask.
+ * A fully ranked key is answered from memory for the session, and anything
+ * less for a few minutes, so moving between keys costs nothing. `fresh` skips
+ * a remembered miss: the renderer's backoff, and the reader's own "Check
+ * again", must actually ask.
  */
 export function parsesForRun(run: unknown, fresh = false): Promise<WclRunResult> {
   if (disabled() || !wellFormed(run)) return Promise.resolve({ status: 'unavailable' });
   const cached = results.get(run.runId);
   if (
     cached !== undefined &&
-    (cached.result.status === 'found' || (!fresh && Date.now() - cached.at < MISS_TTL_MS))
+    ((cached.result.status === 'found' && cached.result.complete) ||
+      (!fresh && Date.now() - cached.at < MISS_TTL_MS))
   ) {
     return Promise.resolve(cached.result);
   }
@@ -407,7 +408,10 @@ async function lookUp(run: WclRunQuery): Promise<WclRunResult> {
   const ranked = await rankings(match.code, match.fight.id, run.party);
   if (ranked === null) return { status: 'error' };
   if (Object.keys(ranked).length === 0) return { status: 'unranked', url };
-  return { status: 'found', url, players: ranked };
+  const complete = run.party.every(
+    ({ actorIndex }) => ranked[actorIndex]?.dps !== undefined && ranked[actorIndex]?.hps !== undefined,
+  );
+  return { status: 'found', url, players: ranked, complete };
 }
 
 async function candidateReports(run: WclRunQuery, start: number, end: number): Promise<ReportStub[] | null> {
@@ -533,6 +537,8 @@ function rankedCharacters(json: unknown): Array<{ name: string; parse: WclParse 
         const rank = character['rankPercent'];
         if (typeof name !== 'string' || typeof rank !== 'number') continue;
         const bracket = character['bracketPercent'];
+        // A fight not ranked yet lists its characters at 0, which is no parse.
+        if (rank === 0 && (bracket === 0 || typeof bracket !== 'number')) continue;
         out.push({
           name,
           parse: {

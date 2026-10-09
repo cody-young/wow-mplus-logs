@@ -6,8 +6,8 @@
  * reader's rate budget on nothing. A raid pull is not looked up yet either.
  *
  * A key that has only just finished is usually not on Warcraft Logs yet, or
- * is there but not ranked, so a miss is asked about again on a backoff while
- * the key is open and the window is showing. Only for a recent key: a miss
+ * is there but not fully ranked, so a miss is asked about again on a backoff
+ * while the key is open and the window is showing. Only for a recent key: a miss
  * on one from hours ago is not going to change.
  */
 import { useCallback, useEffect, useState } from 'react';
@@ -91,7 +91,11 @@ export function useWcl(run: RunAnalysis | null): WclState {
   }, [runId, lookable, signedIn, ask.n]);
 
   const missed =
-    result !== null && (result.status === 'not-found' || result.status === 'unranked' || result.status === 'error');
+    result !== null &&
+    (result.status === 'not-found' ||
+      result.status === 'unranked' ||
+      result.status === 'error' ||
+      (result.status === 'found' && !result.complete));
   // The log's times are its local wall clock; the offset makes them an instant.
   const endedAt =
     meta?.kind === 'key' && meta.endMs !== null ? meta.endMs - meta.utcOffsetMinutes * 60_000 : null;

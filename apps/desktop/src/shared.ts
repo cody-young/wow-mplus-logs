@@ -276,8 +276,12 @@ export type WclRunResult =
   | { status: 'not-found' }
   /** The report is there but has no rankings: still processing, or not rankable. */
   | { status: 'unranked'; url: string }
-  /** Keyed by actor index. */
-  | { status: 'found'; url: string; players: Record<number, WclPlayerParses> };
+  /**
+   * Keyed by actor index. `complete` once every party member has both parses;
+   * until then it is asked about again like a miss, since a fight Warcraft
+   * Logs has only just received can come back with some players unranked.
+   */
+  | { status: 'found'; url: string; players: Record<number, WclPlayerParses>; complete: boolean };
 
 /** What the preload bridge exposes on window.mplus. */
 export interface DesktopApi {
