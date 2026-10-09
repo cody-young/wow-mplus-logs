@@ -227,6 +227,36 @@ export function positionAt(track: PositionTrack, ts: number, maxGapMs = 2000): T
 }
 
 /**
+ * A step longer than this, at faster than `TELEPORT_YARDS_PER_SECOND`, is a
+ * teleport rather than travel: a release to the graveyard, a dungeon's portal.
+ *
+ * Across three keys, steps faster than 30 yards a second were 121 within 50
+ * yards — blinks, leaps, gateways, which are travel the player chose — and 9
+ * from 50 to 400 yards, every one a teleport.
+ */
+const TELEPORT_YARDS = 50;
+const TELEPORT_YARDS_PER_SECOND = 30;
+
+/**
+ * How far a unit went over its track, in yards: the straight line between
+ * each sample and the next on one map, less teleports.
+ *
+ * A floor for the true figure. A quiet stretch counts as the line from where
+ * it began to where it ended, so a path round a corner in it is cut short.
+ */
+export function distanceTravelled(track: PositionTrack): number {
+  let yards = 0;
+  for (let i = 1; i < track.ts.length; i++) {
+    if (track.uiMapId[i] !== track.uiMapId[i - 1]) continue;
+    const step = Math.hypot(track.x[i]! - track.x[i - 1]!, track.y[i]! - track.y[i - 1]!);
+    const seconds = (track.ts[i]! - track.ts[i - 1]!) / 1000;
+    if (step > TELEPORT_YARDS && step > TELEPORT_YARDS_PER_SECOND * seconds) continue;
+    yards += step;
+  }
+  return yards;
+}
+
+/**
  * A world position as a fraction of its map's image: u across from the left
  * edge, v down from the top, both 0..1 inside the map.
  *

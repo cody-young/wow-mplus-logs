@@ -29,6 +29,7 @@ import {
   avoidableReport,
   summarizeAvoidable,
   TrackKind,
+  distanceTravelled,
   mapPoint,
   positionAt,
   positionTracks,
@@ -1465,6 +1466,21 @@ test('a replay interpolates across a short gap and holds across a long one', () 
   // 5s to 10s is longer than the gap the tank may be glided across.
   assert.equal(positionAt(tank, 7000)!.x, 20.5);
   assert.equal(positionAt(tank, 60000)!.x, 40.5, 'the last sample holds');
+});
+
+test('distance travelled sums the steps on one map, less teleports', () => {
+  const { tank } = positionsRun();
+  // (10.5,10.5) to (20.5,20.5) to (40.5,40.5): 10√2 and 20√2.
+  assert.equal(Math.round(distanceTravelled(tank) * 100), Math.round(30 * Math.SQRT2 * 100));
+  const track = {
+    ...tank,
+    ts: Int32Array.from([0, 1000, 1250, 2000, 2250]),
+    x: Float32Array.from([0, 5, 25, 25, 425]),
+    y: Float32Array.from([0, 0, 0, 0, 0]),
+    uiMapId: Uint16Array.from([1, 1, 1, 2, 2]),
+  };
+  // A 20-yard blink counts; the change of map and a 400-yard jump do not.
+  assert.equal(distanceTravelled(track), 25);
 });
 
 test('a world position lands on its map image a quarter turn round', () => {

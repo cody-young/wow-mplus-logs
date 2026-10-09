@@ -1,4 +1,6 @@
 import {
+  TrackKind,
+  distanceTravelled,
   summarizeAvoidable,
   summarizeCrowdControl,
   summarizeDispels,
@@ -482,6 +484,12 @@ export function awardsFor(run: RunAnalysis): Awards | null {
     run.dispels.dispels.filter((entry) => entry.stolen),
     (entry) => entry.actorIndex,
   );
+  // A dungeon's runs only: a raid pull carries no positions.
+  const yards = new Map(
+    run.positions.tracks
+      .filter((track) => track.kind === TrackKind.PARTY)
+      .map((track) => [track.actor, distanceTravelled(track)]),
+  );
   const fumes = count(
     run.stats.drains.filter((entry) => entry.mana < FUMES_MANA),
     (entry) => entry.actorIndex,
@@ -823,6 +831,14 @@ export function awardsFor(run: RunAnalysis): Awards | null {
     gateways,
     'most',
     (index) => plural(gateways.get(index) ?? 0, 'gateway'),
+  );
+  badge(
+    { key: 'marathon', title: 'Marathon Runner', icon: '👟', roast: false, blurb: 'Covered the most ground.' },
+    yards,
+    'most',
+    (index) => `${integer(Math.round(yards.get(index) ?? 0))} yards`,
+    // The lead ran 0 to 35% across the Aug–Oct keys, and 20% or more in one in eleven.
+    { gap: { title: 'Forrest Gump', blurb: 'Ran 20% further than anyone else. Run, Forrest, run.', times: 1.2 } },
   );
   badge(
     { key: 'klepto', title: 'Kleptomaniac', icon: '🫳', roast: false, blurb: 'Stole the most buffs off enemies.' },

@@ -108,6 +108,7 @@ export {
 export { encodeCbor, mdtExportString, mdtRoute, routeUid, type MdtRoute } from './mdt-route.js';
 export {
   TrackKind,
+  distanceTravelled,
   mapPoint,
   positionAt,
   positionTracks,
