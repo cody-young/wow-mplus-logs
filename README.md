@@ -155,7 +155,9 @@ filesystem and finds MDT **next to the log being read** —
 `<install>/_retail_/Interface/AddOns/MythicDungeonTools`, derived from
 `<install>/_retail_/Logs/WoWCombatLog-*.txt` — because someone with a live and a
 PTR install has two MDTs at different versions and the right one is the one
-belonging to the client that wrote the log. It is purely cosmetic now: without
+belonging to the client that wrote the log. Each folder above the log is tried
+in turn, nearest first, so a log Warcraft Logs' uploader moved to
+`Logs/Archive/` still finds it. It is purely cosmetic now: without
 it a dungeon shows its initials and every number on the page is identical.
 
 [mdt]: https://github.com/Nnoggie/MythicDungeonTools

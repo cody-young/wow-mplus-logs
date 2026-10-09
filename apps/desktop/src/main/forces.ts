@@ -52,6 +52,9 @@ const SKIP = new Set([
 /** A dungeon file is tens of kilobytes; anything far larger is not one. */
 const MAX_FILE_BYTES = 8 << 20;
 
+/** How far above the log's folder to look for `Interface`; `Logs/Archive/<log>` needs two. */
+const MAX_LEVELS_UP = 4;
+
 /**
  * Candidate MDT directories, best guess first.
  *
@@ -60,12 +63,22 @@ const MAX_FILE_BYTES = 8 << 20;
  * ones belonging to the client that wrote that log. Someone with a live and a
  * PTR install has two MDTs at different versions, and the right one is the one
  * next to the log being read — not whichever the filesystem walk reached first.
+ *
+ * The log is not always directly in `Logs`: Warcraft Logs' uploader archives
+ * logs to `Logs/Archive`, and people sort theirs into folders of their own. So
+ * every folder above the log is tried, nearest first, for a few levels.
  */
 export function mdtCandidates(logPath: string | null): string[] {
   if (logPath === null) return [];
-  const logs = dirname(logPath);
-  const retail = dirname(logs);
-  return ADDON_NAMES.map((name) => join(retail, 'Interface', 'AddOns', name));
+  const candidates: string[] = [];
+  let directory = dirname(logPath);
+  for (let level = 0; level < MAX_LEVELS_UP; level++) {
+    const parent = dirname(directory);
+    if (parent === directory) break; // the filesystem root
+    directory = parent;
+    for (const name of ADDON_NAMES) candidates.push(join(directory, 'Interface', 'AddOns', name));
+  }
+  return candidates;
 }
 
 /** Every `.lua` in `directory` and in its immediate subdirectories. */
@@ -169,6 +182,10 @@ export async function loadForces(logPath: string | null): Promise<ForcesLoad> {
       dungeon.teleportSpellId = found.teleports.get(dungeon.challengeModeId) ?? 0;
     }
     return { table, iconsFrom: directory, mdt: [...found.dungeons.values()] };
+  }
+  // The map tab falls back to the log's coordinates without a word, so say here where MDT was looked for.
+  if (logPath !== null) {
+    console.warn(`MDT not found above ${dirname(logPath)}; looked in:\n  ${mdtCandidates(logPath).join('\n  ')}`);
   }
   return { table, iconsFrom: null, mdt: [] };
 }
