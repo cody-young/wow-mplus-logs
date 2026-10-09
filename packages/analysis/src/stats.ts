@@ -61,9 +61,9 @@ import { SegmentKind, segmentAt, type SegmentIndex } from './segments.js';
  * The rest are counts the log states outright: Bloodlusts pressed, deaths
  * cheated, Ankhs, casts an enemy interrupted, spells reflected, debuffs taken
  * debuffs put on enemies, and healing on the rest of the party with its
- * overhealing. Taunts, Power Infusions kept for oneself, externals, combat
- * rezzes, Leaps of Faith and Rescues, immunities running out, Demonic Gateway
- * hops and dashes: each a spell id read off this season's logs.
+ * overhealing. Taunts, Power Infusions kept for oneself and given, externals, combat
+ * rezzes, Leaps of Faith and Rescues, personal defensives, immunities running
+ * out, Demonic Gateway hops and dashes: each a spell id read off this season's logs.
  *
  * And mana, as it stood when each pull and boss ended. The advanced block
  * carries its subject's power, so whoever the last row before the end
@@ -199,12 +199,16 @@ export interface StatsReport {
   taunts: Moment[];
   /** Every Power Infusion a priest put on themselves, not counting Twins of the Sun Priestess's copy. */
   selfInfusions: Moment[];
+  /** Every Power Infusion a priest put on someone else in the party, in order. */
+  infusions: Assist[];
   /** Every major external one of the party put on another, in order. */
   externals: Assist[];
   /** Every combat rez one of the party landed on another, in order. */
   rezzes: Assist[];
   /** Every Leap of Faith and Rescue that carried one of the party, in order. */
   lifts: Assist[];
+  /** Every major personal defensive one of the party put on themselves, in order. */
+  defensives: Moment[];
   /** Every time a player's own immunity ran out, at the moment it did. */
   immunities: Moment[];
   /** Every Demonic Gateway one of the party took, in order. */
@@ -285,6 +289,28 @@ const REZZES: ReadonlySet<number> = new Set([20484, 61999, 391054, 95750]);
 /** Leap of Faith and Rescue, both of whose ids the evoker's spell logs. */
 const LIFTS: ReadonlySet<number> = new Set([73325, 370665, 420217]);
 
+/**
+ * The major personal defensives, as the auras they put on their caster: one
+ * cooldown, one aura. Not the generated defensives table, whose top entries
+ * this season are Soul Leech, Blood Shield and Elusive Brawler, and not the
+ * rotational ones a tank or a rogue presses every pack (Shield Block, Ignore
+ * Pain, Feint, Spell Reflection, a mage's barriers).
+ *
+ * Icebound Fortitude, Anti-Magic Shell, Lichborne, Vampiric Blood, Death Pact;
+ * Blur; Barkskin, Survival Instincts; Obsidian Scales; Aspect of the Turtle,
+ * Survival of the Fittest; Ice Block, Ice Cold, Alter Time, Mirror Image,
+ * Greater Invisibility; Fortifying Brew, Touch of Karma; Divine Shield, both
+ * Divine Protections, Shield of Vengeance, Ardent Defender, Guardian of Ancient
+ * Kings; Desperate Prayer, Dispersion; Cloak of Shadows, Evasion; Astral
+ * Shift; Unending Resolve, Dark Pact; Die by the Sword, Shield Wall, Last
+ * Stand. Each read off this season's logs.
+ */
+const DEFENSIVES: ReadonlySet<number> = new Set([
+  48792, 48707, 49039, 55233, 48743, 212800, 22812, 61336, 363916, 186265, 264735, 45438, 414658, 342246, 55342,
+  110960, 120954, 122470, 642, 498, 403876, 184662, 31850, 86659, 19236, 47585, 31224, 5277, 108271, 104773, 108416,
+  118038, 871, 12975,
+]);
+
 /** Divine Shield, Ice Block, Aspect of the Turtle, Cloak of Shadows and Netherwalk, as auras. */
 const IMMUNITIES: ReadonlySet<number> = new Set([642, 45438, 186265, 31224, 1255881]);
 
@@ -360,10 +386,12 @@ export function statsReport(context: AnalysisContext, segments: SegmentIndex): S
   const reflects: Moment[] = [];
   const taunts: Moment[] = [];
   /** Every Power Infusion cast, with whether it was on the priest themselves. */
-  const infusions: Array<{ moment: Moment; self: boolean }> = [];
+  const infusionCasts: Array<{ moment: Moment; self: boolean }> = [];
+  const infusions: Assist[] = [];
   const externals: Assist[] = [];
   const rezzes: Assist[] = [];
   const lifts: Assist[] = [];
+  const defensives: Moment[] = [];
   const immunities: Moment[] = [];
   const gateways: Moment[] = [];
   const dashes: Moment[] = [];
@@ -488,7 +516,10 @@ export function statsReport(context: AnalysisContext, segments: SegmentIndex): S
       else if (spellId === ANKH) ankhs.push(moment(row, actor, spellId));
       else if (TAUNTS.has(spellId)) taunts.push(moment(row, actor, spellId));
       else if (DASHES.has(spellId)) dashes.push(moment(row, actor, spellId));
-      else if (spellId === POWER_INFUSION) infusions.push({ moment: moment(row, actor, spellId), self: dst === src });
+      else if (spellId === POWER_INFUSION) {
+        infusionCasts.push({ moment: moment(row, actor, spellId), self: dst === src });
+        if (dst !== src && segments.party.has(dst)) infusions.push(assist(row, actor, dst, spellId));
+      }
       else if (segments.party.has(dst) && dst !== actor) {
         if (EXTERNALS.has(spellId)) externals.push(assist(row, actor, dst, spellId));
         else if (LIFTS.has(spellId)) lifts.push(assist(row, actor, dst, spellId));
@@ -522,6 +553,7 @@ export function statsReport(context: AnalysisContext, segments: SegmentIndex): S
       if (!(store.flags[row]! & EvFlag.BUFF) && ours(src) && enemy(dst)) tallies.get(actors.attribute(src))!.debuffsApplied++;
       if (!segments.party.has(dst)) continue;
       if (CHEAT_AURAS.has(spellId)) cheats.push(moment(row, dst, spellId));
+      if (DEFENSIVES.has(spellId) && src === dst) defensives.push(moment(row, dst, spellId));
       if (spellId === GATEWAY) gateways.push(moment(row, dst, spellId));
       if (store.flags[row]! & EvFlag.BUFF || !enemy(src)) continue;
       const key = markKey(src, dst);
@@ -601,11 +633,11 @@ export function statsReport(context: AnalysisContext, segments: SegmentIndex): S
   // Twins of the Sun Priestess logs its copy as a cast on the priest, right
   // beside the one on whoever they chose. Only a self-cast with no such
   // partner is a priest keeping Power Infusion for themselves.
-  const selfInfusions = infusions
+  const selfInfusions = infusionCasts
     .filter(
       ({ moment: mine, self }) =>
         self &&
-        !infusions.some(
+        !infusionCasts.some(
           (other) => !other.self && other.moment.actorIndex === mine.actorIndex && Math.abs(other.moment.ts - mine.ts) <= TWINS_MS,
         ),
     )
@@ -670,9 +702,11 @@ export function statsReport(context: AnalysisContext, segments: SegmentIndex): S
     reflects,
     taunts,
     selfInfusions,
+    infusions,
     externals,
     rezzes,
     lifts,
+    defensives,
     immunities,
     gateways,
     dashes,

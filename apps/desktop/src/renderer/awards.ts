@@ -251,6 +251,13 @@ const CLIFF_MS = 3000;
 const DASHED_MS = 1500;
 const DASHED_MIN_HITS = 2;
 
+/**
+ * The share of a player's health one blow has to take for it to be a one-shot.
+ * Across 105 keys, 11 deaths to a blow nobody could dodge took 90% or more, most
+ * of them Ritual Venom, Volley and Forceful Slam; the next took 85 to 89%.
+ */
+const ONE_SHOT = 0.9;
+
 /** Mana left at a pull's end that is running on fumes, in percent. Healers' lowest ran 3 to 93 across 103 keys. */
 const FUMES_MANA = 5;
 
@@ -439,6 +446,21 @@ export function awardsFor(run: RunAnalysis): Awards | null {
       })
     : [];
   const martyr = count(martyrdoms, (hit) => hit.actorIndex);
+  // Killed in one blow from nearly full, by a spell the avoidable list does
+  // not name: no dodging it, so the only answer was more health. Not a melee
+  // swing, which is a tank's lot or a pull's mistake, and not a fall. Only
+  // where the list covers the dungeon, or every death would read unavoidable.
+  const dodgeable = new Set(run.avoidable.hits.map((hit) => `${hit.actorIndex}/${hit.ts}/${hit.spellId}`));
+  const oneShots = run.avoidable.covered
+    ? counted.flatMap((death) => {
+        const blow = death.killingBlow;
+        if (blow === null || blow.environmental || blow.spellId === 0) return [];
+        if (dodgeable.has(`${death.actorIndex}/${blow.ts}/${blow.spellId}`)) return [];
+        const hpMax = death.trace.at(-1)?.hpMax ?? 0;
+        return hpMax > 0 && blow.amount >= ONE_SHOT * hpMax ? [{ actorIndex: death.actorIndex, spellName: blow.spellName }] : [];
+      })
+    : [];
+  const stamChecks = count(oneShots, (entry) => entry.actorIndex);
 
   const tanks = new Set(party.filter((member) => specOf(member.specId).role === 'tank').map((member) => member.actorIndex));
   const taunts = count(run.stats.taunts, (entry) => entry.actorIndex);
@@ -474,6 +496,8 @@ export function awardsFor(run: RunAnalysis): Awards | null {
   const rezzes = count(run.stats.rezzes, (entry) => entry.actorIndex);
   const nonHealers = party.filter((member) => specOf(member.specId).role !== 'healer');
   const externals = count(run.stats.externals, (entry) => entry.actorIndex);
+  const defensives = count(run.stats.defensives, (entry) => entry.actorIndex);
+  const infused = count(run.stats.infusions, (entry) => entry.targetIndex);
   const rides = count(run.stats.lifts, (entry) => entry.actorIndex);
   const carried = count(run.stats.lifts, (entry) => entry.targetIndex);
   const lastRides = run.stats.lifts.filter((entry) =>
@@ -621,6 +645,15 @@ export function awardsFor(run: RunAnalysis): Awards | null {
       const n = martyr.get(index) ?? 0;
       const last = martyrdoms.filter((hit) => hit.actorIndex === index).at(-1);
       return last === undefined ? plural(n, 'death') : `${plural(n, 'death')} mid-cast, last to ${last.spellName}`;
+    },
+  );
+  badge(
+    { key: 'stam-check', title: 'Stam Check', icon: '🥊', roast: true, blurb: 'Got one-shot by a mechanic there was no dodging.' },
+    stamChecks,
+    'most',
+    (index) => {
+      const last = oneShots.filter((entry) => entry.actorIndex === index).at(-1);
+      return last === undefined ? plural(0, 'one-shot') : `${plural(stamChecks.get(index) ?? 0, 'one-shot')}, last by ${last.spellName}`;
     },
   );
   badge(
@@ -820,6 +853,23 @@ export function awardsFor(run: RunAnalysis): Awards | null {
     'most',
     (index) => plural(externals.get(index) ?? 0, 'external'),
     { field: nonHealers },
+  );
+  // A tank's whole kit is defensives, and they press them every pack.
+  badge(
+    { key: 'live', title: 'I Want to Live!', icon: '🫣', roast: false, blurb: 'Pressed the most personal defensives, the tank aside.' },
+    defensives,
+    'most',
+    (index) => plural(defensives.get(index) ?? 0, 'defensive'),
+    { field: nonTanks },
+  );
+  badge(
+    { key: 'favorite', title: "You're My Favorite!", icon: '💖', roast: false, blurb: 'Got the most Power Infusions from the priest.' },
+    infused,
+    'most',
+    (index) => {
+      const from = run.stats.infusions.filter((entry) => entry.targetIndex === index).at(-1);
+      return from === undefined ? plural(0, 'Power Infusion') : `${plural(infused.get(index) ?? 0, 'Power Infusion')} from ${from.name}`;
+    },
   );
   badge(
     { key: 'uber', title: 'Uber Driver', icon: '🚕', roast: false, blurb: 'Gripped and rescued teammates the most.' },

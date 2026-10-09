@@ -1399,6 +1399,26 @@ test("Infest's burst counts on everyone but the player whose debuff it was", () 
   );
 });
 
+test("Zul'jan's puddles, logged as dealt by nobody, are still his", () => {
+  const zuljan = creature(250000, 70);
+  const nobody = '0000000000000000';
+  const lines = [
+    LINES[0]!,
+    `${at(0)}  CHALLENGE_MODE_START,"Altar of Fangs",2000,588,12,[10,9,147]`,
+    ...LINES.filter((line) => line.includes('COMBATANT_INFO')),
+    hit(10, DPS, 'Dee', zuljan, "Zul'jan", 1000),
+    taken(11, nobody, '', DPS, 'Dee', 5000, { spellId: 1301230, spellName: 'Bloodletting' }).replace(`${nobody},""`, `${nobody},nil`),
+    `${at(30)}  CHALLENGE_MODE_END,2000,1,12,30000,30`,
+  ];
+  const session = new LogSession({ assumedYear: 2026 });
+  session.pushText(lines.join('\n') + '\n');
+  session.end();
+  const run = session.runs[0]!;
+  const context = contextFor(session, run);
+  const { hits } = avoidableReport(context, buildSegments(context));
+  assert.deepEqual(hits.map((entry) => entry.sourceName), ["Zul'jan"]);
+});
+
 /**
  * Den of Nalorakk's Spectral Slash: a stacking DoT from an Echo of Nalorakk.
  * Whoever stops the Echoes charging Zul'jarra is slashed under a second into
@@ -1852,7 +1872,7 @@ test('the moments the log states outright are each counted for the right player'
   assert.deepEqual(who(stats.reflects), [['Tank', 'Fireball']]);
 });
 
-test('the class moments: taunts, infusions, externals, rezzes, rides, immunities, gateways and dashes', () => {
+test('the class moments: taunts, infusions, externals, rezzes, rides, defensives, immunities, gateways and dashes', () => {
   const on = (dst: string, dstName: string) => ({ dst, dstName, dstFlags: '0x511' });
   const stats = statsWith([
     castOn(100, DPS, 'Dee', 355, 'Taunt', { dst: creature(1004, 10), dstName: 'Flame Shaman', dstFlags: '0xa48' }),
@@ -1867,7 +1887,10 @@ test('the class moments: taunts, infusions, externals, rezzes, rides, immunities
     `${at(104)}  SPELL_RESURRECT,${HEALER},"Heals",0x511,0x0,${DPS},"Dee",0x511,0x0,20484,"Rebirth",0x8`,
     // An out-of-combat rez is no combat rez.
     `${at(104.5)}  SPELL_RESURRECT,${HEALER},"Heals",0x511,0x0,${TANK},"Tank",0x511,0x0,2006,"Resurrection",0x8`,
+    aura(104.8, DPS, 'Dee', DPS, 'Dee', 45438, 'Ice Block', true, { dstFlags: '0x511', buff: true }),
     aura(105, DPS, 'Dee', DPS, 'Dee', 45438, 'Ice Block', false, { dstFlags: '0x511', buff: true }),
+    // A tank's rotational mitigation is no defensive.
+    aura(105.5, TANK, 'Tank', TANK, 'Tank', 132404, 'Shield Block', true, { dstFlags: '0x511', buff: true }),
     aura(106, DPS, 'Dee', DPS, 'Dee', 113942, 'Demonic Gateway', true, { dstFlags: '0x511' }),
     castOn(107, DPS, 'Dee', 1953, 'Blink'),
   ]);
@@ -1880,9 +1903,11 @@ test('the class moments: taunts, infusions, externals, rezzes, rides, immunities
     [110_000],
     "only the cast with no Twins partner",
   );
+  assert.deepEqual(toWhom(stats.infusions), [['Heals', 'Power Infusion', 'Dee']], 'the one given away');
   assert.deepEqual(toWhom(stats.externals), [['Heals', 'Life Cocoon', 'Tank']]);
   assert.deepEqual(toWhom(stats.lifts), [['Heals', 'Leap of Faith', 'Dee']]);
   assert.deepEqual(toWhom(stats.rezzes), [['Heals', 'Rebirth', 'Dee']]);
+  assert.deepEqual(who(stats.defensives), [['Tank', 'Icebound Fortitude'], ['Dee', 'Ice Block']], 'the fixture key opens on an Icebound Fortitude');
   assert.deepEqual(who(stats.immunities), [['Dee', 'Ice Block']]);
   assert.deepEqual(who(stats.gateways), [['Dee', 'Demonic Gateway']]);
   assert.deepEqual(who(stats.dashes), [['Dee', 'Blink']]);
