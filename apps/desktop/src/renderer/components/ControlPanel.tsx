@@ -146,7 +146,7 @@ export function ControlPanel({
                       <span className="chev">{open ? '▾' : '▸'}</span>
                       <SpecIcon
                         specId={actor.specId}
-                        title={`${shortName(actor.name)} — ${spec.name} ${spec.className}`}
+                        data-tip={`${shortName(actor.name)} — ${spec.name} ${spec.className}`}
                       />
                       <span className="pname">{shortName(actor.name)}</span>
                       <span className="spec">
@@ -164,7 +164,7 @@ export function ControlPanel({
                           <span
                             className="chip"
                             key={ending.key}
-                            title={ending.why}
+                            data-tip={ending.why}
                             style={
                               ending.key === 'broken' ? { color: 'var(--danger)' } : undefined
                             }
@@ -319,7 +319,7 @@ function endText(application: ControlApplication): React.JSX.Element {
 function SpellIcon({ url, name }: { url: string | undefined; name: string }): React.JSX.Element {
   return (
     <span className="spell-ico">
-      {url === undefined ? null : <img src={url} alt="" width={16} height={16} title={name} />}
+      {url === undefined ? null : <img src={url} alt="" width={16} height={16} data-tip={name} />}
     </span>
   );
 }

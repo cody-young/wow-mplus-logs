@@ -42,7 +42,7 @@ export function UpdateFooter({
           {/* The notes are a release body — markdown, and as long as whoever
               wrote it felt like. The sidebar is 274px wide, so they live in the
               tooltip and the releases page carries the readable copy. */}
-          <strong title={status.notes ?? undefined}>{`Version ${status.version}`}</strong>
+          <strong data-tip={status.notes ?? undefined}>{`Version ${status.version}`}</strong>
           {state.capability === 'install' ? (
             <>
               <p>
@@ -124,7 +124,7 @@ export function UpdateFooter({
             Check for updates
           </button>
         )}
-        <label title="Check for a new version shortly after launch. Nothing downloads on its own.">
+        <label data-tip="Check for a new version shortly after launch. Nothing downloads on its own.">
           <input
             type="checkbox"
             checked={state.automatic}

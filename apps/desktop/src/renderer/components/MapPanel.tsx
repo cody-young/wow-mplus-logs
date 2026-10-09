@@ -272,7 +272,7 @@ export function MapPanel({ run, selectedSegment, onSelectSegment }: Props): Reac
                 className={`map-floor${candidate.uiMapId === floor.uiMapId ? ' active' : ''}${
                   pinnedFloor === null && candidate.uiMapId === followed ? ' party' : ''
                 }`}
-                title={
+                data-tip={
                   pinnedFloor === null
                     ? 'Following the party from floor to floor; pick one to stay on it'
                     : undefined
@@ -300,7 +300,7 @@ export function MapPanel({ run, selectedSegment, onSelectSegment }: Props): Reac
           ))}
           {deaths > 0 ? <span className="map-legend-item dim">✕ death</span> : null}
           {mdtFits.size > 0 ? (
-            <label className="map-mdt-toggle" title="Draw floors on Mythic Dungeon Tools' map where the run fits it">
+            <label className="map-mdt-toggle" data-tip="Draw floors on Mythic Dungeon Tools' map where the run fits it">
               <input type="checkbox" checked={useMdt} onChange={(event) => setUseMdt(event.target.checked)} />
               MDT map
             </label>
@@ -413,7 +413,7 @@ function MdtExportButton({ run }: { run: RunAnalysis }): React.JSX.Element | nul
     <button
       type="button"
       className={`map-export${state === 'done' ? ' done' : ''}`}
-      title={`Copy this run's route for Mythic Dungeon Tools' Import: ${placed} of ${fought} pulls, with the kills placed on MDT's map. Kills the map could not place are left out.`}
+      data-tip={`Copy this run's route for Mythic Dungeon Tools' Import: ${placed} of ${fought} pulls, with the kills placed on MDT's map. Kills the map could not place are left out.`}
       onClick={copy}
     >
       {state === 'done' ? 'Copied' : state === 'failed' ? 'Export failed' : 'Export to MDT'}
@@ -1021,7 +1021,8 @@ function MapCanvas({
                     ? 'grab'
                     : 'default',
             }}
-            title={hover !== null && enemy === null && !dragging ? pullTitle(hover, forcesRequired) : ''}
+            data-tip-follow=""
+            data-tip={hover !== null && enemy === null && !dragging ? pullTitle(hover, forcesRequired) : ''}
             onPointerDown={(event) => {
               dragged.current = false;
               if (zoom === null || event.button !== 0) return;
@@ -1083,7 +1084,7 @@ function MapCanvas({
             <button
               type="button"
               aria-label="Zoom in"
-              title="Zoom in (or scroll on the map)"
+              data-tip="Zoom in (or scroll on the map)"
               disabled={zoom !== null && zoom.k >= MAX_ZOOM}
               onClick={() => zoomAbout(ZOOM_STEP * ZOOM_STEP, frame.width / 2, frame.height / 2)}
             >
@@ -1092,14 +1093,14 @@ function MapCanvas({
             <button
               type="button"
               aria-label="Zoom out"
-              title="Zoom out"
+              data-tip="Zoom out"
               disabled={zoom === null}
               onClick={() => zoomAbout(1 / (ZOOM_STEP * ZOOM_STEP), frame.width / 2, frame.height / 2)}
             >
               −
             </button>
             {zoom !== null ? (
-              <button type="button" className="map-zoom-reset" title="Show the whole floor" onClick={() => setZoom(null)}>
+              <button type="button" className="map-zoom-reset" data-tip="Show the whole floor" onClick={() => setZoom(null)}>
                 Fit
               </button>
             ) : null}

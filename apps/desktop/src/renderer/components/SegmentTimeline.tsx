@@ -97,7 +97,7 @@ export function SegmentTimeline({ segments, durationMs, forces, selectedId, onSe
           } as React.CSSProperties
         }
         onClick={() => onSelect(selectedId === segment.id ? null : segment.id)}
-        title={
+        data-tip={
           `${boss ? 'Boss' : `Pull ${segment.pullNumber}`}: ${segment.label}\n` +
           `${clock(segment.startTs)}–${clock(segment.endTs)} · ${segment.enemies.length} enemies` +
           // Only when a table was found: "0 count" on a pull of twelve reads as

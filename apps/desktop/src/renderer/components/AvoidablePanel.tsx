@@ -106,7 +106,7 @@ export function AvoidablePanel({
           <tr>
             <th className="left">Player</th>
             <th>Hits</th>
-            <th title="Times an avoidable hit was the killing blow">Deaths</th>
+            <th data-tip="Times an avoidable hit was the killing blow">Deaths</th>
             <th>Damage</th>
           </tr>
         </thead>
@@ -128,7 +128,7 @@ export function AvoidablePanel({
                       <span className="chev">{open ? '▾' : '▸'}</span>
                       <SpecIcon
                         specId={actor.specId}
-                        title={`${shortName(actor.name)} — ${spec.name} ${spec.className}`}
+                        data-tip={`${shortName(actor.name)} — ${spec.name} ${spec.className}`}
                       />
                       <span className="pname">{shortName(actor.name)}</span>
                       <span className="spec">

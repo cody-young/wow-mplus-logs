@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 /**
  * The hover tip the charts and tables share.
@@ -11,6 +11,9 @@ import { useLayoutEffect, useRef, useState } from 'react';
  * The hook keeps the hovered item and its position in coordinates relative to
  * a positioned root — the chart or the table — so the tip is a sibling of the
  * rows rather than a portal, and scrolls with them.
+ *
+ * Plain-text tips go through `data-tip` instead, which `AttributeTips` serves
+ * for the whole window. Never `title`: that brings the slow browser tip back.
  */
 
 /** What is hovered right now, and where its tip points. */
@@ -127,6 +130,127 @@ export function Tip<T>({
     >
       {icon === undefined ? null : <img className="tip-ico" src={icon} alt="" />}
       <div className="tip-body">{children}</div>
+    </div>
+  );
+}
+
+/** Where the attribute tip points, in viewport coordinates. */
+interface AttributeAnchor {
+  text: string;
+  x: number;
+  y: number;
+  bottom: number;
+}
+
+/** Room for the cursor itself, when a tip follows the pointer and drops below it. */
+const CURSOR_PX = 20;
+
+/**
+ * The tip for every `data-tip` in the window: the same look as `Tip`, for
+ * anything whose tip is a line or two of text. Mounted once, beside the app.
+ *
+ * It sits against the element it describes, like `Tip`. An element marked
+ * `data-tip-follow` — the map canvas, whose tip is whatever pull is under the
+ * pointer — gets it against the pointer instead. The text is read live, so an
+ * element can change its tip while hovered.
+ */
+export function AttributeTips(): React.JSX.Element | null {
+  const tipRef = useRef<HTMLDivElement | null>(null);
+  const [anchor, setAnchor] = useState<AttributeAnchor | null>(null);
+  const [place, setPlace] = useState({ nudge: 0, below: false });
+
+  useEffect(() => {
+    let active: HTMLElement | null = null;
+    let point: { x: number; y: number } | null = null;
+    // A click puts the tip away until the pointer leaves, as the browser's does.
+    let dismissed = false;
+
+    const show = (): void => {
+      const text = active?.dataset['tip'] ?? '';
+      if (active === null || dismissed || text === '' || !active.isConnected) {
+        setAnchor(null);
+        return;
+      }
+      if (point !== null && active.hasAttribute('data-tip-follow')) {
+        setAnchor({ text, x: point.x, y: point.y, bottom: point.y + CURSOR_PX });
+        return;
+      }
+      const box = active.getBoundingClientRect();
+      setAnchor({ text, x: box.left + box.width / 2, y: box.top, bottom: box.bottom });
+    };
+    const watch = new MutationObserver(show);
+    const activate = (element: HTMLElement | null): void => {
+      if (element === active) return;
+      active = element;
+      dismissed = false;
+      watch.disconnect();
+      if (element !== null) watch.observe(element, { attributes: true, attributeFilter: ['data-tip'] });
+      show();
+    };
+
+    const over = (event: PointerEvent): void => {
+      point = { x: event.clientX, y: event.clientY };
+      activate(event.target instanceof Element ? event.target.closest<HTMLElement>('[data-tip]') : null);
+    };
+    const move = (event: PointerEvent): void => {
+      point = { x: event.clientX, y: event.clientY };
+      // An element removed from under a still pointer never reports leaving.
+      if (active !== null && !active.isConnected) activate(null);
+      else if (active?.hasAttribute('data-tip-follow') === true) {
+        dismissed = false;
+        show();
+      }
+    };
+    const out = (event: PointerEvent): void => {
+      if (event.relatedTarget === null) activate(null);
+    };
+    const away = (): void => {
+      dismissed = true;
+      setAnchor(null);
+    };
+    const hide = (): void => activate(null);
+
+    document.addEventListener('pointerover', over);
+    document.addEventListener('pointermove', move);
+    document.addEventListener('pointerout', out);
+    document.addEventListener('pointerdown', away, true);
+    document.addEventListener('scroll', hide, true);
+    window.addEventListener('blur', hide);
+    return () => {
+      watch.disconnect();
+      document.removeEventListener('pointerover', over);
+      document.removeEventListener('pointermove', move);
+      document.removeEventListener('pointerout', out);
+      document.removeEventListener('pointerdown', away, true);
+      document.removeEventListener('scroll', hide, true);
+      window.removeEventListener('blur', hide);
+    };
+  }, []);
+
+  // Slid back inside the window and flipped below when the top would be cut
+  // off, measured after paint as `useTip` does. Placed from the anchor alone,
+  // so the two placements cannot argue and flip forever.
+  useLayoutEffect(() => {
+    const tip = tipRef.current;
+    if (anchor === null || tip === null) return;
+    const width = tip.offsetWidth;
+    const height = tip.offsetHeight;
+    const half = width / 2;
+    const left = Math.min(Math.max(anchor.x, half + GAP_PX), Math.max(window.innerWidth - half - GAP_PX, half));
+    const below = anchor.y - height - GAP_PX < 0;
+    const nudge = left - anchor.x;
+    setPlace((current) => (current.nudge === nudge && current.below === below ? current : { nudge, below }));
+  }, [anchor]);
+
+  if (anchor === null) return null;
+  return (
+    <div
+      className={`tip attr-tip${place.below ? ' below' : ''}`}
+      ref={tipRef}
+      style={{ left: anchor.x + place.nudge, top: place.below ? anchor.bottom : anchor.y }}
+      role="tooltip"
+    >
+      <div className="tip-body">{anchor.text}</div>
     </div>
   );
 }

@@ -647,6 +647,16 @@ table.roster-table { margin-top: 6px; }
 /* Dropped below instead, when the row is too near the top of the view for the
    tip to fit above it. */
 .tip.below { transform: translate(-50%, 0); margin-top: 6px; }
+/* The window-wide tip for data-tip text: over everything, and wrapping, since
+   some of these are a sentence or a release's notes. */
+.attr-tip {
+  position: fixed;
+  z-index: 1000;
+  white-space: pre-line;
+  width: max-content;
+  max-width: 52ch;
+  line-height: 1.4;
+}
 .tip-ico { width: 26px; height: 26px; border-radius: 3px; flex: 0 0 auto; display: block; }
 .tip-body { display: flex; flex-direction: column; gap: 1px; }
 .tip .dim { color: var(--dim); font-weight: 400; }

@@ -21,8 +21,9 @@ export function SpecIcon({
 }: {
   specId: number;
   size?: number;
-  /** Defaults to "Spec Class"; pass a name to put the player in it too. */
-  title?: string;
+  /** Defaults to "Spec Class"; pass a name to put the player in it too, or
+   *  null for no tip when something around the icon already has one. */
+  title?: string | null;
 }): React.JSX.Element {
   const icons = useSpecIcons();
   const spec = specOf(specId);
@@ -33,7 +34,7 @@ export function SpecIcon({
     <span
       className="spec-ico"
       style={{ width: size, height: size, background: spec.color }}
-      title={label}
+      data-tip={label ?? undefined}
     >
       {url === undefined ? null : <img src={url} alt="" width={size} height={size} />}
     </span>

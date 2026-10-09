@@ -2,6 +2,7 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 
 import { App } from './App.js';
+import { AttributeTips } from './components/Tip.js';
 import './styles.css';
 
 const host = document.getElementById('root');
@@ -19,6 +20,7 @@ if ((window as { mplus?: unknown }).mplus === undefined) {
   createRoot(host).render(
     <StrictMode>
       <App />
+      <AttributeTips />
     </StrictMode>,
   );
 }

@@ -113,7 +113,7 @@ export function RunRow({
                instead is a real contradiction: starred rather than hidden, and
                explained in full on the run's own page. */
             <span
-              title={
+              data-tip={
                 analysis.forces.incomplete
                   ? 'This completed key met its count, and these kills do not add up to it — see' +
                     ' the run for the details'
@@ -132,7 +132,7 @@ export function RunRow({
                 key={member.actorIndex}
                 specId={member.specId}
                 size={14}
-                title={memberTitle(member)}
+                data-tip={memberTitle(member)}
               />
             ))}
           </span>

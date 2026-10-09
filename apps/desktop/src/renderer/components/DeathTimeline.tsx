@@ -260,7 +260,7 @@ export function DeathTimeline({
             type="button"
             disabled={offset === 0}
             onClick={() => setOffsetMs(0)}
-            title="Back to the death"
+            data-tip="Back to the death"
           >
             death
           </button>

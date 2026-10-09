@@ -100,7 +100,7 @@ export function DispelsPanel({
               type="button"
               key={kind}
               className="dispel-key"
-              title={`${KIND_META[kind].why} Jump to the section.`}
+              data-tip={`${KIND_META[kind].why} Jump to the section.`}
               onClick={() =>
                 sections.current[kind]?.scrollIntoView({ behavior: 'smooth', block: 'start' })
               }
@@ -150,7 +150,7 @@ export function DispelsPanel({
                         key={kind}
                         className={`seg ${kind}`}
                         style={{ flexGrow: actor.byKind[kind] }}
-                        title={`${shortName(actor.name)}: ${actor.byKind[kind]} ${KIND_META[kind].title.toLowerCase()}`}
+                        data-tip={`${shortName(actor.name)}: ${actor.byKind[kind]} ${KIND_META[kind].title.toLowerCase()}`}
                       />
                     ))}
                   </div>
@@ -376,7 +376,7 @@ function specTitle(name: string, specId: number): string {
 function SpellIcon({ url, name }: { url: string | undefined; name: string }): React.JSX.Element {
   return (
     <span className="spell-ico">
-      {url === undefined ? null : <img src={url} alt="" width={16} height={16} title={name} />}
+      {url === undefined ? null : <img src={url} alt="" width={16} height={16} data-tip={name} />}
     </span>
   );
 }

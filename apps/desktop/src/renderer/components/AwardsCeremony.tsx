@@ -71,7 +71,7 @@ export function AwardsCeremony({
             Skip
           </button>
         ) : (
-          <button type="button" onClick={() => setStep(0)} disabled={reduced} title={reduced ? 'Reduced motion is on' : undefined}>
+          <button type="button" onClick={() => setStep(0)} disabled={reduced} data-tip={reduced ? 'Reduced motion is on' : undefined}>
             ▶ Replay
           </button>
         )}
@@ -128,7 +128,7 @@ function BadgeCard({
           const who = member(index);
           return (
             <span key={index} className="badge-winner">
-              {who === undefined ? null : <SpecIcon specId={who.specId} title={memberTitle(who)} size={big ? 20 : 14} />}
+              {who === undefined ? null : <SpecIcon specId={who.specId} title={tip === undefined ? memberTitle(who) : null} size={big ? 20 : 14} />}
               <span className="pname" style={{ color: specOf(who?.specId ?? -1).color }}>
                 {shortName(who?.name ?? '?')}
               </span>
@@ -218,7 +218,7 @@ function Podium({ awards }: { awards: Awards }): React.JSX.Element {
         {order.map((entry) => {
           const place = placeOf(entry);
           return (
-            <div key={entry.member.actorIndex} className={`podium-step place-${place}`} title={pointsTitle(entry)}>
+            <div key={entry.member.actorIndex} className={`podium-step place-${place}`} data-tip={pointsTitle(entry)}>
               <span className="podium-who">
                 {mvp.includes(entry.member.actorIndex) ? <span className="stat-crown">♛</span> : null}
                 <SpecIcon specId={entry.member.specId} title={memberTitle(entry.member)} size={22} />
@@ -237,7 +237,7 @@ function Podium({ awards }: { awards: Awards }): React.JSX.Element {
       {standings.length > 3 ? (
         <ol className="podium-rest" start={4}>
           {standings.slice(3).map((entry) => (
-            <li key={entry.member.actorIndex} value={placeOf(entry)} title={pointsTitle(entry)}>
+            <li key={entry.member.actorIndex} value={placeOf(entry)} data-tip={pointsTitle(entry)}>
               <span className="pname" style={{ color: specOf(entry.member.specId).color }}>
                 {shortName(entry.member.name)}
               </span>{' '}

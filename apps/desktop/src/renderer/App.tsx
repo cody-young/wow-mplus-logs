@@ -358,7 +358,7 @@ export function App(): React.JSX.Element {
             <button
               type="button"
               disabled={busy}
-              title="Find the newest combat log and follow it as you play"
+              data-tip="Find the newest combat log and follow it as you play"
               onClick={() => void window.mplus.watchLog().then((path) => open(path, true))}
             >
               Watch live
@@ -435,7 +435,7 @@ export function App(): React.JSX.Element {
                     <span className="label">Count</span>
                     <span
                       className="value"
-                      title={
+                      data-tip={
                         run.forces.known
                           ? `${integer(run.forces.counted)} of the ${integer(run.forces.required)} enemy` +
                             ` forces this dungeon asks for — values from ${run.forces.source}.` +
@@ -653,9 +653,9 @@ function BadgeChips({
 }): React.JSX.Element | null {
   if (badges.length === 0 && !mvp) return null;
   return (
-    <button type="button" className="badge-chips" onClick={onOpen} title="Open the awards">
+    <button type="button" className="badge-chips" onClick={onOpen} data-tip="Open the awards">
       {mvp ? (
-        <span className="badge-chip mvp" title="Dungeon MVP">
+        <span className="badge-chip mvp" data-tip="Dungeon MVP">
           ♛
         </span>
       ) : null}
@@ -663,7 +663,7 @@ function BadgeChips({
         <span
           key={badge.key}
           className={`badge-chip${badge.roast ? ' roast' : ''}`}
-          title={`${badge.title}: ${badge.reasons[reason] ?? ''}`}
+          data-tip={`${badge.title}: ${badge.reasons[reason] ?? ''}`}
         >
           {badge.icon}
         </span>
@@ -698,7 +698,7 @@ function CopyButton({ text }: { text: () => string }): React.JSX.Element {
     <button
       type="button"
       className={`share${state === 'done' ? ' done' : ''}`}
-      title="Copy this tab as text, ready to paste into chat or Discord"
+      data-tip="Copy this tab as text, ready to paste into chat or Discord"
       onClick={copy}
     >
       {state === 'done' ? 'Copied' : state === 'failed' ? 'Copy failed' : 'Copy'}

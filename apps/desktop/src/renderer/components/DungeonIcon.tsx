@@ -26,7 +26,7 @@ export function DungeonIcon({
   const url = icons.get(teleportSpellId);
 
   return (
-    <span className="dungeon-ico" style={{ width: size, height: size }} title={zoneName}>
+    <span className="dungeon-ico" style={{ width: size, height: size }} data-tip={zoneName}>
       {url === undefined ? (
         // The dungeon's initials: two letters are enough to tell the rows of a
         // list apart, which is all the icon was doing.

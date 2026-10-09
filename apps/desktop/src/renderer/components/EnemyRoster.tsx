@@ -68,9 +68,9 @@ export function RosterTable({ segment, forces }: Props): React.JSX.Element {
         <thead>
           <tr>
             <th className="left">Enemy</th>
-            <th title="Spawns that died, out of the spawns the party damaged">Killed</th>
-            {forces.known ? <th title="Enemy forces earned: the per-kill value times kills">Count</th> : null}
-            {forces.known ? <th title="Share of the forces this dungeon's kills have to supply">%</th> : null}
+            <th data-tip="Spawns that died, out of the spawns the party damaged">Killed</th>
+            {forces.known ? <th data-tip="Enemy forces earned: the per-kill value times kills">Count</th> : null}
+            {forces.known ? <th data-tip="Share of the forces this dungeon's kills have to supply">%</th> : null}
             {anyHealth ? <th>Max HP</th> : null}
             {anyHealth ? <th>Health pool</th> : null}
             <th className="left">Kind</th>
@@ -83,11 +83,11 @@ export function RosterTable({ segment, forces }: Props): React.JSX.Element {
               <td className="left">
                 <span className={group.summon ? 'roster-summon' : 'roster-name'}>{group.name}</span>
               </td>
-              <td title={`${integer(group.spawns)} damaged, ${integer(group.killed)} killed`}>
+              <td data-tip={`${integer(group.spawns)} damaged, ${integer(group.killed)} killed`}>
                 {killedOf(group)}
               </td>
               {forces.known ? (
-                <td title={eachOf(group)}>
+                <td data-tip={eachOf(group)}>
                   {group.forcesEach === null ? '—' : integer(group.forces)}
                 </td>
               ) : null}

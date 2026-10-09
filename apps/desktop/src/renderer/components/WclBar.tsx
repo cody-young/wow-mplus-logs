@@ -20,7 +20,7 @@ export function WclBar({ wcl, wholeRun }: { wcl: WclState; wholeRun: boolean }):
   }
 
   const account = (
-    <button type="button" className="link" onClick={wcl.signOut} title="Sign out of Warcraft Logs">
+    <button type="button" className="link" onClick={wcl.signOut} data-tip="Sign out of Warcraft Logs">
       {status.userName ?? 'Signed in'}
     </button>
   );

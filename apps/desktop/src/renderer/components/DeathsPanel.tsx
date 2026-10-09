@@ -86,7 +86,7 @@ export function DeathsPanel({
               <span className="who">
                 <SpecIcon
                   specId={entry.specId}
-                  title={`${shortName(entry.name)} — ${entrySpec.name} ${entrySpec.className}`}
+                  data-tip={`${shortName(entry.name)} — ${entrySpec.name} ${entrySpec.className}`}
                 />
                 <span style={{ color: entrySpec.color, fontWeight: 600 }}>{shortName(entry.name)}</span>
                 <span style={{ color: 'var(--dim)', fontVariantNumeric: 'tabular-nums' }}>{clock(entry.ts)}</span>

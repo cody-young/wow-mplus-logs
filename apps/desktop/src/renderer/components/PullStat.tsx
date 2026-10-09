@@ -13,7 +13,7 @@ export function PullStat({ analysis, pull }: { analysis: RunAnalysis; pull: Pull
   const member = partyOf(analysis).find((candidate) => candidate.actorIndex === summary.actor);
   const title = [summary.caveat, ...summary.lines].filter((line) => line !== null).join('\n');
   return (
-    <div className="stat pull-stat" title={title}>
+    <div className="stat pull-stat" data-tip={title}>
       <span className="label">{summary.label}</span>
       <span className="value">
         {member === undefined ? null : (

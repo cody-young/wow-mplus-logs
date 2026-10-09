@@ -137,7 +137,7 @@ function StatCard({ stat }: { stat: Stat }): React.JSX.Element {
             <li
               key={row.member.actorIndex}
               className={`stat-row${leader ? ' leader' : ''}${row.value === 0 ? ' zero' : ''}`}
-              title={row.detail === '' ? undefined : row.detail}
+              data-tip={row.detail === '' ? undefined : row.detail}
             >
               <span className="namecell">
                 <SpecIcon specId={row.member.specId} title={memberTitle(row.member)} />

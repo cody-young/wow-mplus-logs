@@ -277,7 +277,7 @@ export function BreakdownTable({ report, mode, defaultExpanded = false, parses }
                       <span className="chev">{open ? '▾' : '▸'}</span>
                       <SpecIcon
                         specId={actor.specId}
-                        title={`${shortName(actor.name)} — ${spec.name} ${spec.className}`}
+                        data-tip={`${shortName(actor.name)} — ${spec.name} ${spec.className}`}
                       />
                       <span className="pname">{shortName(actor.name)}</span>
                       <span className="spec">{spec.name}</span>
@@ -525,7 +525,7 @@ function ParseBadge({ parse }: { parse: WclParse | undefined }): React.JSX.Eleme
     .filter((part) => part !== null)
     .join(' · ');
   return (
-    <span className="parse" style={{ color: parseColor(shown) }} title={detail}>
+    <span className="parse" style={{ color: parseColor(shown) }} data-tip={detail}>
       {Math.floor(shown)}
     </span>
   );
@@ -547,7 +547,7 @@ function ActiveCell({
 }): React.JSX.Element {
   const doing = mode === 'healing' ? 'healing' : 'dealing damage';
   return (
-    <span title={`Active for ${clock(activeMs)} of ${clock(durationMs)}: all but the stretches of over 10 seconds without ${doing}`}>
+    <span data-tip={`Active for ${clock(activeMs)} of ${clock(durationMs)}: all but the stretches of over 10 seconds without ${doing}`}>
       {percent(activeMs / Math.max(durationMs, 1))}
     </span>
   );

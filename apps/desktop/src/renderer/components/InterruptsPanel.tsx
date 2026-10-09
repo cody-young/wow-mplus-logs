@@ -148,7 +148,7 @@ export function InterruptsPanel({
                       <span className="chev">{open ? '▾' : '▸'}</span>
                       <SpecIcon
                         specId={actor.specId}
-                        title={`${shortName(actor.name)} — ${spec.name} ${spec.className}`}
+                        data-tip={`${shortName(actor.name)} — ${spec.name} ${spec.className}`}
                       />
                       <span className="pname">{shortName(actor.name)}</span>
                       <span className="spec">
@@ -165,7 +165,7 @@ export function InterruptsPanel({
                     ) : (
                       <span className="chips">
                         {REASONS.filter((reason) => actor.outcomes[reason.key] > 0).map((reason) => (
-                          <span className="chip" key={reason.key} title={reason.why}>
+                          <span className="chip" key={reason.key} data-tip={reason.why}>
                             {reason.label} {actor.outcomes[reason.key]}
                           </span>
                         ))}
@@ -295,7 +295,7 @@ function outcomeText(attempt: InterruptAttempt): React.JSX.Element {
 function SpellIcon({ url, name }: { url: string | undefined; name: string }): React.JSX.Element {
   return (
     <span className="spell-ico">
-      {url === undefined ? null : <img src={url} alt="" width={16} height={16} title={name} />}
+      {url === undefined ? null : <img src={url} alt="" width={16} height={16} data-tip={name} />}
     </span>
   );
 }
