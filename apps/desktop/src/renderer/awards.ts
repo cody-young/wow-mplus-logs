@@ -125,8 +125,8 @@ function rankPoints(party: readonly PartyMember[], values: Values, best: 'most' 
   return points;
 }
 
-/** What tops damage: twice what tops a category scored by rank. */
-const DAMAGE_POINTS = 10;
+/** What tops damage: three times what tops a category scored by rank. */
+const DAMAGE_POINTS = 15;
 
 /**
  * What tops healing: the same as topping a category by rank. The healer leads
@@ -138,20 +138,21 @@ const HEALING_POINTS = 5;
 
 /**
  * Points for one category by share of the top figure, rounded: the top scores
- * `max`, and half its figure scores half that.
+ * `max`, and half its figure scores half that. Measured from `floor` when one
+ * is given, so a figure at or below it scores nothing.
  *
  * Rank points cannot tell a carry from a photo finish: twice the next player's
  * damage scores one point over them, the same as a hair more. Damage is what a
- * key is cleared with, so it scores by how much, and at twice the weight of
- * the rest.
+ * key is cleared with, so it scores by how much, and at three times the weight
+ * of the rest.
  */
-function sharePoints(party: readonly PartyMember[], values: Values, max: number): Map<number, number> {
+function sharePoints(party: readonly PartyMember[], values: Values, max: number, floor = 0): Map<number, number> {
   const of = (index: number): number => values.get(index) ?? 0;
   const top = Math.max(0, ...party.map((member) => of(member.actorIndex)));
   const points = new Map<number, number>();
-  if (top <= 0) return points;
+  if (top <= floor) return points;
   for (const member of party) {
-    const share = Math.round((max * of(member.actorIndex)) / top);
+    const share = Math.round((max * Math.max(0, of(member.actorIndex) - floor)) / (top - floor));
     if (share > 0) points.set(member.actorIndex, share);
   }
   return points;
@@ -932,9 +933,9 @@ export function awardsFor(run: RunAnalysis): Awards | null {
   // Damage and healing both count, by share, so a healer and a dps each have
   // their category to win, and a tank's lies in kicks, control and staying
   // alive, by rank. Falls score nothing either way; they are only funny.
-  const byShare = (category: string, values: Values, max: number) => ({
+  const byShare = (category: string, values: Values, max: number, floor = 0) => ({
     category,
-    points: sharePoints(party, values, max),
+    points: sharePoints(party, values, max, floor),
     places: places(party, values, 'most'),
   });
   const byRank = (category: string, values: Values, best: 'most' | 'fewest') => ({
@@ -942,8 +943,11 @@ export function awardsFor(run: RunAnalysis): Awards | null {
     points: rankPoints(party, values, best),
     places: places(party, values, best),
   });
+  // Damage counts from the last dps up: out-damaging the tank and healer is
+  // the job, not a point, so the bottom dps scores no more than they do.
+  const damageFloor = dpsField.length >= 2 ? Math.min(...dpsField.map((member) => damage.get(member.actorIndex) ?? 0)) : 0;
   const categories = [
-    byShare('Damage', damage, DAMAGE_POINTS),
+    byShare('Damage', damage, DAMAGE_POINTS, damageFloor),
     byShare('Healing', healing, HEALING_POINTS),
     byRank('Kicks', kicks, 'most'),
     byRank('Crowd control', cc, 'most'),
