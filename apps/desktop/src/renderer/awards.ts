@@ -220,6 +220,43 @@ const COMMITMENT_MIN_SHARE = 0.1;
  */
 const MASHER_GAP_APM = 60;
 
+/**
+ * How soon after an immunity runs out a death counts as delayed, not dodged.
+ * Across 103 keys the nearest were 3.4s after Cloak of Shadows and 4.4s after
+ * Divine Shield; the next, 7s and more.
+ */
+const INEVITABLE_MS = 5000;
+
+/** How soon after an external its target can die for it to have been spent on a corpse. */
+const CORPSE_MS = 10_000;
+
+/**
+ * How soon after a Leap of Faith or Rescue its passenger has to die for the
+ * ride to have been what killed them: carried into it, not merely unlucky
+ * later. Across 103 keys the nearest was 20s, so this is a rare one.
+ */
+const RIDE_DEATH_MS = 2000;
+
+/** How soon after a movement ability a fall is that ability's doing. */
+const CLIFF_MS = 3000;
+
+/**
+ * How soon after a movement ability an avoidable hit was dashed into, and how
+ * many it takes. One is a fire mage's Shimmer most keys: they press it so
+ * often that something was bound to follow it.
+ */
+const DASHED_MS = 1500;
+const DASHED_MIN_HITS = 2;
+
+/** Mana left at a pull's end that is running on fumes, in percent. Healers' lowest ran 3 to 93 across 103 keys. */
+const FUMES_MANA = 5;
+
+/** A hunter pet's Growl, which taunts on autocast unless someone turns it off. */
+const PET_GROWL = 2649;
+
+/** Blessing of Protection, which also takes away all its target's threat. */
+const BLESSING_OF_PROTECTION = 1022;
+
 /** How long a death has to take, from the first hit in its window, for a heal to have had a chance. */
 const SLOW_DEATH_MS = 5000;
 
@@ -400,6 +437,56 @@ export function awardsFor(run: RunAnalysis): Awards | null {
     : [];
   const martyr = count(martyrdoms, (hit) => hit.actorIndex);
 
+  const tanks = new Set(party.filter((member) => specOf(member.specId).role === 'tank').map((member) => member.actorIndex));
+  const taunts = count(run.stats.taunts, (entry) => entry.actorIndex);
+  const selfInfusions = count(run.stats.selfInfusions, (entry) => entry.actorIndex);
+  const bops = run.stats.externals.filter(
+    (entry) => entry.spellId === BLESSING_OF_PROTECTION && tanks.has(entry.targetIndex),
+  );
+  const unemployment = count(bops, (entry) => entry.actorIndex);
+  // An immunity that ran out moments before its owner died, among the deaths
+  // the run counts.
+  const delays = counted.flatMap((death) => {
+    const last = run.stats.immunities
+      .filter((entry) => entry.actorIndex === death.actorIndex && entry.ts < death.ts)
+      .at(-1);
+    return last !== undefined && death.ts - last.ts <= INEVITABLE_MS ? [last] : [];
+  });
+  const delayed = count(delays, (entry) => entry.actorIndex);
+  const wasted = run.stats.externals.filter((entry) =>
+    counted.some((death) => death.actorIndex === entry.targetIndex && death.ts >= entry.ts && death.ts - entry.ts <= CORPSE_MS),
+  );
+  const corpses = count(wasted, (entry) => entry.actorIndex);
+  const dashBefore = (actorIndex: number, ts: number, withinMs: number) =>
+    run.stats.dashes.filter((dash) => dash.actorIndex === actorIndex && dash.ts <= ts && ts - dash.ts <= withinMs).at(-1);
+  const leaps = run.stats.falls.flatMap((fall) => {
+    const dash = dashBefore(fall.actorIndex, fall.ts, CLIFF_MS);
+    return dash === undefined ? [] : [dash];
+  });
+  const cliffs = count(leaps, (entry) => entry.actorIndex);
+  const dashed = count(
+    run.avoidable.hits.filter((hit) => dashBefore(hit.actorIndex, hit.ts, DASHED_MS) !== undefined),
+    (hit) => hit.actorIndex,
+  );
+  const rezzes = count(run.stats.rezzes, (entry) => entry.actorIndex);
+  const nonHealers = party.filter((member) => specOf(member.specId).role !== 'healer');
+  const externals = count(run.stats.externals, (entry) => entry.actorIndex);
+  const rides = count(run.stats.lifts, (entry) => entry.actorIndex);
+  const carried = count(run.stats.lifts, (entry) => entry.targetIndex);
+  const lastRides = run.stats.lifts.filter((entry) =>
+    counted.some((death) => death.actorIndex === entry.targetIndex && death.ts >= entry.ts && death.ts - entry.ts <= RIDE_DEATH_MS),
+  );
+  const rideDeaths = count(lastRides, (entry) => entry.targetIndex);
+  const gateways = count(run.stats.gateways, (entry) => entry.actorIndex);
+  const steals = count(
+    run.dispels.dispels.filter((entry) => entry.stolen),
+    (entry) => entry.actorIndex,
+  );
+  const fumes = count(
+    run.stats.drains.filter((entry) => entry.mana < FUMES_MANA),
+    (entry) => entry.actorIndex,
+  );
+
   const candidates: Badge[] = [];
   /**
    * A badge, if anyone earns it. `values` and `best` decide the winners among
@@ -578,6 +665,95 @@ export function awardsFor(run: RunAnalysis): Awards | null {
       },
     );
   }
+  // A pet left on Growl is the classic, and wears its own name.
+  const tauntLeaders = leaders(nonTanks, taunts, 'most');
+  const growled =
+    tauntLeaders.length === 1 &&
+    run.stats.taunts.filter((entry) => entry.actorIndex === tauntLeaders[0] && entry.spellId === PET_GROWL).length * 2 >
+      (taunts.get(tauntLeaders[0]!) ?? 0);
+  badge(
+    growled
+      ? { key: 'wannabe', title: 'Growl Is On', icon: '🐺', roast: true, blurb: "Their pet taunted the most, the tank aside. Check the pet bar." }
+      : { key: 'wannabe', title: 'Wannabe Tank', icon: '🐺', roast: true, blurb: 'Taunted the most, without being the tank.' },
+    taunts,
+    'most',
+    (index) => plural(taunts.get(index) ?? 0, 'taunt'),
+    { field: nonTanks },
+  );
+  badge(
+    { key: 'self-infused', title: 'Self-Infused', icon: '💉', roast: true, blurb: 'Kept Power Infusion for themselves.' },
+    selfInfusions,
+    'most',
+    (index) => `${plural(selfInfusions.get(index) ?? 0, 'Power Infusion')} on themselves`,
+  );
+  badge(
+    { key: 'unemployment', title: 'Tank Unemployment', icon: '🫧', roast: true, blurb: 'Put Blessing of Protection on the tank. There goes the threat.' },
+    unemployment,
+    'most',
+    (index) => `${plural(unemployment.get(index) ?? 0, 'Blessing')} on the tank`,
+  );
+  badge(
+    { key: 'inevitable', title: 'Delayed the Inevitable', icon: '⏳', roast: true, blurb: 'Died moments after an immunity ran out.' },
+    delayed,
+    'most',
+    (index) => {
+      const last = delays.filter((entry) => entry.actorIndex === index).at(-1);
+      return last === undefined ? plural(0, 'death') : `${plural(delayed.get(index) ?? 0, 'death')}, last after ${last.spellName}`;
+    },
+  );
+  badge(
+    { key: 'corpse', title: 'Laid Hands on a Corpse', icon: '🙏', roast: true, blurb: 'Spent the most externals on someone who died anyway.' },
+    corpses,
+    'most',
+    (index) => {
+      const last = wasted.filter((entry) => entry.actorIndex === index).at(-1);
+      return last === undefined
+        ? plural(0, 'external')
+        : `${plural(corpses.get(index) ?? 0, 'external')} wasted, last ${last.spellName} on ${last.targetName}`;
+    },
+  );
+  badge(
+    { key: 'cliff', title: 'Disengaged Off a Cliff', icon: '🏹', roast: true, blurb: 'Fell right after a movement ability. Look before you leap.' },
+    cliffs,
+    'most',
+    (index) => {
+      const last = leaps.filter((entry) => entry.actorIndex === index).at(-1);
+      return last === undefined ? plural(0, 'fall') : `${plural(cliffs.get(index) ?? 0, 'fall')}, last after ${last.spellName}`;
+    },
+  );
+  if (run.avoidable.covered) {
+    badge(
+      { key: 'dashed', title: 'Dashed Into It', icon: '🏃', roast: true, blurb: 'Took the most avoidable hits right after a movement ability.' },
+      dashed,
+      'most',
+      (index) => plural(dashed.get(index) ?? 0, 'hit'),
+      { eligible: (index) => (dashed.get(index) ?? 0) >= DASHED_MIN_HITS },
+    );
+  }
+  badge(
+    { key: 'princess', title: 'Passenger Princess', icon: '👸', roast: true, blurb: 'Got gripped and rescued the most.' },
+    carried,
+    'most',
+    (index) => plural(carried.get(index) ?? 0, 'ride'),
+  );
+  badge(
+    { key: 'last-ride', title: 'Neural Silencer Enjoyer', icon: '🧠', roast: true, blurb: 'Got gripped or rescued straight into their death.' },
+    rideDeaths,
+    'most',
+    (index) => {
+      const last = lastRides.filter((entry) => entry.targetIndex === index).at(-1);
+      return last === undefined
+        ? plural(0, 'death')
+        : `${plural(rideDeaths.get(index) ?? 0, 'death')}, last after ${last.name}'s ${last.spellName}`;
+    },
+  );
+  badge(
+    { key: 'fumes', title: 'Running on Fumes', icon: '🪫', roast: true, blurb: `Ended the most pulls under ${FUMES_MANA}% mana.` },
+    fumes,
+    'most',
+    (index) => `${plural(fumes.get(index) ?? 0, 'pull')} on empty`,
+    { field: healers },
+  );
   badge(
     { key: 'paranoid', title: 'Paranoid', icon: '😰', roast: true, blurb: 'Overhealed the most, and by nearly half or more.' },
     overhealing,
@@ -620,6 +796,39 @@ export function awardsFor(run: RunAnalysis): Awards | null {
       return `${plural(mine.procs, 'proc')}, ${percent(mine.procs / mine.procsExpected)} of the odds`;
     },
     { eligible: (index) => (luck.get(index) ?? 0) >= LUCK_MIN_RATIO },
+  );
+  badge(
+    { key: 'necromancer', title: 'Necromancer', icon: '🧟', roast: false, blurb: 'Brought the most players back mid-fight.' },
+    rezzes,
+    'most',
+    (index) => plural(rezzes.get(index) ?? 0, 'rez', 'rezzes'),
+  );
+  // Externals are a healer's job, and one wins this every key if it counts
+  // them; it is for whoever gave one without it being their job.
+  badge(
+    { key: 'angel', title: 'Guardian Angel', icon: '😇', roast: false, blurb: 'Put the most major externals on others, without being the healer.' },
+    externals,
+    'most',
+    (index) => plural(externals.get(index) ?? 0, 'external'),
+    { field: nonHealers },
+  );
+  badge(
+    { key: 'uber', title: 'Uber Driver', icon: '🚕', roast: false, blurb: 'Gripped and rescued teammates the most.' },
+    rides,
+    'most',
+    (index) => plural(rides.get(index) ?? 0, 'ride'),
+  );
+  badge(
+    { key: 'flyer', title: 'Frequent Flyer', icon: '🌀', roast: false, blurb: 'Took the most Demonic Gateways.' },
+    gateways,
+    'most',
+    (index) => plural(gateways.get(index) ?? 0, 'gateway'),
+  );
+  badge(
+    { key: 'klepto', title: 'Kleptomaniac', icon: '🫳', roast: false, blurb: 'Stole the most buffs off enemies.' },
+    steals,
+    'most',
+    (index) => plural(steals.get(index) ?? 0, 'steal'),
   );
   badge(
     { key: 'totems', title: 'Totem Stomper', icon: '🗿', roast: false, blurb: 'Finished off the most enemy totems.' },

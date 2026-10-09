@@ -571,6 +571,16 @@ export class CombatLogParser {
       store.posX[row] = fieldFloat(line, offsets, tail - AdvTail.POS_X);
       store.posY[row] = fieldFloat(line, offsets, tail - AdvTail.POS_Y);
       store.uiMapId[row] = fieldInt(line, offsets, tail - AdvTail.UI_MAP_ID, 0);
+      // Power type 0 is mana. A unit with more than one power lists them all,
+      // pipe-separated, and reading up to the first pipe takes the first, so
+      // only a unit whose first power is mana gets a value.
+      if (fieldInt(line, offsets, tail - AdvTail.POWER_TYPE, -1) === 0) {
+        const max = fieldInt(line, offsets, tail - AdvTail.POWER_MAX, 0);
+        if (max > 0) {
+          const power = fieldInt(line, offsets, tail - AdvTail.POWER, 0);
+          store.mana[row] = Math.max(0, Math.min(100, Math.round((power * 100) / max)));
+        }
+      }
     }
 
     switch (code) {

@@ -61,7 +61,13 @@ import { SegmentKind, segmentAt, type SegmentIndex } from './segments.js';
  * The rest are counts the log states outright: Bloodlusts pressed, deaths
  * cheated, Ankhs, casts an enemy interrupted, spells reflected, debuffs taken
  * debuffs put on enemies, and healing on the rest of the party with its
- * overhealing.
+ * overhealing. Taunts, Power Infusions kept for oneself, externals, combat
+ * rezzes, Leaps of Faith and Rescues, immunities running out, Demonic Gateway
+ * hops and dashes: each a spell id read off this season's logs.
+ *
+ * And mana, as it stood when each pull and boss ended. The advanced block
+ * carries its subject's power, so whoever the last row before the end
+ * described, that is what they had left.
  *
  * What the log cannot give, however the awards tab might want it, is a jump:
  * nothing in it records one, and its positions carry no height.
@@ -129,6 +135,24 @@ export interface Moment {
 /** One time an enemy's mechanic picked a player out. */
 export type Pick = Moment;
 
+/** One player doing something for another: an external, a combat rez, a lift. */
+export interface Assist extends Moment {
+  targetIndex: number;
+  targetName: string;
+}
+
+/** What one player had left in mana when a pull or boss ended. */
+export interface Drain {
+  /** Store-relative ms: the end of the segment. */
+  ts: number;
+  actorIndex: number;
+  name: string;
+  specId: number;
+  segmentId: number;
+  /** Percent of their maximum. */
+  mana: number;
+}
+
 /** What one player's whole key adds up to, for the counts that are not a list. */
 export interface Tally {
   actorIndex: number;
@@ -171,6 +195,24 @@ export interface StatsReport {
   lockouts: Moment[];
   /** Every enemy spell one of the party reflected, named by the spell. */
   reflects: Moment[];
+  /** Every taunt the party pressed, a pet's counting for its owner. */
+  taunts: Moment[];
+  /** Every Power Infusion a priest put on themselves, not counting Twins of the Sun Priestess's copy. */
+  selfInfusions: Moment[];
+  /** Every major external one of the party put on another, in order. */
+  externals: Assist[];
+  /** Every combat rez one of the party landed on another, in order. */
+  rezzes: Assist[];
+  /** Every Leap of Faith and Rescue that carried one of the party, in order. */
+  lifts: Assist[];
+  /** Every time a player's own immunity ran out, at the moment it did. */
+  immunities: Moment[];
+  /** Every Demonic Gateway one of the party took, in order. */
+  gateways: Moment[];
+  /** Every movement ability the party pressed, in order. */
+  dashes: Moment[];
+  /** Mana left at the end of every pull and boss, for everyone whose power is mana. */
+  drains: Drain[];
   /** One per party member. */
   tallies: Tally[];
   /** Whether `padding` could be measured: only when a forces table covered the dungeon. */
@@ -207,6 +249,53 @@ const CHEAT_HEALS: ReadonlySet<number> = new Set([48153, 66235]);
 
 /** Reincarnation, the shaman's Ankh, as its cast. */
 const ANKH = 21169;
+
+/**
+ * The taunts, as their casts: Taunt, a druid's Growl, a hunter pet's Growl,
+ * Hand of Reckoning, Dark Command, Provoke and Torment. Death Grip taunts too,
+ * but a damage dealer presses it to grip, not to taunt.
+ */
+const TAUNTS: ReadonlySet<number> = new Set([355, 6795, 2649, 62124, 56222, 115546, 185245]);
+
+const POWER_INFUSION = 10060;
+
+/**
+ * A Power Infusion on yourself this close to one on someone else is Twins of
+ * the Sun Priestess's copy, which the game logs as a second cast: 1 to 30ms
+ * behind the real one in this season's logs.
+ */
+const TWINS_MS = 250;
+
+/**
+ * The major externals, as their casts: Pain Suppression, Ironbark, Life
+ * Cocoon, Blessing of Sacrifice, Time Dilation, Blessing of Spellwarding,
+ * Blessing of Protection, Guardian Spirit, both Lay on Hands and Intervene.
+ */
+const EXTERNALS: ReadonlySet<number> = new Set([
+  33206, 102342, 116849, 6940, 357170, 204018, 1022, 47788, 633, 471195, 3411,
+]);
+
+/**
+ * The combat rezzes, as SPELL_RESURRECT names them: Rebirth, Raise Ally,
+ * Intercession and Soulstone Resurrection, which names the warlock as its
+ * source like the others name their caster.
+ */
+const REZZES: ReadonlySet<number> = new Set([20484, 61999, 391054, 95750]);
+
+/** Leap of Faith and Rescue, both of whose ids the evoker's spell logs. */
+const LIFTS: ReadonlySet<number> = new Set([73325, 370665, 420217]);
+
+/** Divine Shield, Ice Block, Aspect of the Turtle, Cloak of Shadows and Netherwalk, as auras. */
+const IMMUNITIES: ReadonlySet<number> = new Set([642, 45438, 186265, 31224, 1255881]);
+
+/** The debuff a Demonic Gateway leaves on whoever went through it. */
+const GATEWAY = 113942;
+
+/**
+ * Movement abilities, as their casts: Disengage, Fel Rush, Vengeful Retreat,
+ * Heroic Leap, Roll, Chi Torpedo, Blink and Shimmer.
+ */
+const DASHES: ReadonlySet<number> = new Set([781, 195072, 198793, 52174, 109132, 115008, 1953, 212653]);
 
 /** The rows a proc can show up as, firing for whoever it belongs to. */
 const PROC_CODES: ReadonlySet<number> = new Set([
@@ -269,6 +358,44 @@ export function statsReport(context: AnalysisContext, segments: SegmentIndex): S
   const ankhs: Moment[] = [];
   const lockouts: Moment[] = [];
   const reflects: Moment[] = [];
+  const taunts: Moment[] = [];
+  /** Every Power Infusion cast, with whether it was on the priest themselves. */
+  const infusions: Array<{ moment: Moment; self: boolean }> = [];
+  const externals: Assist[] = [];
+  const rezzes: Assist[] = [];
+  const lifts: Assist[] = [];
+  const immunities: Moment[] = [];
+  const gateways: Moment[] = [];
+  const dashes: Moment[] = [];
+  const drains: Drain[] = [];
+  const assist = (row: number, actor: number, target: number, spellId: number): Assist => ({
+    ...moment(row, actor, spellId),
+    targetIndex: target,
+    targetName: actorName(context, target),
+  });
+
+  /** Party member -> their mana percent as last seen. */
+  const mana = new Map<number, number>();
+  const ends = segments.segments
+    .filter((segment) => segment.kind === SegmentKind.PULL || segment.kind === SegmentKind.BOSS)
+    .sort((a, b) => a.endTs - b.endTs);
+  let nextEnd = 0;
+  const closeSegments = (ts: number): void => {
+    while (nextEnd < ends.length && ends[nextEnd]!.endTs < ts) {
+      const segment = ends[nextEnd++]!;
+      for (const [actor, left] of mana) {
+        drains.push({
+          ts: segment.endTs,
+          actorIndex: actor,
+          name: actorName(context, actor),
+          specId: actors.at(actor)?.specId ?? -1,
+          segmentId: segment.id,
+          mana: left,
+        });
+      }
+    }
+  };
+
   const tallies = new Map<number, Tally>(
     [...segments.party].map((actorIndex) => [
       actorIndex,
@@ -323,6 +450,12 @@ export function statsReport(context: AnalysisContext, segments: SegmentIndex): S
     const dst = store.dstActor[row]!;
     const spellId = store.spellId[row]!;
 
+    closeSegments(store.ts[row]!);
+    if (store.mana[row]! >= 0) {
+      const subject = store.flags[row]! & EvFlag.INFO_IS_SOURCE ? src : dst;
+      if (segments.party.has(subject)) mana.set(subject, store.mana[row]!);
+    }
+
     const removal = code === Ev.SPELL_AURA_REMOVED || code === Ev.SPELL_AURA_REMOVED_DOSE;
     if ((PROC_CODES.has(code) || removal) && ours(src)) {
       const actor = actors.attribute(src);
@@ -350,8 +483,20 @@ export function statsReport(context: AnalysisContext, segments: SegmentIndex): S
 
     if (code === Ev.SPELL_CAST_SUCCESS) {
       if (!ours(src)) continue;
-      if (LUSTS.has(spellId)) lusts.push(moment(row, actors.attribute(src), spellId));
-      else if (spellId === ANKH) ankhs.push(moment(row, actors.attribute(src), spellId));
+      const actor = actors.attribute(src);
+      if (LUSTS.has(spellId)) lusts.push(moment(row, actor, spellId));
+      else if (spellId === ANKH) ankhs.push(moment(row, actor, spellId));
+      else if (TAUNTS.has(spellId)) taunts.push(moment(row, actor, spellId));
+      else if (DASHES.has(spellId)) dashes.push(moment(row, actor, spellId));
+      else if (spellId === POWER_INFUSION) infusions.push({ moment: moment(row, actor, spellId), self: dst === src });
+      else if (segments.party.has(dst) && dst !== actor) {
+        if (EXTERNALS.has(spellId)) externals.push(assist(row, actor, dst, spellId));
+        else if (LIFTS.has(spellId)) lifts.push(assist(row, actor, dst, spellId));
+      }
+      continue;
+    }
+    if (code === Ev.SPELL_RESURRECT) {
+      if (REZZES.has(spellId) && ours(src) && segments.party.has(dst)) rezzes.push(assist(row, actors.attribute(src), dst, spellId));
       continue;
     }
     if (code === Ev.SPELL_INTERRUPT) {
@@ -365,6 +510,7 @@ export function statsReport(context: AnalysisContext, segments: SegmentIndex): S
       continue;
     }
     if (code === Ev.SPELL_AURA_REMOVED) {
+      if (IMMUNITIES.has(spellId) && src === dst && segments.party.has(dst)) immunities.push(moment(row, dst, spellId));
       if (store.flags[row]! & EvFlag.BUFF || !segments.party.has(dst) || !enemy(src)) continue;
       const key = markKey(src, dst);
       const left = (marks.get(key) ?? 0) - 1;
@@ -376,6 +522,7 @@ export function statsReport(context: AnalysisContext, segments: SegmentIndex): S
       if (!(store.flags[row]! & EvFlag.BUFF) && ours(src) && enemy(dst)) tallies.get(actors.attribute(src))!.debuffsApplied++;
       if (!segments.party.has(dst)) continue;
       if (CHEAT_AURAS.has(spellId)) cheats.push(moment(row, dst, spellId));
+      if (spellId === GATEWAY) gateways.push(moment(row, dst, spellId));
       if (store.flags[row]! & EvFlag.BUFF || !enemy(src)) continue;
       const key = markKey(src, dst);
       marks.set(key, (marks.get(key) ?? 0) + 1);
@@ -449,6 +596,21 @@ export function statsReport(context: AnalysisContext, segments: SegmentIndex): S
     });
   }
 
+  closeSegments(Infinity);
+
+  // Twins of the Sun Priestess logs its copy as a cast on the priest, right
+  // beside the one on whoever they chose. Only a self-cast with no such
+  // partner is a priest keeping Power Infusion for themselves.
+  const selfInfusions = infusions
+    .filter(
+      ({ moment: mine, self }) =>
+        self &&
+        !infusions.some(
+          (other) => !other.self && other.moment.actorIndex === mine.actorIndex && Math.abs(other.moment.ts - mine.ts) <= TWINS_MS,
+        ),
+    )
+    .map(({ moment: mine }) => mine);
+
   const biggestHits: BigHit[] = [...biggest].map(([actor, row]) => {
     const ts = store.ts[row]!;
     const spellId = store.spellId[row]!;
@@ -506,6 +668,15 @@ export function statsReport(context: AnalysisContext, segments: SegmentIndex): S
     ankhs,
     lockouts,
     reflects,
+    taunts,
+    selfInfusions,
+    externals,
+    rezzes,
+    lifts,
+    immunities,
+    gateways,
+    dashes,
+    drains,
     tallies: [...tallies.values()],
     paddingKnown,
   };

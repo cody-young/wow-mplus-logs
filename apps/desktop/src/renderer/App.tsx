@@ -263,6 +263,15 @@ export function App(): React.JSX.Element {
         ankhs: [],
         lockouts: [],
         reflects: [],
+        taunts: [],
+        selfInfusions: [],
+        externals: [],
+        rezzes: [],
+        lifts: [],
+        immunities: [],
+        gateways: [],
+        dashes: [],
+        drains: [],
         tallies: [],
         paddingKnown: false,
       };
@@ -283,6 +292,15 @@ export function App(): React.JSX.Element {
       ankhs: inPull(run.stats.ankhs),
       lockouts: inPull(run.stats.lockouts),
       reflects: inPull(run.stats.reflects),
+      taunts: inPull(run.stats.taunts),
+      selfInfusions: inPull(run.stats.selfInfusions),
+      externals: inPull(run.stats.externals),
+      rezzes: inPull(run.stats.rezzes),
+      lifts: inPull(run.stats.lifts),
+      immunities: inPull(run.stats.immunities),
+      gateways: inPull(run.stats.gateways),
+      dashes: inPull(run.stats.dashes),
+      drains: inPull(run.stats.drains),
     };
   }, [run, selectedSegment]);
 

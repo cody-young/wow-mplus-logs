@@ -47,6 +47,7 @@ import {
   TANK,
   at,
   aura,
+  cast as castOn,
   creature,
   died,
   heal,
@@ -1777,6 +1778,61 @@ test('the moments the log states outright are each counted for the right player'
   // The fixture's own enemy interrupt of a Vivify is one too; the Kick is not.
   assert.deepEqual(who(stats.lockouts), [['Heals', 'Vivify'], ['Dee', 'Lava Burst']], 'named by the cast it stopped');
   assert.deepEqual(who(stats.reflects), [['Tank', 'Fireball']]);
+});
+
+test('the class moments: taunts, infusions, externals, rezzes, rides, immunities, gateways and dashes', () => {
+  const on = (dst: string, dstName: string) => ({ dst, dstName, dstFlags: '0x511' });
+  const stats = statsWith([
+    castOn(100, DPS, 'Dee', 355, 'Taunt', { dst: creature(1004, 10), dstName: 'Flame Shaman', dstFlags: '0xa48' }),
+    // Twins of the Sun Priestess: the copy on the priest, logged as a second cast.
+    castOn(101, HEALER, 'Heals', 10060, 'Power Infusion', on(DPS, 'Dee')),
+    castOn(101.02, HEALER, 'Heals', 10060, 'Power Infusion', on(HEALER, 'Heals')),
+    castOn(110, HEALER, 'Heals', 10060, 'Power Infusion', on(HEALER, 'Heals')),
+    castOn(102, HEALER, 'Heals', 116849, 'Life Cocoon', on(TANK, 'Tank')),
+    // On yourself, it is a defensive, not an external.
+    castOn(102.5, HEALER, 'Heals', 633, 'Lay on Hands', on(HEALER, 'Heals')),
+    castOn(103, HEALER, 'Heals', 73325, 'Leap of Faith', on(DPS, 'Dee')),
+    `${at(104)}  SPELL_RESURRECT,${HEALER},"Heals",0x511,0x0,${DPS},"Dee",0x511,0x0,20484,"Rebirth",0x8`,
+    // An out-of-combat rez is no combat rez.
+    `${at(104.5)}  SPELL_RESURRECT,${HEALER},"Heals",0x511,0x0,${TANK},"Tank",0x511,0x0,2006,"Resurrection",0x8`,
+    aura(105, DPS, 'Dee', DPS, 'Dee', 45438, 'Ice Block', false, { dstFlags: '0x511', buff: true }),
+    aura(106, DPS, 'Dee', DPS, 'Dee', 113942, 'Demonic Gateway', true, { dstFlags: '0x511' }),
+    castOn(107, DPS, 'Dee', 1953, 'Blink'),
+  ]);
+  const who = (list: { name: string; spellName: string }[]) => list.map((entry) => [entry.name, entry.spellName]);
+  const toWhom = (list: { name: string; targetName: string; spellName: string }[]) =>
+    list.map((entry) => [entry.name, entry.spellName, entry.targetName]);
+  assert.deepEqual(who(stats.taunts), [['Dee', 'Taunt']]);
+  assert.deepEqual(
+    stats.selfInfusions.map((entry) => entry.ts),
+    [110_000],
+    "only the cast with no Twins partner",
+  );
+  assert.deepEqual(toWhom(stats.externals), [['Heals', 'Life Cocoon', 'Tank']]);
+  assert.deepEqual(toWhom(stats.lifts), [['Heals', 'Leap of Faith', 'Dee']]);
+  assert.deepEqual(toWhom(stats.rezzes), [['Heals', 'Rebirth', 'Dee']]);
+  assert.deepEqual(who(stats.immunities), [['Dee', 'Ice Block']]);
+  assert.deepEqual(who(stats.gateways), [['Dee', 'Demonic Gateway']]);
+  assert.deepEqual(who(stats.dashes), [['Dee', 'Blink']]);
+});
+
+test("mana at a pull's end is read off the last block that described each player", () => {
+  assert.deepEqual(statsWith([]).drains, [], "the fixture's blocks are all energy, which is not mana");
+  // Between the pull that ends at 103s and the one that ends at 113.8s, and in
+  // its place in time: a mana reading only counts for the pulls after it.
+  const block = `${HEALER},0000000000000000,500,1000,0,0,1470,0,0,0,0,4000,100000,0,1.0,2.0,2291,1.5,80`;
+  const line = `${at(104)}  SPELL_CAST_SUCCESS,${HEALER},"Heals",0x511,0x0,0000000000000000,nil,0x80000000,0x0,116670,"Vivify",0x8,${block}`;
+  const lines = [...LINES];
+  lines.splice(lines.findIndex((other) => other > line), 0, line);
+  const session = new LogSession({ assumedYear: 2026 });
+  session.pushText(lines.join('\n'));
+  session.end();
+  const context = contextFor(session, session.runs[0]!);
+  const stats = statsReport(context, buildSegments(context));
+  assert.deepEqual(
+    stats.drains.map((entry) => [entry.name, entry.ts, entry.mana]),
+    [['Heals', 113_800, 4]],
+  );
 });
 
 test("an enemy's swing is a threat, unless it has marked who it swings at", () => {

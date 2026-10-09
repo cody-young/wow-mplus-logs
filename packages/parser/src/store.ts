@@ -60,6 +60,12 @@ export class EventStore {
    * bits is ample — retail uiMapIDs are in the low thousands.
    */
   uiMapId: Uint16Array;
+  /**
+   * The advanced block's subject's mana, as a percent of its maximum; -1 when
+   * there is no block or the subject's power is not mana. A byte is enough for
+   * the one question asked of it, which is how close a healer ran to empty.
+   */
+  mana: Int8Array;
 
   /**
    * Augmentation Evoker attribution: row -> actor index of the supporter.
@@ -98,6 +104,7 @@ export class EventStore {
     this.posX = new Float32Array(capacity);
     this.posY = new Float32Array(capacity);
     this.uiMapId = new Uint16Array(capacity);
+    this.mana = new Int8Array(capacity);
   }
 
   /**
@@ -126,6 +133,7 @@ export class EventStore {
     this.posX[index] = 0;
     this.posY[index] = 0;
     this.uiMapId[index] = 0;
+    this.mana[index] = -1;
   }
 
   /** Empties the store and keeps its columns, for a buffer that is refilled. */
@@ -157,6 +165,7 @@ export class EventStore {
     this.posX[index] = source.posX[row]!;
     this.posY[index] = source.posY[row]!;
     this.uiMapId[index] = source.uiMapId[row]!;
+    this.mana[index] = source.mana[row]!;
     const supporter = source.support.get(row);
     if (supporter !== undefined) this.support.set(index, supporter);
     const extra = source.extraActor.get(row);
@@ -181,6 +190,7 @@ export class EventStore {
     this.posX = growF32(this.posX, next);
     this.posY = growF32(this.posY, next);
     this.uiMapId = growU16(this.uiMapId, next);
+    this.mana = growI8(this.mana, next);
     this.capacity = next;
   }
 
@@ -206,6 +216,7 @@ export class EventStore {
     this.posX = this.posX.slice(0, n);
     this.posY = this.posY.slice(0, n);
     this.uiMapId = this.uiMapId.slice(0, n);
+    this.mana = this.mana.slice(0, n);
     this.capacity = n;
   }
 
@@ -227,6 +238,7 @@ export class EventStore {
       this.posX.byteLength +
       this.posY.byteLength +
       this.uiMapId.byteLength +
+      this.mana.byteLength +
       this.support.size * 8
     );
   }
@@ -260,6 +272,11 @@ function growU16(source: Uint16Array, capacity: number): Uint16Array {
 }
 function growU8(source: Uint8Array, capacity: number): Uint8Array {
   const next = new Uint8Array(capacity);
+  next.set(source);
+  return next;
+}
+function growI8(source: Int8Array, capacity: number): Int8Array {
+  const next = new Int8Array(capacity);
   next.set(source);
   return next;
 }

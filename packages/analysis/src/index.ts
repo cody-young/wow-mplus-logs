@@ -138,7 +138,9 @@ export {
 } from './pull.js';
 export {
   statsReport,
+  type Assist,
   type BigHit,
+  type Drain,
   type Fall,
   type Moment,
   type Pick,

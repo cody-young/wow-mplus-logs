@@ -138,6 +138,23 @@ test('advanced block yields target health and position', () => {
   assert.ok(Math.abs(run.store.posY[first]! - 789.01) < 0.01);
 });
 
+test("advanced block yields its subject's mana, when their power is mana", () => {
+  // The healer's own cast, so the block describes them: mana, then a druid's
+  // two powers, mana first.
+  const block = (type: string, power: string, max: string) =>
+    `${HEALER},0000000000000000,500,1000,0,0,1470,0,0,0,${type},${power},${max},0,1.0,2.0,2291,1.5,80`;
+  const castBy = (time: string, adv: string) =>
+    `9/30/2026 ${time}-4  SPELL_CAST_SUCCESS,${HEALER},"Healy-Ázshara",0x512,0x0,0000000000000000,nil,0x80000000,0x0,116670,"Vivify",0x8,${adv}`;
+  const lines = LOG_TEXT.split('\n');
+  const end = lines.findIndex((line) => line.includes('CHALLENGE_MODE_END'));
+  lines.splice(end, 0, castBy('18:50:40.000', block('0', '25000', '100000')), castBy('18:50:41.000', block('0|3', '2000|80', '100000|100')));
+  const run = onlyRun(parseAll(lines.join('\n')));
+  const casts = rows(run, Ev.SPELL_CAST_SUCCESS).slice(-2);
+  assert.deepEqual(casts.map((row) => run.store.mana[row]), [25, 2]);
+  const runic = rows(run, Ev.SPELL_HEAL)[0]!;
+  assert.equal(run.store.mana[runic], -1, 'runic power is not mana');
+});
+
 test('heals separate effective amount from overhealing', () => {
   const run = onlyRun(parseAll(LOG_TEXT));
   const heal = rows(run, Ev.SPELL_HEAL)[0]!;
