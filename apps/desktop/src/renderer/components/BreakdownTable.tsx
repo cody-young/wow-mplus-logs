@@ -64,7 +64,8 @@ interface SpellColumn {
   key: string;
   label: string;
   width: number;
-  cell: (row: SpellBreakdown) => string;
+  /** `owner` is the expanded player's total, which a share is a share of. */
+  cell: (row: SpellBreakdown, owner: number) => string;
   /** Muted, for the columns that are a caveat rather than a measurement. */
   dim?: boolean;
 }
@@ -87,6 +88,14 @@ function spellColumns(mode: Props['mode'], durationMs: number): SpellColumn[] {
     label: 'Amount',
     width: 74,
     cell: (row) => short(row.total),
+  };
+  // Of the player's own total, not the party's: expanded, the question is
+  // what their damage consisted of.
+  const share: SpellColumn = {
+    key: 'share',
+    label: '%',
+    width: 58,
+    cell: (row, owner) => (owner > 0 ? percent(row.total / owner) : NONE),
   };
   const casts: SpellColumn = {
     key: 'casts',
@@ -154,12 +163,12 @@ function spellColumns(mode: Props['mode'], durationMs: number): SpellColumn[] {
   };
 
   if (mode === 'healing') {
-    return [amount, casts, avgCast, hits, avgHit, crit, uptime, spilled, rate];
+    return [amount, share, casts, avgCast, hits, avgHit, crit, uptime, spilled, rate];
   }
   if (mode === 'taken') {
-    return [amount, hits, avgHit, crit, uptime, biggest, spilled, rate];
+    return [amount, share, hits, avgHit, crit, uptime, biggest, spilled, rate];
   }
-  return [amount, casts, avgCast, hits, avgHit, crit, uptime, miss, rate];
+  return [amount, share, casts, avgCast, hits, avgHit, crit, uptime, miss, rate];
 }
 
 /**
@@ -316,13 +325,13 @@ export function BreakdownTable({ report, mode, defaultExpanded = false, parses }
                     {/*
                       The abilities are their own table rather than more rows of
                       this one. They measure different things — casts, averages,
-                      uptime — and nine columns of them would either drag the
+                      uptime — and ten columns of them would either drag the
                       five player columns out of shape or have to be squeezed
                       into them. Nested, each table keeps its own widths.
                     */}
                     <td colSpan={playerColumns}>
                       {/* Scrolls on its own rather than pushing the window
-                          wider: nine fixed columns need more room than the
+                          wider: ten fixed columns need more room than the
                           five above them, and a narrow window should cost the
                           abilities a scrollbar, not the player rows their
                           layout. */}
@@ -355,7 +364,7 @@ export function BreakdownTable({ report, mode, defaultExpanded = false, parses }
                                     key={column.key}
                                     style={column.dim === true ? { color: 'var(--dim)' } : undefined}
                                   >
-                                    {column.cell(row)}
+                                    {column.cell(row, actor.total)}
                                   </td>
                                 ));
                               return [
@@ -443,13 +452,12 @@ export function BreakdownTable({ report, mode, defaultExpanded = false, parses }
  * The numbers the ability table has no column for.
  *
  * Deliberately not a second copy of the row: casts, averages, crit rate and
- * uptime are columns now, so what is left is the breakdown behind them — how
- * much of the player's own total this was, how a crit compares to an ordinary
- * hit, and how much of the hit count was DoT ticks rather than presses.
+ * uptime and share of the player are columns now, so what is left is the
+ * breakdown behind them — how a crit compares to an ordinary hit, and how much
+ * of the hit count was DoT ticks rather than presses.
  */
 function SpellDetail({ hover, mode }: { hover: SpellHover; mode: Props['mode'] }): React.JSX.Element {
   const { spell, actor } = hover;
-  const share = actor.total > 0 ? spell.total / actor.total : 0;
   const normalHits = spell.hits - spell.crits;
   const normalTotal = spell.total - spell.critTotal;
 
@@ -463,9 +471,7 @@ function SpellDetail({ hover, mode }: { hover: SpellHover; mode: Props['mode'] }
       </span>
       <dl className="tip-rows">
         <dt>{mode === 'healing' ? 'Healing' : 'Damage'}</dt>
-        <dd>
-          {short(spell.total)} · {percent(share)} of this player
-        </dd>
+        <dd>{short(spell.total)}</dd>
         {spell.ticks > 0 ? (
           <>
             <dt>Ticks</dt>
