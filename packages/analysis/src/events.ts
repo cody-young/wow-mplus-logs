@@ -45,6 +45,18 @@ export const DAMAGE_CODES: ReadonlySet<number> = new Set<number>([
  */
 export const ABSORBED_CODES: ReadonlySet<number> = new Set<number>([Ev.SPELL_ABSORBED]);
 
+/**
+ * Absorbs that defer damage rather than prevent it: nobody's healing, and no
+ * protection in a death recap.
+ *
+ * A brewmaster's Stagger is logged as a SPELL_ABSORBED like any shield, but
+ * what it soaks comes back a moment later as a Stagger tick (124255) the monk
+ * takes in full. Counting the soak as healing credited a real brewmaster
+ * with 198.0M on a key where 129.2M of it was Stagger, which put the tank
+ * above the healer for damage they then took anyway.
+ */
+export const DEFERRED_ABSORBS: ReadonlySet<number> = new Set<number>([115069]);
+
 /** Damage a player can take that no hostile unit dealt. */
 export const SELF_DAMAGE_CODES: ReadonlySet<number> = new Set<number>([Ev.ENVIRONMENTAL_DAMAGE]);
 

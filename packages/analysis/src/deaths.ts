@@ -6,6 +6,7 @@ import {
   AURA_DOWN_CODES,
   AURA_UP_CODES,
   DAMAGE_CODES,
+  DEFERRED_ABSORBS,
   HEAL_CODES,
   SELF_DAMAGE_CODES,
   VICTIM_MELEE_CODES,
@@ -456,10 +457,12 @@ function buildReport(
     }
 
     if (code === Ev.SPELL_ABSORBED) {
-      if (inSummary) absorbed += amount;
       // The shield is in extraSpellId, not spellId: spellId is the attack it
       // stopped, which is already in `incoming`.
       const shieldId = store.extraSpellId[row]!;
+      // Stagger only moved the hit later, where its ticks are in `incoming`.
+      if (DEFERRED_ABSORBS.has(shieldId)) continue;
+      if (inSummary) absorbed += amount;
       const caster = store.extraActor.get(row);
       const casterIndex = caster === undefined ? -1 : actors.attribute(caster);
       absorbsReceived.push({

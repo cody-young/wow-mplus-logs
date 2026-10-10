@@ -6,6 +6,7 @@ import {
   AURA_DOWN_CODES,
   AURA_UP_CODES,
   DAMAGE_CODES,
+  DEFERRED_ABSORBS,
   HEAL_CODES,
   MISS_CODES,
   SELF_DAMAGE_CODES,
@@ -215,6 +216,7 @@ interface ActorAcc {
  * counts.
  */
 const ACTIVE_GAP_MS = 10_000;
+
 
 function touch(acc: ActorAcc, ts: number): void {
   if (ts - acc.lastTs <= ACTIVE_GAP_MS) acc.activeMs += ts - acc.lastTs;
@@ -440,7 +442,11 @@ function build(
     const isAbsorbed = mode === 'damage' && direction === 'done' && ABSORBED_CODES.has(code);
     // The same rows, read the other way round: damage a shield stopped is
     // healing by whoever cast the shield. See `shielder` below.
-    const isShielded = mode === 'healing' && direction === 'done' && ABSORBED_CODES.has(code);
+    const isShielded =
+      mode === 'healing' &&
+      direction === 'done' &&
+      ABSORBED_CODES.has(code) &&
+      !DEFERRED_ABSORBS.has(store.extraSpellId[row]!);
     // Damage a party member did to the party, which healing has to weigh
     // against the ability that did it. See `friendlyFire` below.
     const isFriendlyFire = mode === 'healing' && direction === 'done' && DAMAGE_CODES.has(code);

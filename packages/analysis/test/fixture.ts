@@ -623,6 +623,7 @@ export const LINES: string[] = [
   // recap has to say which absorbed what rather than just "absorbed 45000".
   absorbed(78.1, BOSS, 'Big Bad', TANK, 'Tank', TANK, 'Tank', 48792, 'Icebound Fortitude', 30000),
   absorbed(78.2, BOSS, 'Big Bad', TANK, 'Tank', HEALER, 'Heals', 17, 'Power Word: Shield', 15000),
+  absorbed(78.25, BOSS, 'Big Bad', TANK, 'Tank', TANK, 'Tank', 115069, 'Stagger', 40000),
   aura(78.5, BOSS, 'Big Bad', TANK, 'Tank', 888, 'Crushing Grip', false, { dstFlags: '0x511' }),
   aura(78.6, BOSS, 'Big Bad', TANK, 'Tank', 889, 'Sundered', true, { dstFlags: '0x511' }),
   taken(79, BOSS, 'Big Bad', TANK, 'Tank', 150000, { hp: 0, hpMax: 1000000, spellId: 777, spellName: 'Smash', overkill: 50000 }),

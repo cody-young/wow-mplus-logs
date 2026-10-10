@@ -468,6 +468,17 @@ test('damage a shield stopped is healing by whoever cast the shield', () => {
   assert.equal(healer.wasted, 10000, 'the heal\'s overheal, and nothing from the shield');
 });
 
+test('Stagger is not healing', () => {
+  // Logged as an absorb like any shield, but the damage it soaks comes back
+  // as Stagger ticks the brewmaster takes in full. On a real key it was
+  // 129.2M of a tank's 198.0M and put them above the healer.
+  const { run, context, segments } = load();
+  const report = healingReport(context, segments);
+  const tank = report.actors.find((actor) => actor.actorIndex === indexOf(run, TANK))!;
+  assert.ok(!tank.spells.some((spell) => spell.name === 'Stagger'));
+  assert.equal(tank.total, 30000, 'Icebound Fortitude and nothing else');
+});
+
 test('a pet dying is not a player death', () => {
   // attribute(pet) resolves to its owner, who is in the party, so testing the
   // owner instead of the victim turned 9 real deaths into 27 on a real log.
