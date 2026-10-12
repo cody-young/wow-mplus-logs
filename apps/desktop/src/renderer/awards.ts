@@ -158,6 +158,28 @@ function sharePoints(party: readonly PartyMember[], values: Values, max: number,
   return points;
 }
 
+/**
+ * Damage points: by share from the last dps up, but never less than a dps's
+ * place earns. Measured from the bottom, third scored nothing and a second
+ * just ahead of them nearly nothing, so each dps place below first is worth a
+ * step at least: with three, second scores two thirds of the top and third a
+ * third. A second level with first still scores close to the top by share.
+ */
+function damagePoints(party: readonly PartyMember[], dpsField: readonly PartyMember[], values: Values, max: number): Map<number, number> {
+  if (dpsField.length < 2) return sharePoints(party, values, max);
+  const of = (index: number): number => values.get(index) ?? 0;
+  const floor = Math.min(...dpsField.map((member) => of(member.actorIndex)));
+  const points = sharePoints(party, values, max, floor);
+  const place = places(dpsField, values, 'most');
+  for (const member of dpsField) {
+    const mine = of(member.actorIndex);
+    if (mine <= 0) continue;
+    const stepped = Math.round((max * (dpsField.length + 1 - place.get(member.actorIndex)!)) / dpsField.length);
+    points.set(member.actorIndex, Math.max(points.get(member.actorIndex) ?? 0, stepped));
+  }
+  return points;
+}
+
 /** Each player's place in a category, 1 for first; ties share the better place. */
 function places(party: readonly PartyMember[], values: Values, best: 'most' | 'fewest'): Map<number, number> {
   const of = (index: number): number => values.get(index) ?? 0;
@@ -983,9 +1005,9 @@ export function awardsFor(run: RunAnalysis): Awards | null {
   // Damage and healing both count, by share, so a healer and a dps each have
   // their category to win, and a tank's lies in kicks, control and staying
   // alive, by rank. Falls score nothing either way; they are only funny.
-  const byShare = (category: string, values: Values, max: number, floor = 0) => ({
+  const byShare = (category: string, values: Values, points: Map<number, number>) => ({
     category,
-    points: sharePoints(party, values, max, floor),
+    points,
     places: places(party, values, 'most'),
   });
   const byRank = (category: string, values: Values, best: 'most' | 'fewest') => ({
@@ -994,11 +1016,10 @@ export function awardsFor(run: RunAnalysis): Awards | null {
     places: places(party, values, best),
   });
   // Damage counts from the last dps up: out-damaging the tank and healer is
-  // the job, not a point, so the bottom dps scores no more than they do.
-  const damageFloor = dpsField.length >= 2 ? Math.min(...dpsField.map((member) => damage.get(member.actorIndex) ?? 0)) : 0;
+  // the job, not a point. Each dps place still earns its step.
   const categories = [
-    byShare('Damage', damage, DAMAGE_POINTS, damageFloor),
-    byShare('Healing', healing, HEALING_POINTS),
+    byShare('Damage', damage, damagePoints(party, dpsField, damage, DAMAGE_POINTS)),
+    byShare('Healing', healing, sharePoints(party, healing, HEALING_POINTS)),
     byRank('Kicks', kicks, 'most'),
     byRank('Crowd control', cc, 'most'),
     byRank('Dispels', dispels, 'most'),
