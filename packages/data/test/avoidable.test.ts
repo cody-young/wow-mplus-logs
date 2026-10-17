@@ -55,7 +55,7 @@ test("a burst's own debuff is an aura, not a damage id on the list", () => {
 });
 
 test("a mechanic's cast is an enemy cast, not a damage id on the list", () => {
-  assert.deepEqual([...afterCasts()], [1297797]);
+  assert.deepEqual([...afterCasts()], [1297797, 1236746]);
   for (const cast of afterCasts()) assert.equal(avoidable(cast), undefined);
 });
 

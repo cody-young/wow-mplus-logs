@@ -70,11 +70,11 @@ export interface AvoidableSpell {
   unlessOwn?: number;
   /**
    * An enemy cast that starts the mechanic this is part of. A hit whose aura
-   * went on within `ms` of that cast starting is the mechanic doing what it
-   * is meant to, and it and every tick of that aura are not counted. Only for
-   * an aura that carries the same id as its damage.
+   * went on between `from` (0 when unset) and `ms` after that cast started is
+   * the mechanic doing what it is meant to, and it and every tick of that aura
+   * are not counted. The aura is `aura` when set, else the damage id itself.
    */
-  unlessAfter?: { cast: number; ms: number };
+  unlessAfter?: { cast: number; from?: number; ms: number; aura?: number };
   /**
    * Who to name as the source when the log names nobody. Some puddles are
    * logged as dealt by no unit at all, though everyone in the key knows whose
@@ -284,7 +284,12 @@ const DUNGEONS: readonly Dungeon[] = [
       { id: 1261013, name: 'Fan Of Thorns', why: 'Lightblossom Trinity thorn channel; not in a log yet' },
       { id: 1235546, name: 'Lightsower Dash', why: 'Lightblossom Trinity dash line' },
       { id: 1235828, name: 'Light-Scorched Earth', why: 'Lightblossom puddles' },
-      { id: 1237330, name: 'Bloodthorn Roots', why: "Ikuzz's roots that emerge where you stood" },
+      {
+        id: 1237330,
+        name: 'Bloodthorn Roots',
+        unlessAfter: { cast: 1236746, from: 6500, ms: 7500, aura: 1259365 },
+        why: "Walked into Ikuzz's roots. Verdant Stomp roots the whole party at once, 7.01-7.07s after it starts casting in 235 of 235 logged; across 11 keys every other root went on at 5.0s or sooner, or 20s and later",
+      },
       { id: 1242138, name: 'Solar Breath', why: 'Luminous Thornmaw frontal' },
       { id: 1239919, name: 'Lightfire Beams', why: "Lightwarden Ruia's silencing tornadoes" },
       { id: 1240152, name: 'Lightfall', why: "Lightwarden Ruia's swirls" },
@@ -360,6 +365,15 @@ export function ownAuras(): ReadonlySet<number> {
 /** The casts an entry's `unlessAfter` names, for the analysis to watch start. */
 export function afterCasts(): ReadonlySet<number> {
   return new Set(avoidableEntries().flatMap((entry) => (entry.unlessAfter === undefined ? [] : [entry.unlessAfter.cast])));
+}
+
+/** Each aura an entry's `unlessAfter` watches go on, with the rule. */
+export function afterAuras(): ReadonlyMap<number, NonNullable<AvoidableSpell['unlessAfter']>> {
+  return new Map(
+    avoidableEntries().flatMap((entry) =>
+      entry.unlessAfter === undefined ? [] : [[entry.unlessAfter.aura ?? entry.id, entry.unlessAfter] as const],
+    ),
+  );
 }
 
 /** The dungeons this covers, for the view to say when a key is not one of them. */

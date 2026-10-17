@@ -43,6 +43,7 @@ export {
 } from './mdt.js';
 export { Defense, defenseKinds, defensiveCount, isDefensive, type DefenseKind } from './defensives.js';
 export {
+  afterAuras,
   afterCasts,
   avoidable,
   avoidableDungeons,

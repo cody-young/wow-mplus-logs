@@ -1,4 +1,4 @@
-import { afterCasts, avoidable, avoidableDungeons, ownAuras } from '@mplus/data';
+import { afterAuras, afterCasts, avoidable, avoidableDungeons, ownAuras } from '@mplus/data';
 import { Ev } from '@mplus/parser';
 
 import { actorName, spellName, type AnalysisContext } from './context.js';
@@ -80,6 +80,7 @@ export function avoidableReport(context: AnalysisContext, segments: SegmentIndex
   /** When each player's watched aura last came off, keyed `actor:aura`. */
   const cameOff = new Map<string, number>();
   const casts = afterCasts();
+  const afters = afterAuras();
   /** When each watched enemy cast last started. */
   const castAt = new Map<number, number>();
   /** Auras that went on as part of the mechanic, keyed `actor:aura`. */
@@ -93,7 +94,7 @@ export function avoidableReport(context: AnalysisContext, segments: SegmentIndex
       continue;
     }
     if (code === Ev.SPELL_AURA_APPLIED || code === Ev.SPELL_AURA_APPLIED_DOSE || code === Ev.SPELL_AURA_REFRESH) {
-      const after = avoidable(store.spellId[row]!)?.unlessAfter;
+      const after = afters.get(store.spellId[row]!);
       if (after !== undefined) {
         // Stacks can mix a slash the mechanic dealt with one the player
         // walked into; the latest one decides, so a walk-in is never hidden
@@ -101,7 +102,8 @@ export function avoidableReport(context: AnalysisContext, segments: SegmentIndex
         // off: its last tick is logged just after the removal.
         const key = `${store.dstActor[row]!}:${store.spellId[row]!}`;
         const started = castAt.get(after.cast);
-        if (started !== undefined && store.ts[row]! - started <= after.ms) excused.add(key);
+        const since = started === undefined ? -1 : store.ts[row]! - started;
+        if (since >= (after.from ?? 0) && since <= after.ms) excused.add(key);
         else excused.delete(key);
       }
       continue;
@@ -130,7 +132,7 @@ export function avoidableReport(context: AnalysisContext, segments: SegmentIndex
     const off = entry.unlessOwn === undefined ? undefined : cameOff.get(`${dst}:${entry.unlessOwn}`);
     if (off !== undefined && ts - off <= OWN_BURST_MS) continue;
     // Part of the mechanic as designed, like stopping an Echo of Nalorakk.
-    if (entry.unlessAfter !== undefined && excused.has(`${dst}:${spellId}`)) continue;
+    if (entry.unlessAfter !== undefined && excused.has(`${dst}:${entry.unlessAfter.aura ?? spellId}`)) continue;
     if (entry.tank === true && TANK_SPECS.has(specId)) continue;
 
     const segmentId = segments.segmentOf(row);
