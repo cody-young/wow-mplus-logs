@@ -240,6 +240,13 @@ const COMMITMENT_MIN_BARS = 100;
 const COMMITMENT_MIN_SHARE = 0.1;
 
 /**
+ * Kicks at nothing it takes to be kicking air. Across twenty keys a player
+ * whiffed 0 to 7 this way and most keys' worst was 2 or 3; one or two is a
+ * cast that ended a beat early.
+ */
+const AIR_MIN_WHIFFS = 3;
+
+/**
  * Presses a minute it takes for Button Masher's sillier name. Most of a party
  * runs 30 to 45; a tank or a feral at 55 to 72.
  */
@@ -365,8 +372,14 @@ export function awardsFor(run: RunAnalysis): Awards | null {
   const dps = new Map(run.damage.actors.map((actor) => [actor.actorIndex, actor.perSecond]));
   const healing = new Map(run.healing.actors.map((actor) => [actor.actorIndex, actor.total]));
   const hps = new Map(run.healing.actors.map((actor) => [actor.actorIndex, actor.perSecond]));
-  const kicks = new Map(
-    summarizeInterrupts(run.interrupts.attempts, run.interrupts.stops).actors.map((actor) => [actor.actorIndex, actor.stops]),
+  const kicking = summarizeInterrupts(run.interrupts.attempts, run.interrupts.stops).actors;
+  const kicks = new Map(kicking.map((actor) => [actor.actorIndex, actor.stops]));
+  const kickCasts = new Map(kicking.map((actor) => [actor.actorIndex, actor.casts]));
+  // Kicks at a target that was not casting, or a beat either side of it. Not
+  // a kick someone else beat to the cast, which is the party's coordination,
+  // nor one at a cast that could not be stopped, which is nobody's.
+  const whiffs = new Map(
+    kicking.map((actor) => [actor.actorIndex, actor.outcomes.nothing + actor.outcomes.late + actor.outcomes.early]),
   );
   const cc = new Map(summarizeCrowdControl(run.control.applications).actors.map((actor) => [actor.actorIndex, actor.casts]));
   const dispels = new Map(summarizeDispels(run.dispels.dispels).actors.map((actor) => [actor.actorIndex, actor.removed]));
@@ -658,6 +671,16 @@ export function awardsFor(run: RunAnalysis): Awards | null {
     lockouts,
     'most',
     (index) => `${plural(lockouts.get(index) ?? 0, 'cast')} cut off`,
+  );
+  badge(
+    { key: 'air', title: 'Kicking Air', icon: '💨', roast: true, blurb: 'Kicked the most enemies that were not casting.' },
+    whiffs,
+    'most',
+    (index) => `${integer(whiffs.get(index) ?? 0)} of ${plural(kickCasts.get(index) ?? 0, 'kick')} at nothing`,
+    {
+      eligible: (index) => (whiffs.get(index) ?? 0) >= AIR_MIN_WHIFFS,
+      gap: { title: 'Shadowboxer', blurb: 'Kicked at nothing twice as often as anyone else.', times: 2 },
+    },
   );
   badge(
     { key: 'rather-die', title: "I'd Rather Die", icon: '⚰️', roast: true, blurb: 'Died to avoidable damage rather than stop casting.' },
