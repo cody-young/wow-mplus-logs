@@ -1,4 +1,5 @@
 import {
+  SegmentKind,
   TrackKind,
   distanceTravelled,
   summarizeAvoidable,
@@ -9,7 +10,7 @@ import {
   type Tally,
 } from '@mplus/analysis';
 
-import { integer, short, wipeCutoff } from './format.js';
+import { integer, percent, short, wipeCutoff } from './format.js';
 import { partyOf, type PartyMember } from './components/RunRow.js';
 import { specOf } from './specs.js';
 import type { RunAnalysis } from '../shared.js';
@@ -524,6 +525,31 @@ export function awardsFor(run: RunAnalysis): Awards | null {
     (entry) => entry.spellId === BLESSING_OF_PROTECTION && tanks.has(entry.targetIndex),
   );
   const unemployment = count(bops, (entry) => entry.actorIndex);
+  // The count the party had when the end boss died: every segment begun
+  // before it, the boss's own adds, and trash dragged in during the fight. A
+  // completed key needs full count, so short of it means walking back for
+  // more. Across 132 completed keys, 15 did, from 89.9% to 99.9%, and every
+  // one of them pulled again afterwards.
+  const endBoss = run.segments.filter((segment) => segment.kind === SegmentKind.BOSS && segment.success === true).at(-1);
+  const countAtEnd =
+    endBoss === undefined
+      ? 0
+      : run.segments
+          .filter(
+            (segment) =>
+              segment === endBoss ||
+              segment.startTs < endBoss.startTs ||
+              (segment.kind === SegmentKind.PULL && segment.startTs < endBoss.endTs),
+          )
+          .reduce((sum, segment) => sum + segment.forces, 0);
+  const shortRoute =
+    run.meta.kind === 'key' &&
+    run.meta.success === true &&
+    run.forces.known &&
+    !run.forces.incomplete &&
+    endBoss !== undefined &&
+    countAtEnd < run.forces.required;
+  const routers = new Map([...tanks].map((index) => [index, shortRoute ? 1 : 0]));
   // An immunity that ran out moments before its owner died, among the deaths
   // the run counts.
   const delays = counted.flatMap((death) => {
@@ -804,6 +830,12 @@ export function awardsFor(run: RunAnalysis): Awards | null {
     unemployment,
     'most',
     (index) => `${plural(unemployment.get(index) ?? 0, 'Blessing')} on the tank`,
+  );
+  badge(
+    { key: 'route', title: 'Who Made This Route?', icon: '🗺️', roast: true, blurb: 'Killed the last boss without full count. Back for more trash.' },
+    routers,
+    'most',
+    (index) => (tanks.has(index) ? `${percent(countAtEnd / run.forces.required)} count at ${endBoss?.label ?? 'the end boss'}` : '—'),
   );
   badge(
     { key: 'inevitable', title: 'Delayed the Inevitable', icon: '⏳', roast: true, blurb: 'Died moments after an immunity ran out.' },
