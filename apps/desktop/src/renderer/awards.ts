@@ -255,6 +255,14 @@ const AIR_MIN_WHIFFS = 3;
 const COMRADE_MIN_BARS = 1.75;
 
 /**
+ * Bleeds one player has to cleanse to keep their blood on the inside. Across
+ * 154 keys only Cauterizing Flame took any, four in five of them off the
+ * evoker themselves; 47 keys saw one, a key's best ran 1 to 11, and 6 or more
+ * was one key in seventeen.
+ */
+const BLOOD_MIN_BLEEDS = 6;
+
+/**
  * Presses a minute it takes for Button Masher's sillier name. Most of a party
  * runs 30 to 45; a tank or a feral at 55 to 72.
  */
@@ -391,6 +399,10 @@ export function awardsFor(run: RunAnalysis): Awards | null {
   );
   const cc = new Map(summarizeCrowdControl(run.control.applications).actors.map((actor) => [actor.actorIndex, actor.casts]));
   const dispels = new Map(summarizeDispels(run.dispels.dispels).actors.map((actor) => [actor.actorIndex, actor.removed]));
+  const bleeds = count(
+    run.dispels.dispels.filter((entry) => entry.bleed),
+    (entry) => entry.actorIndex,
+  );
   const avoidable = new Map(summarizeAvoidable(run.avoidable.hits).actors.map((actor) => [actor.actorIndex, actor.amount]));
   // A raid wipe's last deaths are the wipe, not anyone's mistake.
   const cutoff = wipeCutoff(run.meta, run.deaths);
@@ -969,6 +981,13 @@ export function awardsFor(run: RunAnalysis): Awards | null {
     'most',
     (index) => plural(dispels.get(index) ?? 0, 'dispel'),
     { gap: { title: 'Mr. Clean', blurb: 'Dispelled twice as much as anyone else.', times: 2, min: 6 } },
+  );
+  badge(
+    { key: 'blood', title: 'I Like My Blood on the Inside', icon: '🩸', roast: false, blurb: 'Cleansed a pile of bleeds off themselves and the party.' },
+    bleeds,
+    'most',
+    (index) => `${plural(bleeds.get(index) ?? 0, 'bleed')} cleansed`,
+    { eligible: (index) => (bleeds.get(index) ?? 0) >= BLOOD_MIN_BLEEDS },
   );
   badge(
     { key: 'cc', title: 'Crowd Controller', icon: '✋', roast: false, blurb: 'Pressed the most crowd control.' },

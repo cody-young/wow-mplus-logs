@@ -51,6 +51,7 @@ import {
   cast as castOn,
   creature,
   died,
+  dispel,
   friendlyHit,
   heal,
   hit,
@@ -1282,6 +1283,27 @@ test('a root-breaker, an enemy purge and a buff off a friend are not dispels', (
   assert.ok(!report.dispels.some((entry) => entry.spellId === 768), 'Cat Form breaks roots, it does not dispel');
   assert.ok(!report.dispels.some((entry) => entry.auraId === 7007), "the boss's purge is not the party's");
   assert.ok(!report.dispels.some((entry) => entry.spellId === 32592), 'a buff off a friend is not a purge');
+});
+
+test('a bleed cleansed off the party is marked, by the aura and not the button', () => {
+  const lines = LOG_TEXT.split('\n');
+  const end = lines.findIndex((line) => line.includes('CHALLENGE_MODE_END'));
+  lines.splice(
+    end,
+    0,
+    // Cauterizing Flame takes bleeds and poisons alike: Rend is a bleed, Venom is not.
+    dispel(90, HEALER, 'Heals', HEALER, 'Heals', 374251, 'Cauterizing Flame', 772, 'Rend'),
+    dispel(91, HEALER, 'Heals', DPS, 'Dee', 374251, 'Cauterizing Flame', 7003, 'Venom'),
+  );
+  const session = new LogSession({ assumedYear: 2026 });
+  session.pushText(lines.join('\n'));
+  session.end();
+  const context = contextFor(session, session.runs[0]!);
+  const { dispels: removed } = dispelReport(context, buildSegments(context));
+  assert.deepEqual(
+    removed.filter((entry) => entry.bleed).map((entry) => [entry.auraName, entry.targetName]),
+    [['Rend', 'Heals']],
+  );
 });
 
 test('a purge belongs to its target\'s pull, a cleanse to the pull it happened in', () => {

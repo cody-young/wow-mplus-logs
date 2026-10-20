@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { dispelCount, enrageCount, isDispel, isEnrage } from '../src/index.js';
+import { bleedCount, dispelCount, enrageCount, isBleed, isDispel, isEnrage } from '../src/index.js';
 
 /**
  * Like the other generated tables, nobody maintains this one's contents. What
@@ -67,7 +67,15 @@ test('enrage is a property of the aura, not of the button', () => {
   assert.ok(isEnrage(18499), 'Berserker Rage is an enrage');
 });
 
-test('neither table is empty', () => {
+test('a bleed is a property of the aura, not of the button', () => {
+  assert.ok(!isBleed(374251), 'Cauterizing Flame itself is not a bleed');
+  assert.ok(!isBleed(17), 'Power Word: Shield is magic, not a bleed');
+  assert.ok(isBleed(772), 'Rend is a bleed');
+  assert.ok(isBleed(1079), 'Rip is a bleed');
+});
+
+test('no table is empty', () => {
   assert.ok(dispelCount() > 200);
   assert.ok(enrageCount() > 500);
+  assert.ok(bleedCount() > 500);
 });

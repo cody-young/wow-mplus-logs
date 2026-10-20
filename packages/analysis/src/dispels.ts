@@ -1,4 +1,4 @@
-import { isDispel, isEnrage } from '@mplus/data';
+import { isBleed, isDispel, isEnrage } from '@mplus/data';
 import { Ev, EvFlag } from '@mplus/parser';
 
 import { actorName, spellName, type AnalysisContext } from './context.js';
@@ -54,6 +54,8 @@ export interface DispelRecord {
   auraId: number;
   auraName: string;
   kind: DispelKind;
+  /** A bleed cleansed off the party, which only a few buttons can take. */
+  bleed: boolean;
   /** Taken by Spellsteal rather than removed: the mage has it now. */
   stolen: boolean;
   targetIndex: number;
@@ -165,6 +167,7 @@ export function dispelReport(
       auraId,
       auraName: auraId === 0 ? '' : spellName(context, auraId),
       kind,
+      bleed: kind === 'cleanse' && isBleed(auraId),
       stolen: code === Ev.SPELL_STOLEN,
       targetIndex: dst,
       targetName: actorName(context, dst),

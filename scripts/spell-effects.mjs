@@ -9,7 +9,7 @@
  *   packages/data/src/markers.ts        which spells the data gives no effect at all
  *   packages/data/src/interrupts.ts     which spells are interrupt buttons
  *   packages/data/src/crowd-control.ts  which auras take a unit out of the fight
- *   packages/data/src/dispels.ts        which spells are dispels, and which auras are enrages
+ *   packages/data/src/dispels.ts        which spells are dispels, and which auras are enrages or bleeds
  *   packages/data/src/procs.ts          how often each proc is meant to fire
  *
  * There is no "this is a defensive" flag in the game's data, and no amount of
@@ -281,6 +281,15 @@ const DISPEL_EFFECTS = new Set([38, 126]);
 const DISPEL_TYPE_ENRAGE = 9;
 
 /**
+ * The dispel type that makes a removed debuff a bleed, from the same table.
+ *
+ * Read for a badge rather than a job: a bleed cleansed off the party is a
+ * cleanse like any other, but only a few buttons take one at all — Cauterizing
+ * Flame chief among them — so how many came off says something about a player.
+ */
+const DISPEL_TYPE_BLEED = 11;
+
+/**
  * The two numbers that spell "this effect does nothing the data can describe".
  *
  * Effect 6 is APPLY_AURA and aura 4 is SPELL_AURA_DUMMY, both confirmed against
@@ -455,18 +464,23 @@ if (categoryColumns.spell < 0 || categoryColumns.dispelType < 0) {
 // the dispel type does not vary by difficulty in practice, and a soothe that
 // removed it settles the question for that log either way.
 const enrages = new Set();
+const bleeds = new Set();
 let categoryRows = 0;
 for (const line of categoriesCsv.split('\n')) {
   if (line === '' || categoryRows++ === 0) continue;
   const fields = line.split(',');
-  if (Number(fields[categoryColumns.dispelType]) !== DISPEL_TYPE_ENRAGE) continue;
+  const type = Number(fields[categoryColumns.dispelType]);
+  const into = type === DISPEL_TYPE_ENRAGE ? enrages : type === DISPEL_TYPE_BLEED ? bleeds : undefined;
+  if (into === undefined) continue;
   const id = Number(fields[categoryColumns.spell]);
-  if (Number.isFinite(id) && id !== 0) enrages.add(id);
+  if (Number.isFinite(id) && id !== 0) into.add(id);
 }
 const dispelIds = [...dispels].sort((a, b) => a - b);
 const enrageIds = [...enrages].sort((a, b) => a - b);
+const bleedIds = [...bleeds].sort((a, b) => a - b);
 console.log(
-  `${dispelIds.length} dispels; ${categoryRows - 1} category rows → ${enrageIds.length} enrage auras`,
+  `${dispelIds.length} dispels; ${categoryRows - 1} category rows → ${enrageIds.length} enrage auras, ` +
+    `${bleedIds.length} bleed auras`,
 );
 for (const { kind, flag: bit } of [...dedupe(CONTROLS), KNOCKBACK]) {
   console.log(`  ${kind.padEnd(10)} ${controlIds.filter((id) => (controlFlags.get(id) & bit) !== 0).length}`);
@@ -518,7 +532,7 @@ const written = [
   [outMarkers, renderMarkers(inert, build)],
   [outInterrupts, renderInterrupts(stoppers, interrupts.size, dedicated.length, build)],
   [outControl, renderControl(controlIds, controlFlags, build)],
-  [outDispels, renderDispels(dispelIds, enrageIds, build)],
+  [outDispels, renderDispels(dispelIds, enrageIds, bleedIds, build)],
   [outProcs, renderProcs(procRate, build)],
 ];
 if (checkOnly) {
@@ -1007,11 +1021,10 @@ export function controlCount(): number {
 /**
  * The dispel tables as a module.
  *
- * Two Sets in one file, because they answer the two halves of one question
- * and are only ever asked together: whether a SPELL_DISPEL line was a dispel
- * at all, and if it took a buff off an enemy, whether that buff was an enrage.
+ * Sets in one file, because they answer parts of one question: whether a
+ * SPELL_DISPEL line was a dispel at all, and what kind of aura it took.
  */
-function renderDispels(dispelIds, enrageIds, version) {
+function renderDispels(dispelIds, enrageIds, bleedIds, version) {
   const encode = (ids) => {
     let previous = 0;
     return ids
@@ -1023,7 +1036,7 @@ function renderDispels(dispelIds, enrageIds, version) {
       .join('.');
   };
   return `/**
- * Which spells are dispels, and which auras are enrages.
+ * Which spells are dispels, and which auras are enrages or bleeds.
  *
  * GENERATED — do not edit. Rebuild with \`node scripts/spell-effects.mjs\`.
  * Built from SpellEffect.db2 and SpellCategories.db2, retail build ${version},
@@ -1045,7 +1058,10 @@ function renderDispels(dispelIds, enrageIds, version) {
  * Tranquilizing Shot removes magic and enrage alike, and only what it took
  * says which it was.
  *
- * ${dispelIds.length} dispels and ${enrageIds.length} enrages. Only ids are stored: no names, no
+ * BLEEDS is every aura whose dispel type is Bleed (11). Only a few buttons
+ * take one off at all, Cauterizing Flame chief among them.
+ *
+ * ${dispelIds.length} dispels, ${enrageIds.length} enrages and ${bleedIds.length} bleeds. Only ids are stored: no names, no
  * descriptions, no art.
  */
 
@@ -1055,12 +1071,16 @@ const DISPELS =
 const ENRAGES =
   '${chunk(encode(enrageIds))}';
 
+const BLEEDS =
+  '${chunk(encode(bleedIds))}';
+
 /**
  * Built on the first lookup rather than at import: most of the app never asks,
  * and the decode is wasted work in a worker thread that only parses.
  */
 let dispels: Set<number> | null = null;
 let enrages: Set<number> | null = null;
+let bleeds: Set<number> | null = null;
 
 function decode(text: string): Set<number> {
   const built = new Set<number>();
@@ -1094,7 +1114,17 @@ export function isEnrage(auraId: number): boolean {
   return enrages.has(auraId);
 }
 
-/** How many spells each table knows. Exported for the test, which asserts neither is empty. */
+/**
+ * Whether this aura is a bleed.
+ *
+ * Asked of the aura that came off, like \`isEnrage\`.
+ */
+export function isBleed(auraId: number): boolean {
+  bleeds ??= decode(BLEEDS);
+  return bleeds.has(auraId);
+}
+
+/** How many spells each table knows. Exported for the test, which asserts none is empty. */
 export function dispelCount(): number {
   dispels ??= decode(DISPELS);
   return dispels.size;
@@ -1103,6 +1133,11 @@ export function dispelCount(): number {
 export function enrageCount(): number {
   enrages ??= decode(ENRAGES);
   return enrages.size;
+}
+
+export function bleedCount(): number {
+  bleeds ??= decode(BLEEDS);
+  return bleeds.size;
 }
 `;
 }
