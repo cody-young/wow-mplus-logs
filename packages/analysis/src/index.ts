@@ -144,6 +144,7 @@ export {
   type BigHit,
   type Drain,
   type Fall,
+  type Link,
   type Moment,
   type Pick,
   type StatsReport,

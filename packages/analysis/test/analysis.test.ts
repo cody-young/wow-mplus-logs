@@ -51,6 +51,7 @@ import {
   cast as castOn,
   creature,
   died,
+  friendlyHit,
   heal,
   hit,
   interrupt,
@@ -1943,6 +1944,23 @@ test('the class moments: taunts, infusions, externals, rezzes, rides, defensives
   assert.deepEqual(who(stats.immunities), [['Dee', 'Ice Block']]);
   assert.deepEqual(who(stats.gateways), [['Dee', 'Demonic Gateway']]);
   assert.deepEqual(who(stats.dashes), [['Dee', 'Blink']]);
+});
+
+test('a Spirit Link Totem is its shaman\'s, by the health it moved and in health bars', () => {
+  const totem = creature(53006, 20);
+  const link = { spellId: 98021, spellName: 'Spirit Link' };
+  const { links } = statsWith([
+    `${at(108)}  SPELL_SUMMON,${HEALER},"Heals",0x511,0x0,${totem},"Spirit Link Totem",0x2111,0x0,98008,"Spirit Link Totem",0x8`,
+    heal(108.1, totem, 'Spirit Link Totem', HEALER, 'Heals', 600_000, 0, link),
+    // Overhealing moved nothing.
+    heal(109, totem, 'Spirit Link Totem', DPS, 'Dee', 1_000_000, 100_000, link),
+    // The hurting half is the same health moved, not more of it.
+    friendlyHit(108.1, totem, 'Spirit Link Totem', TANK, 'Tank', 1_500_000, 98021, 'Spirit Link'),
+  ]);
+  assert.deepEqual(
+    links.map((entry) => [entry.name, entry.amount, entry.bars, entry.ts]),
+    [['Heals', 1_500_000, 1.5, 108_100]],
+  );
 });
 
 test("mana at a pull's end is read off the last block that described each player", () => {

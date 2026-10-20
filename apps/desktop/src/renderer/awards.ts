@@ -5,6 +5,7 @@ import {
   summarizeCrowdControl,
   summarizeDispels,
   summarizeInterrupts,
+  type Link,
   type Tally,
 } from '@mplus/analysis';
 
@@ -245,6 +246,13 @@ const COMMITMENT_MIN_SHARE = 0.1;
  * cast that ended a beat early.
  */
 const AIR_MIN_WHIFFS = 3;
+
+/**
+ * Health bars one Spirit Link Totem has to move to be worth a badge. Across 91
+ * keys with one, 275 totems moved 0.2 to 2.7 bars, most of them 0.5 to 1.5,
+ * and a key's best reached 1.75 in one key in eleven.
+ */
+const COMRADE_MIN_BARS = 1.75;
 
 /**
  * Presses a minute it takes for Button Masher's sillier name. Most of a party
@@ -550,6 +558,12 @@ export function awardsFor(run: RunAnalysis): Awards | null {
       .filter((track) => track.kind === TrackKind.PARTY)
       .map((track) => [track.actor, distanceTravelled(track)]),
   );
+  /** Player -> the Spirit Link Totem of theirs that moved the most health. */
+  const bestLink = new Map<number, Link>();
+  for (const link of run.stats.links) {
+    if (link.bars > (bestLink.get(link.actorIndex)?.bars ?? 0)) bestLink.set(link.actorIndex, link);
+  }
+  const linkBars = new Map([...bestLink].map(([index, link]) => [index, link.bars]));
   const fumes = count(
     run.stats.drains.filter((entry) => entry.mana < FUMES_MANA),
     (entry) => entry.actorIndex,
@@ -1001,6 +1015,18 @@ export function awardsFor(run: RunAnalysis): Awards | null {
       return hit === undefined ? '—' : `${short(hit.amount)} ${hit.spellName} on ${hit.targetName}`;
     },
     { gap: { title: 'Falcon Punch', blurb: 'Hit three times as hard as anyone else, once.', times: 3 } },
+  );
+  // One totem, not the key's sum: a shaman wins it whenever they press it, so
+  // only a big one counts.
+  badge(
+    { key: 'comrade', title: 'Our Health, Comrade', icon: '🤝', roast: false, blurb: 'Dropped a Spirit Link Totem that shared out a huge pile of health.' },
+    linkBars,
+    'most',
+    (index) => {
+      const link = bestLink.get(index);
+      return link === undefined ? '—' : `${short(link.amount)} shared, ${link.bars.toFixed(1)} health bars`;
+    },
+    { eligible: (index) => (linkBars.get(index) ?? 0) >= COMRADE_MIN_BARS },
   );
   // The healer wins most healing every key, and a tank's self-healing wins
   // the rest, so the badge is among the dps: whoever healed most without it

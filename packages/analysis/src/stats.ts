@@ -65,6 +65,11 @@ import { SegmentKind, segmentAt, type SegmentIndex } from './segments.js';
  * rezzes, Leaps of Faith and Rescues, personal defensives, immunities running
  * out, Demonic Gateway hops and dashes: each a spell id read off this season's logs.
  *
+ * And Spirit Link Totems, each by the health it moved: its heals, which are
+ * what it took from whoever was highest, less overhealing. As health bars too,
+ * by the average maximum health of whoever it healed, since a million is a
+ * different totem from one season's gear to the next.
+ *
  * And mana, as it stood when each pull and boss ended. The advanced block
  * carries its subject's power, so whoever the last row before the end
  * described, that is what they had left.
@@ -154,6 +159,14 @@ export interface Drain {
 }
 
 /** What one player's whole key adds up to, for the counts that are not a list. */
+/** One Spirit Link Totem, named by the shaman who dropped it, at its first heal. */
+export interface Link extends Moment {
+  /** Health it moved: its healing, less overhealing. */
+  amount: number;
+  /** `amount` in health bars, by the average maximum health of whoever it healed. */
+  bars: number;
+}
+
 export interface Tally {
   actorIndex: number;
   name: string;
@@ -221,6 +234,8 @@ export interface StatsReport {
   dashes: Moment[];
   /** Mana left at the end of every pull and boss, for everyone whose power is mana. */
   drains: Drain[];
+  /** Every Spirit Link Totem that healed one of the party, in order. */
+  links: Link[];
   /** One per party member. */
   tallies: Tally[];
   /** Whether `padding` could be measured: only when a forces table covered the dungeon. */
@@ -335,6 +350,9 @@ const GATEWAY = 113942;
  */
 const DASHES: ReadonlySet<number> = new Set([781, 195072, 198793, 52174, 109132, 115008, 1953, 212653]);
 
+/** Spirit Link, as the totem's heals and its hurts both carry it. */
+const SPIRIT_LINK = 98021;
+
 /** The rows a proc can show up as, firing for whoever it belongs to. */
 const PROC_CODES: ReadonlySet<number> = new Set([
   Ev.SPELL_AURA_APPLIED,
@@ -412,7 +430,9 @@ export function statsReport(context: AnalysisContext, segments: SegmentIndex): S
   const gateways: Moment[] = [];
   const dashes: Moment[] = [];
   const drains: Drain[] = [];
-  const assist = (row: number, actor: number, target: number, spellId: number): Assist => ({
+  /** Spirit Link Totem -> its first heal's row, what it moved, and the healed's maximum health summed. */
+  const totems = new Map<number, { row: number; amount: number; hpMax: number; heals: number }>();
+  const assist =(row: number, actor: number, target: number, spellId: number): Assist => ({
     ...moment(row, actor, spellId),
     targetIndex: target,
     targetName: actorName(context, target),
@@ -604,6 +624,14 @@ export function statsReport(context: AnalysisContext, segments: SegmentIndex): S
       if (!ours(src) || !segments.party.has(dst)) continue;
       const actor = actors.attribute(src);
       if (CHEAT_HEALS.has(spellId)) cheats.push(moment(row, dst, spellId));
+      // The shaman's own share counts: the totem levels them with the rest.
+      if (spellId === SPIRIT_LINK && store.hpMax[row]! > 0) {
+        let totem = totems.get(src);
+        if (totem === undefined) totems.set(src, (totem = { row, amount: 0, hpMax: 0, heals: 0 }));
+        totem.amount += effective(store.amount[row]!, store.waste[row]!);
+        totem.hpMax += store.hpMax[row]!;
+        totem.heals++;
+      }
       if (actor === dst) continue;
       const tally = tallies.get(actor)!;
       tally.healingOnOthers += store.amount[row]!;
@@ -690,6 +718,12 @@ export function statsReport(context: AnalysisContext, segments: SegmentIndex): S
     };
   });
 
+  const links: Link[] = [...totems].map(([totem, { row, amount, hpMax, heals }]) => ({
+    ...moment(row, actors.attribute(totem), SPIRIT_LINK),
+    amount,
+    bars: amount / (hpMax / heals),
+  }));
+
   const picks: Pick[] = [];
   for (const [spellId, rows] of debuffs) {
     if (avoidable(spellId) !== undefined) continue;
@@ -741,6 +775,7 @@ export function statsReport(context: AnalysisContext, segments: SegmentIndex): S
     gateways,
     dashes,
     drains,
+    links,
     tallies: [...tallies.values()],
     paddingKnown,
   };

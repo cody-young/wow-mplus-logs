@@ -290,6 +290,7 @@ export function App(): React.JSX.Element {
         gateways: [],
         dashes: [],
         drains: [],
+        links: [],
         tallies: [],
         paddingKnown: false,
       };
@@ -321,6 +322,7 @@ export function App(): React.JSX.Element {
       gateways: inPull(run.stats.gateways),
       dashes: inPull(run.stats.dashes),
       drains: inPull(run.stats.drains),
+      links: inPull(run.stats.links),
     };
   }, [run, selectedSegment]);
 
