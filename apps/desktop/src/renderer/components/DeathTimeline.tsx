@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { AuraWindow, DeathReport, HpSample } from '@mplus/analysis';
 
 import { short } from '../format.js';
-import { useSpellIcons } from '../icons.js';
+import { useSpellDescriptions, useSpellIcons } from '../icons.js';
 import { Tip, useTip } from './Tip.js';
 
 /**
@@ -38,6 +38,9 @@ import { Tip, useTip } from './Tip.js';
  * is channelling. A bar wide enough to hold its own figure carries it, with an
  * asterisk when a crit is in it; the hover tip carries the words either way,
  * because at this size a spell name is either absent or clipped to a fragment.
+ * An enemy's spell or debuff also gets its in-game description in the tip:
+ * "Shadow Burst" names a mechanic, the description says what it did. A
+ * player's own spells are known to the people reading, so theirs go without.
  *
  * One second is the wrong resolution for the deaths that matter most. A tank
  * dropping from full to zero does it inside one row, and at one second per row
@@ -66,6 +69,8 @@ interface Bar {
   spellId: number;
   /** Contains the blow that finished them. */
   killing: boolean;
+  /** A creature's or the dungeon's, so worth its description on hover. */
+  hostile: boolean;
 }
 
 interface Row {
@@ -223,6 +228,13 @@ export function DeathTimeline({
 
   const laneRef = useRef<HTMLDivElement | null>(null);
   const tip = useTip<Bar | AuraWindow>();
+  // The icon lookup already fetched these, so asking is a read from disk.
+  const descriptions = useSpellDescriptions([
+    ...rows.flatMap((row) => row.damage.filter((bar) => bar.hostile).map((bar) => bar.spellId)),
+    ...debuffs.flat().filter((span) => !span.aura.sourcePlayer).map((span) => span.aura.spellId),
+  ]);
+  const hostile = tip.data !== null && ('buff' in tip.data ? !tip.data.sourcePlayer : tip.data.hostile);
+  const description = hostile ? descriptions.get(tip.data!.spellId) : undefined;
 
   // Whether a label or even an icon fits is a question about pixels, not about
   // share of the scale: the same 4% bar is legible in a maximised window and a
@@ -382,6 +394,7 @@ export function DeathTimeline({
           ) : (
             <BarDetail bar={tip.data} />
           )}
+          {description === undefined ? null : <span className="tip-desc">{description}</span>}
         </Tip>
       )}
     </div>
@@ -670,6 +683,7 @@ function buildRows(death: DeathReport, bucketMs: number, start: number, end: num
         color: damageColor(hit.spellId),
         spellId: hit.spellId,
         killing,
+        hostile: !hit.sourcePlayer,
       });
     }
     // Absorbs are added below rather than here. The damage row only carries an
@@ -695,6 +709,7 @@ function buildRows(death: DeathReport, bucketMs: number, start: number, end: num
       color: ABSORB_COLOR,
       spellId: absorb.spellId,
       killing: false,
+      hostile: false,
     });
   }
   // A log with no SPELL_ABSORBED lines for these hits still knows how much was
@@ -711,6 +726,7 @@ function buildRows(death: DeathReport, bucketMs: number, start: number, end: num
         color: ABSORB_COLOR,
         spellId: 0,
         killing: false,
+        hostile: false,
       });
     }
   }
@@ -729,6 +745,7 @@ function buildRows(death: DeathReport, bucketMs: number, start: number, end: num
       color: healColor(heal.spellId),
       spellId: heal.spellId,
       killing: false,
+      hostile: false,
     });
   }
 

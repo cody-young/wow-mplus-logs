@@ -1,5 +1,5 @@
 import { isBigDefensive, isButton, isDefensive, isInertMarker } from '@mplus/data';
-import { Ev, EvFlag, environmentName } from '@mplus/parser';
+import { ActorKind, Ev, EvFlag, environmentName } from '@mplus/parser';
 
 import { actorName, spellName, type AnalysisContext } from './context.js';
 import {
@@ -53,6 +53,8 @@ export interface IncomingHit {
   critical: boolean;
   /** True when nothing hostile dealt it — a fall, or standing in fire. */
   environmental: boolean;
+  /** A player dealt it, or their pet did: friendly fire, or their own. */
+  sourcePlayer: boolean;
 }
 
 export interface HealReceived {
@@ -105,6 +107,8 @@ export interface AuraWindow {
   sourceName: string;
   /** Whether that was the dying player, which reads as "their own". */
   selfApplied: boolean;
+  /** A player put it there, as opposed to a creature or the dungeon. */
+  sourcePlayer: boolean;
   /** auraType was BUFF. Debuffs are the complement, not a separate list. */
   buff: boolean;
   /**
@@ -431,6 +435,7 @@ function buildReport(
         absorbed: store.absorbed[row]!,
         critical: (flags & EvFlag.CRITICAL) !== 0,
         environmental: isSelfDamage,
+        sourcePlayer: !isSelfDamage && actors.at(sourceOwner)?.kind === ActorKind.PLAYER,
       };
       incoming.push(hit);
       if (!inSummary) continue;
@@ -498,6 +503,7 @@ function buildReport(
             spellName: spellName(context, spellId),
             sourceName: caster < 0 ? '' : actorName(context, caster),
             selfApplied: caster === victim,
+            sourcePlayer: actors.at(caster)?.kind === ActorKind.PLAYER,
             buff: (flags & EvFlag.BUFF) !== 0,
             defensive: isDefensive(spellId),
             bigDefensive: isBigDefensive(spellId),
@@ -520,6 +526,7 @@ function buildReport(
           spellName: spellName(context, spellId),
           sourceName: caster < 0 ? '' : actorName(context, caster),
           selfApplied: caster === victim,
+          sourcePlayer: actors.at(caster)?.kind === ActorKind.PLAYER,
           buff: (flags & EvFlag.BUFF) !== 0,
           defensive: isDefensive(spellId),
           bigDefensive: isBigDefensive(spellId),
