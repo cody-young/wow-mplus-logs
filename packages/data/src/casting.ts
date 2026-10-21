@@ -4,7 +4,7 @@
  *
  * GENERATED — do not edit. Rebuild with `node scripts/spell-presses.mjs`.
  * Built from SpellCooldowns.db2, SpellMisc.db2 and SpellDuration.db2, retail
- * build 12.1.0.69933, via wago.tools.
+ * build 12.1.5.70448, via wago.tools.
  *
  * The log says when a cast began and ended if it had a cast bar. An instant
  * is one SPELL_CAST_SUCCESS, and nothing says whether it put the player on a
@@ -17,14 +17,14 @@
  * Windwalker's hands. Active time measures the GCD a player actually had from
  * their own casting, and uses these to know which casts had one at all.
  *
- * 15191 spells on a global cooldown, most commonly:
+ * 15234 spells on a global cooldown, most commonly:
  *
- *    11821  at 1500ms
+ *    11864  at 1500ms
  *     2474  at 1000ms
  *      166  at 2000ms
  *      149  at 500ms
  *
- * 945 channels, among them:
+ * 948 channels, among them:
  *
  *     15407  Mind Flay, 4500ms
  *       740  Tranquility, 6000ms
@@ -466,51 +466,52 @@ const GCDS =
   'jk.1m.11.7.3p.1~rs.n.2r.1f.23.2.1.3.3.4.3.1.5.5.1.2.2.4.1e.2e.38.f.p.1u.1.1.29.18.k.2.9~rs.3.9.8' +
   '.c.5.1t~6y.2~6y.26.1.b.2.7.3.4.6.2c~rs.16.1e.72.2e.t.1.1.6.1d~rs.24.3.1.o.n.1h.37.1v.5.i.a.7.4.2' +
   '.2.3z.b.3j.3o.1f.1.41.43~2bc.1q.x.1.1.1.1.1.1.1.1.1.2f~rs.6w.30.3n.7.2.4a.8.x.8.d.2.p.2k.t.2.2.3' +
-  '.9.22~rs.1i.3f.16.2h.l.6c.3.9.5.4.i.1e.2u.2k.i~rs.2~rs.c~rs.4~rs.2~rs.2q~rs.3.6~rs.90.6u.1s.8.92' +
-  '~rs.t.n.17.1n.l.r.u.31.5.r.v.m.n.2w.25.d.4.3.x~ffk.4.22.4.1~rs.1~rs.1~rs.1~rs.1~rs.1~rs.2~rs.1~r' +
-  's.1~rs.1~rs.1~rs.1f.1.z.5.e.j.1e.5r.2l~rs.m.a.63.e.2m.2.1.1.1y.16.e.e~rs.5.4.1.1.1.2.k.1b.bl~2bc' +
-  '.4v~rs.d~rs.3~rs.r.6.6~dw.y.8.1.1.1b.i.4.3.5~rs.2b.1b~dw.8~rs.b.18~rs.17~dw.1e~dw.2~rs.5~dw.1~rs' +
-  '.4~rs.2~dw.15~rs.8~rs.3d.1i~rs.1~rs.1~rs.1~rs.y.1.p~rs.2~rs.8.3.n~rs.a~rs.c~m8.11~rs.8.1~rs.o.j.' +
-  '25.2j~rs.12.16.2q.f.1.f.1f.2g~rs.1~rs.4~rs.4~rs.2c.a.n.3.30.16.4.1.k~1xg.t.9.36~rs.2b.1j.b.1~4mo' +
-  '.23.1.3.1.1.1.2.1.1g.2.1.1.9.1.1.2.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.3.1.1.4.1.1.1.1.1.1.1' +
-  '.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.2t.k.ftwi~rs.12.1a.3l.5u.q.s.a.20.u.1g.u.54.2g.4.4w.67.1d.4q~' +
-  'rs.aa.12.2h.1j.9.c.jl.9j.y.3q.2f.1.1t~rs.6.f~rs.3r.28~rs.8~rs.o.4i.12.2m~rs.w.3s.o.5.1.z.5v.i.5.' +
-  'r.4g.d.2.4.4.f.3a.4b.1.2.2.l~3uw.g.1i~3uw.6~3uw.3m.p.8~rs.1~rs.1~rs.1~rs.1~rs.1~rs.1~rs.1~rs.1~r' +
-  's.1~rs.1~rs.aw.t.1.5.55.1x.2.1b.2p.42.l9~rs.2z.6f.9r.1.1.1.1.1.1.12.q.2p~dw.a.2r.1.2.1.m.3v.1.2.' +
-  'j.25~rs.e~rs.d~rs.2s~rs.2c~rs.1l~dw.g2~rs.2~rs.a5.1.1.2.2.1.14.4.4.28.1a.r.5m~rs.p.1k~rs.j.1f.1.' +
-  '1.3y.2p.9.4.7.2l.4.2.3.1d.4.4o.87.1.1.1.1.2.5z~1jk.1b.s.as.2.2.1.1.1.1.2.1.2.2.1.1.1.3.1.2.1.1.2' +
-  '.3.1.1.1.2.1.1.1.2.2.1.1o.1.1.1.1.1.1.1.1.1.2.1.3.1.2.1.1.1.1.1.1.2.1.1.1.1.1.1.6x~rs.2~rs.e~rs.' +
-  'y.70~rs.2~rs.6~rs.3~rs.1~rs.2~rs.2~rs.2~rs.4~rs.1~rs.1~rs.1~rs.r.3m.4.4.1.1.3l.p.2.r.2x.2u.1.1.1' +
-  '.1.16.q.15~dw.d.1.3.5.i.b.1.1.7.1.3.2.5.2.7.7.3.1h.4b.2y.4u.o.2.2.1.1.1.1.1a.b.4.1k.55.t.1i.b.4a' +
-  '.29.1d.5d~2s.1m.y.7.2.m.3p~7ps.52.4t.qc.1.wg.dv.d~rs.q.o.3k.5l.ap.31.9q.o~dw.6o.39.95.4u.c.2j~dw' +
-  '.22~dw.b.2j.3l.1o.3u.3j.g~rs.13.w~rs.l.1e.r.2y.2.as.2j~rs.o~yq.3g.e7.1d.1.3.i.d.36.l.v.he.3.e7.6' +
-  '4.6.l.g.3a~3uw0.k.2f.4.ds.12.3s~dw.1n.4v~rs.22.1l~rs.1~rs.1~rs.4~rs.1~rs.1~rs.1~rs.bv.9.2j.3j.2.' +
-  '4s~dw.k.g.j.d.h.a9~dw.3m.1.5.1i.7p.b.1r.1.5~rs.3.c.2k.o.6.16.1l.2a.1.1.8g.3d.1c.3f.a.5.14~rs.10.' +
-  'b.8j.1d.7i~rs.1~rs.1~rs.1~rs.1~rs.1~rs.1~rs.1~rs.1~rs.1~rs.1~rs.1~rs.2~rs.2~rs.1~rs.1~rs.1.1~rs.' +
-  '5.4.3.2g~rs.2e.2g.44.1.n~rs.1w.1p~rs.t.4a.ak.m.1q.8a.59.13.63~3uw.1b.16~rs.9.3o.1t.1g.y.e.3.1q.2' +
-  '8~rs.2v.gg.ck.7~dw.15.h.d~dw.f.96.5p.3p.1.3y.5w.1.3a.2.k.5.2t.z.1p.40.23.1u~rs.q.1g~rs.2c~334.1v' +
-  '.3o.4r.1n.7~rs.n~rs.43.1h.15~2bc.2p~rs.1s~rs.e.a~rs.33.3a.9.2h.2.1.1.2.2.1.j.1.1.1.1.1.1.1.1.1.1' +
-  '.1.2.1.1.b.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.4u.1o.4f.c.g.2n.j.i.1.2z.cf.24.11.35.5t.1e.9.4j.1' +
-  '.1.1.2.1.1.1.1.1.1.2.1.u.6q.6g.a~rs.31.4~rs.18.1x~rs.1f~rs.1~rs.2~rs.2q.47.4v.1.27~rs.1~rs.1~rs.' +
-  '1~rs.1z.k.4.1.b.48.dv.72.3d.1r.27.3g.ef.3.6~rs.1q.29.1i.54~rs.a~rs.21.1f.19.13.6.1.4.1.4o.j.47.4' +
-  '.2.2.4.9.53.1v.i.b.b0.3b.p.16.2u.h.6i.f.b8.42~bko.t.5l.d3.c.5.z.6y~rs.9k.18.9e.1.4m.29.m.3i.8.3z' +
-  '.2.2.2.1.1.1.1.5.3.3.4.1.5j.3f.3s.16~rs.j.i.4.6l.5x.2.a~3uw0.2~3uw0.1~3uw0.1h~rs.26.5t.jw.7.2c.1' +
-  'r.45.4.3n.14.1x.bi.b.2p~rs.s.4.1.1.b~rs.46.1d.15.1.1.1.15.21.2.1.27.2.1.1.l.1e.1c.8m.1q.2~rs.f~r' +
-  's.1g.2l.9d~rs.3~rs.b.4i~rs.3n.4q.2d~dw.25.a.5.54.k.1.1.1.2.2.k.1y.b.5.3.2u.8.d.3i.i.1x~rs.t~rs.1' +
-  '~rs.2~rs.3~rs.1~rs.1~rs.1~rs.1.3e.60.5d.65.y.2a~rs.ax.2p.42.x.16.1b.33.4w~rs.c.1i.50.1s.3y.6.7.u' +
-  '~rs.v.i~rs.m.4.6.3e.141.n.1.6.3.2.6.7.7.c2.f.1.2.1.13~rs.1~rs.1~rs.45.m.d~rs.2h.6.18.25.6.2.1.1.' +
-  '1~1aao.4.7a.9.5h.60.63~rs.1~rs.1~rs.1~rs.1~rs.1~rs.1~rs.1~rs.1~rs.1~rs.1~rs.d.u.58.7.a.q.4.1.t.d' +
-  'l.21.1.e.z~rs.m.4e.1h.1j.c.5.a.p.2.15.9.37.l.4x.er~rs.1n.2p.6.7l.7i.1ux.2.2.4.4.o.8.a~rs.2.2.fm.' +
-  'm.f.5p.bv.h~dw.1~rs.1w.34.7a.3c.i.4.44.2c~rs.2l.1v.1.1.1.1.1g~rs.kq~3uw0.e~3uw0.6~3uw0.e~3uw0.1i' +
-  '.3f.28.1.2t.br.af~bko.65.a1.5h.1s.1.m.10~rs.4~rs.1k.dq.3r.5.59~2s.q.i.gg.q.v.7g.e8.5c.52~dw.2o~r' +
-  's.2~rs.1~rs.1~rs.1u~rs.1~rs.pf.mq.57.8q.4a.9d.o.4n.3.3.2.3.g.3.e4.r.8.2.4.35.15.3.1j.1.1.4.1.1.3' +
-  '.1b~dw.5~dw.b~dw.4~dw.4z.7.9r.l.46.2.2m~rs.3l.1.1.1.3.1.1.1.1.1.1.1.1.1.1.1.4a.2k.8x.31.8w.1.1l.' +
-  '2.2.m.1z.1.1.2.1.1.1.2.2.7.29.ue.9.c.am.7h.v.6.5.2.q.aa.6t.1r.7.51.e~rs.6~dw.4q.15.du.3l.1x.1s.a' +
-  'v~2s.8.2c.m.1a.1.a.1.4.1.1.1.4.4.l.3.4q~rs.6o.22.49~rs.4~rs.2~rs.1~rs.1~rs.2~rs.1~rs.3~rs.2~rs.1' +
-  '~rs.bo.10.2p~dw.1f.6j.7e.e.1m~2bc.4s.7c~3uw0.1~3uw0.1~3uw0.7e.o.9.a.5y.s.1.1.1.1.8.2p.4.6f.2g.1.' +
-  '64.55.2d~rs.9g~2bc.1~2bc.1f.66.do.23.2v.1o.3.76.2.1.1.6.n.cu.1.4z.1.fl.wx.21.24.4.6.1.3d~3uw.5~3' +
-  'uw.e.42.4x~rs.c~rs.e~rs.7h~rs.ai.4w~3uw0.1~3uw0.1~3uw0.5z.2q.nv.4r.ay.1h.5d.md.70.z.1.5t.v.3.go.' +
-  'eb.w.r.7y~rs.t.d.1.1.1.1.1.1.77.25.2.70~rs.1k.85.p~rs.2~rs.3u.7e.2.31.35s.19d.2dh';
+  '.9.22~rs.1i.3f.16.2h.l.6c.3.9.5.4.i.48.2k.i~rs.2~rs.c~rs.4~rs.2~rs.2q~rs.3.6~rs.90.6u.1s.8.92~rs' +
+  '.t.n.17.1n.l.r.u.31.5.r.v.m.n.2w.25.d.4.3.x~ffk.4.22.4.1~rs.1~rs.1~rs.1~rs.1~rs.1~rs.2~rs.1~rs.1' +
+  '~rs.1~rs.1~rs.1f.1.z.5.e.j.1e.5r.2l~rs.m.a.63.e.2m.2.1.1.1y.16.e.e~rs.5.4.1.1.1.2.k.1b.bl~2bc.4v' +
+  '~rs.d~rs.3~rs.r.6.6~dw.y.8.1.1.1b.i.4.3.5~rs.2b.1b~dw.8~rs.b.18~rs.17~dw.1e~dw.2~rs.5~dw.1~rs.4~' +
+  'rs.2~dw.15~rs.8~rs.3d.1i~rs.1~rs.1~rs.1~rs.y.1.p~rs.2~rs.8.3.n~rs.a~rs.c~m8.11~rs.8.1~rs.o.j.25.' +
+  '2j~rs.12.16.2q.f.1.f.1f.2g~rs.1~rs.4~rs.4~rs.2c.a.n.3.30.16.4.1.k~1xg.t.9.36~rs.2b.1j.b.1~4mo.23' +
+  '.1.3.1.1.1.2.1.1g.2.1.1.9.1.1.2.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.3.1.1.4.1.1.1.1.1.1.1.1.' +
+  '1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.2t.k.ftwi~rs.12.1a.3l.5u.q.s.a.20.u.1g.u.54.2g.4.4w.67.1d.4q~rs.' +
+  'aa.12.2h.1j.9.c.jl.9j.y.3q.2f.1.1t~rs.6.f~rs.3r.28~rs.8~rs.o.4i.12.2m~rs.w.3s.o.5.1.z.5v.i.5.r.4' +
+  'g.d.2.4.4.f.3a.4b.1.2.2.l~3uw.g.1i~3uw.6~3uw.3m.p.8~rs.1~rs.1~rs.1~rs.1~rs.1~rs.1~rs.1~rs.1~rs.1' +
+  '~rs.1~rs.aw.t.1.5.55.1x.2.1b.2p.42.l9~rs.2z.6f.9r.1.1.1.1.1.1.12.q.2p~dw.a.2r.1.2.1.m.3v.1.2.j.2' +
+  '5~rs.e~rs.d~rs.2s~rs.2c~rs.1l~dw.g2~rs.2~rs.a5.1.1.2.2.1.14.4.4.28.1a.r.5m~rs.p.1k~rs.j.1f.1.1.3' +
+  'y.2p.9.4.7.2l.4.2.3.1d.4.4o.87.1.1.1.1.2.5z~1jk.1b.s.as.2.2.1.1.1.1.2.1.2.2.1.1.1.3.1.2.1.1.2.3.' +
+  '1.1.1.2.1.1.1.2.2.1.1o.1.1.1.1.1.1.1.1.1.2.1.3.1.2.1.1.1.1.1.1.2.1.1.1.1.1.1.6x~rs.2~rs.e~rs.y.7' +
+  '0~rs.2~rs.6~rs.3~rs.1~rs.2~rs.2~rs.2~rs.4~rs.1~rs.1~rs.1~rs.r.3m.4.4.1.1.3l.p.2.r.2x.2u.1.1.1.1.' +
+  '16.q.15~dw.d.1.3.5.i.b.1.1.7.1.3.2.5.2.7.7.3.1h.4b.2y.4u.o.2.2.1.1.1.1.1a.b.4.1k.55.t.1i.b.4a.29' +
+  '.1d.5d~2s.1m.y.7.2.m.3p~7ps.52.4t.qc.1.wg.dv.d~rs.q.o.3k.5l.ap.31.9q.o~dw.6o.39.95.4u.c.2j~dw.22' +
+  '~dw.b.2j.3l.1o.3u.3j.g~rs.13.w~rs.l.1e.r.2y.2.as.2j~rs.o~yq.3g.e7.1d.1.3.i.d.36.l.v.he.3.e7.64.6' +
+  '.l.g.3a~3uw0.k.2f.4.ds.12.3s~dw.1n.4v~rs.22.1l~rs.1~rs.1~rs.4~rs.1~rs.1~rs.1~rs.bv.9.2j.3j.2.4s~' +
+  'dw.k.g.j.d.h.a9~dw.3m.1.5.1i.7p.b.1r.1.5~rs.3.c.2k.o.6.16.1l.2a.1.1.8g.3d.1c.3f.a.5.14~rs.10.b.8' +
+  'j.1d.7i~rs.1~rs.1~rs.1~rs.1~rs.1~rs.1~rs.1~rs.1~rs.1~rs.1~rs.1~rs.2~rs.2~rs.1~rs.1~rs.1.1~rs.5.4' +
+  '.3.2g~rs.2e.2g.44.1.n~rs.1w.1p~rs.t.4a.ak.m.1q.8a.59.13.63~3uw.1b.16~rs.9.3o.1t.1g.y.e.3.1q.28~r' +
+  's.2v.gg.ck.7~dw.15.h.d~dw.f.96.5p.3p.1.3y.5w.1.3a.2.k.5.2t.z.1p.40.23.1u~rs.q.1g~rs.2c~334.1v.3o' +
+  '.4r.1n.7~rs.n~rs.43.1h.15~2bc.2p~rs.1s~rs.e.a~rs.33.3a.9.2h.2.1.1.2.2.1.j.1.1.1.1.1.1.1.1.1.1.1.' +
+  '2.1.1.b.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.4u.1o.4f.c.g.2n.j.i.1.2z.cf.24.11.35.5t.1e.9.4j.1.1.' +
+  '1.2.1.1.1.1.1.1.2.1.u.6q.6g.a~rs.31.4~rs.18.1x~rs.1f~rs.1~rs.2~rs.2q.47.4v.1.27~rs.1~rs.1~rs.1~r' +
+  's.1z.k.4.1.b.48.dv.72.3d.1r.27.3g.ef.3.6~rs.1q.29.1i.54~rs.a~rs.21.1f.19.13.6.1.4.1.4o.j.47.4.2.' +
+  '2.4.9.53.1v.i.b.b0.3b.p.16.2u.h.6i.f.b8.42~bko.t.5l.d3.c.5.z.6y~rs.9k.18.9e.1.4m.29.m.3i.8.3z.2.' +
+  '2.2.1.1.1.1.5.3.3.4.1.5j.3f.3s.16~rs.j.i.4.6l.5x.2.a~3uw0.2~3uw0.1~3uw0.1h~rs.26.5t.jw.7.2c.1r.4' +
+  '5.4.3n.14.1x.bi.b.2p~rs.s.4.1.1.b~rs.46.1d.15.1.1.1.15.21.2.1.27.2.1.1.l.1e.1c.8m.1q.2~rs.f~rs.1' +
+  'g.2l.9d~rs.3~rs.b.4i~rs.3n.4q.2d~dw.25.a.5.54.k.1.1.1.2.2.k.1y.b.5.3.2u.8.d.3i.i.1x~rs.t~rs.1~rs' +
+  '.2~rs.3~rs.1~rs.1~rs.1~rs.1.3e.60.5d.65.y.2a~rs.ax.2p.42.x.16.1b.33.4w~rs.c.1i.50.1s.3y.6.7.u~rs' +
+  '.v.i~rs.m.4.6.3e.141.n.1.6.3.2.6.7.7.c2.f.1.2.1.13~rs.1~rs.1~rs.45.m.d~rs.2h.6.18.25.6.2.1.1.1~1' +
+  'aao.4.7a.9.5h.60.63~rs.1~rs.1~rs.1~rs.1~rs.1~rs.1~rs.1~rs.1~rs.1~rs.1~rs.d.u.58.7.a.q.4.1.t.dl.2' +
+  '1.1.e.z~rs.m.4e.1h.1j.c.5.a.p.2.15.9.37.l.4x.er~rs.1n.2p.6.7l.7i.1ux.2.2.4.4.o.8.a~rs.2.2.fm.m.f' +
+  '.5p.bv.h~dw.1~rs.1w.34.7a.3c.i.4.44.2c~rs.2l.1v.1.1.1.1.1g~rs.kq~3uw0.e~3uw0.6~3uw0.e~3uw0.1i.3f' +
+  '.28.1.2t.br.af~bko.65.a1.5h.1s.1.m.10~rs.4~rs.1k.dq.3r.5.59~2s.q.i.gg.q.v.7g.e8.5c.52~dw.2o~rs.2' +
+  '~rs.1~rs.1~rs.1u~rs.1~rs.pf.m6.k.57.8q.4a.9d.o.4n.3.3.2.3.g.3.e4.r.8.2.4.35.15.3.1j.1.1.4.1.1.3.' +
+  '1b~dw.5~dw.b~dw.4~dw.2c.2n.7.9r.l.41.5.2.2m~rs.3l.1.1.1.3.1.1.1.1.1.1.1.1.1.1.1.4a.2k.8x.31.y.7y' +
+  '.1.1l.2.2.m.1z.1.1.2.1.1.1.2.2.7.29.ue.9.c.am.7h.v.6.5.2.q.aa.6t.1r.7.51.e~rs.6~dw.4q.15.du.3l.r' +
+  '.16.1s.av~2s.8.2c.m.1a.1.a.1.4.1.1.1.4.4.l.3.4q~rs.6o.22.49~rs.4~rs.2~rs.1~rs.1~rs.2~rs.1~rs.3~r' +
+  's.2~rs.1~rs.bo.10.2p~dw.1f.65.e.5.8.a.6r.e.1m~2bc.4s.6g.w~3uw0.1~3uw0.1~3uw0.13.5q.l.o.9.a.5q.8.' +
+  '1.r.1.1.1.1.8.2p.4.6f.2g.1.64.55.2d~rs.9g~2bc.1~2bc.1f.66.do.23.2v.1o.3.76.2.1.1.6.n.cu.1.4z.1.f' +
+  'l.hv.f2.21.24.4.6.1.3d~3uw.5~3uw.e.42.4x~rs.c~rs.e~rs.7h~rs.ai.4w~3uw0.1~3uw0.1~3uw0.5z.2q.nv.4r' +
+  '.ay.1h.5d.lm.r.n.13.5a.z.1.5t.v.3.go.eb.w.r.7y~rs.t.d.1.1.1.1.1.1.77.25.2.70~rs.1k.85.p~rs.2~rs.' +
+  '3u.7e.2.31.ed.n.1al.1g7.l2.bf.4z.2.a.b.2.2.3g.5.1.1.3j.x.2g.2.4.1.d.1gn.sx.2l.ib.u6.186';
 
 const CHANNELS =
   '3i~yq0.db~n5c.2l~2klc.16~4mo.6~4mo.9~3uw.b8~4mo.9w~4mo.c2~7ps.43~1aao.wj~5eg.1~5eg.1g3~1xg.t9~1a' +
@@ -579,10 +580,11 @@ const CHANNELS =
   'i~99c.j8~2bc.fv7j~334.2me~12w.6h~1jk.39u~1jk.12c~2bc.7i~1xg.c8~4mo.2c8~2bc.90~668.6u~0.2pg~0.48~' +
   '99c.21y~4mo.ix~4mo.1ng~2bc.6a~1xg.yk~4mo.1gi~cuyo.90~cuyo.j4~334.1du~2bc.20h~2bc.48r~15o.4~2bc.2' +
   '03~1jk.2o0~2bc.1md~1jk.1jk~334.14~2bc.183~ffk.t0~1jk.1tq~0.1b~0.2ie~4mo.4wj~2bc.4o3~4mo.1el~0.1g' +
-  's~1jk.1kw~3uw.4~3uw.1p4~3h0.uz~668.3a6~4mo.10~1jk.14s~4mo.wd~1jk.zo~3uw.5ll~4mo';
+  's~1jk.1kw~3uw.4~3uw.1p4~3h0.uz~668.3a6~4mo.10~1jk.v9~334.21~0.7i~4mo.wd~1jk.zo~3uw.5ll~4mo.71a~3' +
+  '34';
 
 /** The highest spell id this build had. See buttons.ts. */
-const FRONTIER = 1319318;
+const FRONTIER = 1323829;
 
 let gcdTable: Map<number, number> | null = null;
 let channelTable: Map<number, number> | null = null;

@@ -3,7 +3,7 @@
  *
  * GENERATED — do not edit. Rebuild with `node scripts/spell-effects.mjs`.
  * Built from SpellEffect.db2, SpellAuraOptions.db2, SpellProcsPerMinute.db2
- * and SpellProcsPerMinuteMod.db2, retail build 12.1.0.69933, via wago.tools.
+ * and SpellProcsPerMinuteMod.db2, retail build 12.1.5.70448, via wago.tools.
  *
  * A proc is two spells: the passive a player carries — a trinket, an enchant,
  * an embellishment — and the spell it fires, which is what the log shows. The
@@ -18,7 +18,7 @@
  * between players still reads true. Procs on a flat chance per hit are not
  * here at all: they have no rate to expect.
  *
- * 1248 spells at 97 rates. Only ids and numbers are stored: no names, no
+ * 1250 spells at 97 rates. Only ids and numbers are stored: no names, no
  * descriptions, no art.
  */
 
@@ -93,7 +93,7 @@ const RATES: readonly (readonly [number, string, string])[] = [
   'yk.lo.1gc.72.cl.1xd.d9.3h7.2h.2mu.bl.rh.3.2.42h.a0.ie.1fy.1bn.6.gl.ac.ur.ov.2px.141.1.ae.388.3gj' +
   '.4p.w.61.3s9.2gm.l.3.le.2ld.5jx.1sx.kb.i4.123.6d.9.8.7.3x.b.3w.1t1.6p.169.113.fz.2bx.4.3.12p.1se' +
   '.5zp.s.is.2.2.6.2.2.1.5.16d.3k.10t.ku.fxry.3ss.3bi.339.85f.9j.2iu.w.2.zn.34.16k.1z.uu.21z.v7.nf.' +
-  'te.6y.2ei.15a.3.cb.ze.8a.ib.90.2s9.2tl.b2r.7cz.138.gx8'],
+  'te.6y.2ei.15a.3.cb.ze.8a.ib.90.2s9.2tl.b2r.7cz.138.aw5.613'],
   [2, 'c2603:-0.5,s103:-0.5,s104:-0.5,s105:-0.5,s255:-0.5,s256:-0.5,s257:-0.5,s263:-0.5,s264:-0.5', '4xnl'],
   [2, 'c2603:-0.5,s103:-0.5,s104:-0.5,s105:-0.5,s255:-0.5,s257:-0.5,s263:-0.5,s264:-0.5', '4u6q.d0c.su'],
   [2, 'c35:-0.5', '4le6'],
@@ -111,7 +111,7 @@ const RATES: readonly (readonly [number, string, string])[] = [
   '.2.4.6l.6e5.2k.3ih.4dl.86.j.o.y.dk.1mv.1f.35u.2th.q1.hg.3u.ll.kn.z.2p.gk.8g.p.1ov.wm.2hg.4w.1r8.' +
   '14.34c.5n.1.14y.g6.zd.1ad.81d.11.2d8.11q.1m9.2jj.4ok.fp.5m.7n.3gu.149.8e0.1hv.c8e.6.3rd.s4.5mg.1' +
   'sn.7z.5y.h4.1z2.2y9.n3.3v.wj.22k.p8.1bh.4n.f.1e6.1c7.4.1ks.1bg.blr.fvwr.1gq.7l.1vr.a33.4tt.3cy.1' +
-  '8.2.1.2.6n.t.1zt.1hi.32p.1fp.4r0.2q6.5z.5.11.2.r8.1oz.ty.4wf.4lw.buu.1rh.4s.pq.2ls'],
+  '8.2.1.2.6n.t.1zt.1hi.32p.1fp.4r0.2q6.5z.5.11.2.r8.1oz.ty.4wf.4lw.buu.1rh.4s.pq.2ls.6z8'],
   [3, 'c2477:-0.5,s102:-0.5,s103:-0.5,s104:-0.5,s258:-0.5,s262:-0.5,s263:-0.5,s268:-0.5,s269:-0.5,s66:-0.5,s70:-0.5', '4u64'],
   [3, 'c2607:-0.5,s103:-0.5,s104:-0.5,s105:-0.5,s257:-0.5,s263:-0.5,s264:-0.5', '4u78'],
   [3, 'c400:-0.5,s102:-0.5,s104:-0.5,s105:-0.5,s250:-0.5,s253:-0.5,s254:-0.5,s262:-0.5,s264:-0.5,s268:-0.5,s270:-0.5,s581:-0.5,s65:-0.5,s66:-0.5,s73:-0.5', '5fgs'],

@@ -2,7 +2,7 @@
  * The spells a player presses to stop a cast.
  *
  * GENERATED — do not edit. Rebuild with `node scripts/spell-effects.mjs`.
- * Built from SpellEffect.db2, retail build 12.1.0.69933, via wago.tools.
+ * Built from SpellEffect.db2, retail build 12.1.5.70448, via wago.tools.
  *
  * Interrupts that landed need no table: the game logs SPELL_INTERRUPT and
  * names both spells on it. This table answers the other half of the question —

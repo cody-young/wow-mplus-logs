@@ -2,7 +2,7 @@
  * Spells the game's own data gives no effect at all.
  *
  * GENERATED — do not edit. Rebuild with `node scripts/spell-effects.mjs`.
- * Built from SpellEffect.db2, retail build 12.1.0.69933, via wago.tools.
+ * Built from SpellEffect.db2, retail build 12.1.5.70448, via wago.tools.
  *
  * Every effect a spell has is a row in SpellEffect.db2, and almost every row
  * names the aura it applies. A spell whose rows all apply SPELL_AURA_DUMMY and
@@ -23,7 +23,7 @@
  * in @mplus/analysis, rather than at each call site. Asked of anything else
  * this answers a question nobody should be relying on.
  *
- * 50930 spells. Only ids are stored: no names, no descriptions, no art.
+ * 50933 spells. Only ids are stored: no names, no descriptions, no art.
  */
 
 const INERT =
@@ -1105,21 +1105,21 @@ const INERT =
   '.1.w.g.1y.1.1m.1b.4.9.a.1.e.i.2c.2c.7.t.2.15.c.d.e.8.14.3.m.1.4.3.2.1k.s.v.9.1.1.1.2.e.g.1.1.p.n' +
   '.x.h.2.p.6.4.1p.5.g.5.2b.u.f.7.1j.2.m.13.v.5.k.1a.2.1.m.1f.7.3.i.f.5.9.1p.1d.3.j.1u.d.s.1j.g.7.u' +
   '.1p.c.y.q.18.9.4.6.18.s.8.n.6.c.17.9.8.6.3.r.1.1.2.j.f.4.f.4.w.17.1.2.u.5.s.h.18.n.12.m.s.21.5.1' +
-  'u.a.1.j.11.s.m.7.k.1h.5.1c.1.1.1.1.1.5.a.1.6.5.2.2.1u.4.2i.2o.b.6.c.y.l.2.h.1k.8.j.1.2.1.2.b.8.1' +
-  '1.p.7.u.2g.q.a.1.u.7.k.3.3v.3.6.r.i.b.5.k.b.1.2.4.5.5.2.l.1.1.1.1.9.4.4.2.3.3.7.13.t.9.5.2.n.z.8' +
-  '.9.i.1.6.8.d.4.i.4.7.5.4.5.8.2.c.1.k.f.1z.17.3.1.n.j.7.b.3.3.8.f.1i.1.2.1.2.1.3.2.1.e.3.5.p.8.c.' +
-  '1r.m.3.14.8.z.5.1p.4.2.2.3.1.d.3.6.2.1.1.3.2.1.3.5.8.1.1.4.2.3.2.1.3.r.1.1.3.4.d.4.2.h.2.2.5.f.a' +
-  '.2.1.f.s.1p.15.5.8.3.14.i.5.5.c.7.5.5.6.2.2i.3.4.3.7.d.6.1.1.8.6.c.1a.7.17.d.2.2d.4c.2b.2.25.2s.' +
-  'm.b.c.b.2f.g.3.2.1j.23.s.n.o.i.d.2.1.5n.e.8.4.g.o.4.b.2.1.1.1.46.15.h.6.2.c.g.l.1k.1d.h.1d.2.a.h' +
-  '.1.g.s.10.1o.k.2.2.5.t.7.m.4.16.4.c.10.1p.26.7.k.5.9.6.1r.1.4.1e.i.d.1.n.3.i.f.1.u.3.5.13.k.6.4.' +
-  'm.k.9.1a.b.w.m.2.1t.e.g.j.b.1v.f.8.10.2.h.4.18.4.n.r.8.1a.1.w.c.f.b.b.j.m.26.s.8.1z.v.j.20.v.3r.' +
-  'r.b.t.1q.1.1.1.13.o.10.10.4.j.x.4.j.m.1i.r.b.h.3.d.33.2.u.p.2i.e.1l.e.1f.5.1y.h.3b.w.1l.7.2.c.1.' +
-  '1.1.5.4.4.b.d.2.8.1i.3.s.15.1.z.1.9.2.5.7.4.2.3.9.2x.7.o.d.11.1.2.1.2.1.1.7.5.1v.2.1b.1.2.e.3.1c' +
-  '.x.10.s.b.n.2l.7.l.x.1.17.1b.1l.4.6.1.m.g.1.10.2g.u.5.2.e.4.17.1.9.2.4.1.l.d.6b.1w.z.2.1a.92.29.' +
-  '12.23.1.1.16.1x.3.9.a.2o.k.n.3.h.g.b.k.1.3.4.17.1q.1.3k.2c.1.1.e.1p.1y.3y.34.a.1.1e.b.3.6.c.1.41' +
-  '.9.3g.d.1p.5f.9.1u.2.1.1o.5.3p.2g.1.2.2.14.2.17.36.1.1.1.34.i.1.1.5.2k.2e.1.1.8.7v.40.w.2q.30.q.' +
-  '2a.1.1.1.1.1.2k.1w.e.2d.i.3y.1.1.1.74.2.8r.7e.3y.6h.f.y.6m.69.n.98.4c.7m.2l.p.46.x.e.1q.7.1.u.30' +
-  '.38.6j.q.1y.6.11.5.3.2u.1.1y.3.3.2c.27.45.4t.63.92.7z.1.1.1.1.1.1.1.2.1.5z.r.k.1qz';
+  'u.a.1.j.11.s.m.7.k.1h.5.1c.1.1.1.1.1.5.a.1.6.5.2.2.1u.4.2i.2o.b.6.c.y.l.2.h.1k.8.2.9.8.1.2.1.2.b' +
+  '.8.11.p.7.u.2g.q.a.1.u.7.k.3.3v.3.6.r.i.b.5.k.b.1.2.4.5.5.2.l.1.1.1.1.9.4.4.2.3.3.7.13.t.9.5.2.n' +
+  '.z.8.9.i.1.6.8.d.4.i.4.7.5.4.5.8.2.c.1.k.f.1z.17.3.1.n.j.7.b.3.3.8.f.1i.1.2.1.2.1.3.2.1.e.3.5.p.' +
+  '8.c.1r.m.3.14.8.z.5.1p.4.2.2.3.1.d.3.6.2.1.1.3.2.1.3.5.8.1.1.4.2.3.2.1.3.r.1.1.3.4.d.4.2.h.2.2.5' +
+  '.f.a.2.1.f.s.1p.15.5.8.3.14.i.5.5.c.7.5.5.6.2.2i.3.4.3.7.d.6.1.1.8.6.c.1a.7.17.d.2.2d.4c.2b.2.25' +
+  '.2s.m.b.c.b.2f.g.3.2.1j.23.s.n.o.i.d.2.1.5n.e.8.4.g.o.4.b.2.1.1.1.46.15.h.6.2.c.g.l.1k.1d.h.1d.2' +
+  '.a.h.1.g.s.10.1o.k.2.2.5.t.7.m.4.16.4.c.10.1p.26.7.k.5.9.6.1r.1.4.1e.i.d.1.n.3.i.f.1.u.3.5.13.k.' +
+  '6.4.m.k.9.1a.b.w.m.2.1t.e.g.j.b.1v.f.8.10.2.h.4.18.4.n.r.8.1a.1.w.c.f.b.b.j.m.26.s.8.1z.v.j.20.v' +
+  '.3r.r.b.t.1q.1.1.1.13.o.10.10.4.j.x.4.j.m.1i.r.b.h.3.d.33.2.u.p.2i.e.1l.e.1f.5.1y.h.3b.w.1l.7.2.' +
+  'c.1.1.1.5.4.4.b.d.2.8.1i.3.s.15.1.z.1.9.2.5.7.4.2.3.9.2x.7.o.d.11.1.2.1.2.1.1.7.5.1v.2.1b.1.2.e.' +
+  '3.1c.x.10.s.b.n.2l.7.l.x.1.17.1b.1l.4.6.1.m.g.1.10.2g.u.5.2.e.4.17.1.9.2.4.1.l.d.6b.1w.z.2.1a.92' +
+  '.29.12.23.1.1.16.1x.3.9.a.2o.k.n.3.h.g.b.k.1.3.4.17.1q.1.3k.2c.1.1.e.1p.1y.3y.34.a.1.1e.b.3.6.c.' +
+  '1.41.9.3g.d.1p.5f.9.1u.2.1.1o.5.3p.2g.1.2.2.14.2.17.36.1.1.1.34.i.1.1.5.2k.2e.1.1.8.7v.40.w.2q.3' +
+  '0.q.2a.1.1.1.1.1.2k.1w.e.2d.i.3y.1.1.1.74.2.8r.7e.3y.6h.f.y.6m.69.n.98.4c.7m.2l.p.46.x.e.1q.7.1.' +
+  'u.30.38.6j.q.1y.6.11.5.3.2u.1.1y.3.3.2c.27.45.4t.63.92.7z.1.1.1.1.1.1.1.2.1.5z.r.k.1qz.21o';
 
 /**
  * Built on the first lookup rather than at import: most of the app never asks,

@@ -2,7 +2,7 @@
  * Which spells are dispels, and which auras are enrages or bleeds.
  *
  * GENERATED — do not edit. Rebuild with `node scripts/spell-effects.mjs`.
- * Built from SpellEffect.db2 and SpellCategories.db2, retail build 12.1.0.69933,
+ * Built from SpellEffect.db2 and SpellCategories.db2, retail build 12.1.5.70448,
  * via wago.tools.
  *
  * The log names every dispel outright — SPELL_DISPEL and SPELL_STOLEN carry
@@ -24,7 +24,7 @@
  * BLEEDS is every aura whose dispel type is Bleed (11). Only a few buttons
  * take one off at all, Cauterizing Flame chief among them.
  *
- * 268 dispels, 717 enrages and 880 bleeds. Only ids are stored: no names, no
+ * 268 dispels, 721 enrages and 882 bleeds. Only ids are stored: no names, no
  * descriptions, no art.
  */
 
@@ -63,7 +63,8 @@ const ENRAGES =
   'gj.5i.u.371.22o.1q.uh.3au.qx.50.j2.40.a8.cj.h.fubm.9y.4h.z4.3o.u.or.dg.ax.31.9.rt.1.36.v7.z3.id.' +
   'nt.7n.mm.ip.2gq.1d.2s6.ce.7y.4t.w3.19r.7p.1ri.p3.7r.5w.12z.9z.17h.7.d7.g.1x.9j.1i0.15u.1a.o3.xl.' +
   '183.47.16r.a3.6m.1kd.jd.x.37.q3.bd.pg.6w.5p.an.p5.41.4c.th.re.17g.zx.8j.r0.4k.1t.l2.5a.hl.2ek.14' +
-  '0.4ni.6ft.1ad.1np.7e.c4.v1.14.1r2.6i.en.2p.ey.9k.79.10r.c4.y2.yg.g.143.4g.pu.2q2.ls.c.qp.1qm.3wg';
+  '0.4ni.6ft.1ad.1np.7e.c4.v1.14.1c1.f1.6i.en.2p.ey.9k.79.10r.c4.y2.yg.g.143.4g.pu.2q2.ls.c.qp.17j.' +
+  'h9.1u.3k5.cb';
 
 const BLEEDS =
   'jj.1x.8j.kn.3d.xg.1w2.1.2hg.148.1bj.25.z4.3h.2.85.9p.v.5x.f3.t.iw.ax.3b.8a.a.3.2v.hw.9r.fv.3.s.2' +
@@ -92,8 +93,8 @@ const BLEEDS =
   '.2.3a.j.6g.13r.1r.159.1t.5b.2.39.1no.xl.n9.39.p8.d.68.2.zi.dv.v8.6c.5m.5s.6.c.1d.1f.ba.8l.pw.63.' +
   '1g.ez.fh.ig.16q.ez.fuas.md.19r.4n.z.df.31.7t.l9.4i.y9.1ff.2h.18i.z6.1z4.au.il.5mb.h8.12y.9b.7s.5' +
   'e.a3.8k.2.q3.62.ms.98.tx.hj.10h.1ay.co.169.o.14d.1t6.g.2q.ok.fv.n.a.fs.kg.180.8j.fp.2y7.x.1c4.1i' +
-  '4.1fh.4o.132.1s5.im.cz.12i.bn.2.5er.1ly.wa.210.1nw.88.19w.nf.bm.2pp.3b.aw.8m.x4.no.3t.tm.45.gx.q' +
-  'c.w9.mf.7z.e2.13.2ld.76.1cg.1rf.hu.tv';
+  '4.1fh.4o.132.1s5.im.cz.12i.bn.2.5er.1ly.wa.ws.148.1nw.88.19w.nf.bm.2pp.3b.aw.8m.x4.no.3t.tm.45.g' +
+  'x.qc.w9.mf.7z.e2.13.2ld.76.1cg.1rf.hu.6w.mz';
 
 /**
  * Built on the first lookup rather than at import: most of the app never asks,

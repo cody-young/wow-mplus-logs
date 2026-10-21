@@ -376,6 +376,17 @@ const AURA_DUMMY = 4;
 const PROC_TRIGGER_AURAS = new Set([42, 231]);
 
 /**
+ * Proc links the data stopped describing, held by hand.
+ *
+ * 12.1.5 turned Rite of the Hash'ey's link to Halazzi's Rite from a
+ * PROC_TRIGGER_SPELL into a DUMMY, so the script fires it now. Its three
+ * sibling Rites were dummies already and stay unrated: a logged key shows each
+ * player getting mostly one Rite, so the passive's rate looks shared between
+ * the four, and Halazzi's is the one the table carried before.
+ */
+const SCRIPTED_PROCS = [{ passive: 1297654, fired: 1297663, why: "Rite of the Hash'ey → Halazzi's Rite" }];
+
+/**
  * The real-procs-per-minute modifiers this table honours, from
  * SpellProcsPerMinuteMod.db2's Type column, as SimulationCraft names them.
  *
@@ -499,6 +510,10 @@ for (const line of csv.split('\n')) {
   }
 }
 for (const { id, flag: bit } of SCRIPTED) flags.set(id, (flags.get(id) ?? 0) | bit);
+for (const { passive, fired } of SCRIPTED_PROCS) {
+  if (!triggers.has(passive)) triggers.set(passive, new Set());
+  triggers.get(passive).add(fired);
+}
 for (const { id } of NOT_DEFENSIVE) flags.delete(id);
 
 const ids = [...flags.keys()].sort((a, b) => a - b);

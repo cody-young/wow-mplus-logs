@@ -3,7 +3,7 @@
  *
  * GENERATED — do not edit. Rebuild with `node scripts/enemy-forces.mjs`.
  * Built from MapChallengeMode, Scenario, ScenarioStep, CriteriaTree and
- * Criteria, retail build 12.1.0.69933, via wago.tools.
+ * Criteria, retail build 12.1.5.70448, via wago.tools.
  *
  * A key is a scenario and a scenario's requirements are a tree of criteria.
  * The node called "Enemy Forces" holds the count the dungeon demands, and its
@@ -40,7 +40,7 @@
 import type { DungeonForces } from './forces.js';
 
 /** The retail build these numbers were read from, for the UI to attribute them. */
-export const DB2_BUILD = '12.1.0.69933';
+export const DB2_BUILD = '12.1.5.70448';
 
 /** `[challengeModeId, total, name, 'npcId:count,...']` */
 type Row = readonly [number, number, string, string];

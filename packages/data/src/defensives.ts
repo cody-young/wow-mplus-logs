@@ -2,7 +2,7 @@
  * Spells that do something about damage, derived from Blizzard's own data.
  *
  * GENERATED — do not edit. Rebuild with `node scripts/spell-effects.mjs`.
- * Built from SpellEffect.db2 and SpellMisc.db2, retail build 12.1.0.69933, via
+ * Built from SpellEffect.db2 and SpellMisc.db2, retail build 12.1.5.70448, via
  * wago.tools.
  *
  * The game's own "this is a defensive" flag marks only the big cooldowns (see
@@ -390,7 +390,7 @@ export function defensiveCount(): number {
 }
 
 /**
- * The 53 spells the game flags Big Defensive or External Defensive, the
+ * The 55 spells the game flags Big Defensive or External Defensive, the
  * ones its raid frames centre, and 24 it leaves out — raid cooldowns and a few
  * personals, kept by hand in the generator's BIG_BY_HAND. Written out in full: a
  * list this short is worth being able to read.
@@ -402,7 +402,7 @@ const BIG = new Set([
   116849, 118038, 120954, 125174, 145629, 184364, 184662, 186265, 199448, 204018, 207771, 209426,
   212641, 212800, 243435, 264735, 325174, 342246, 357170, 363916, 374227, 374349, 393108, 403876,
   410358, 414658, 444741, 1255881, 1287413, 1288077, 1295263, 1296928, 1297027, 1297631, 1297686, 1307129,
-  1307890, 1309794, 1317008, 1320151, 1320167,
+  1307890, 1309441, 1309526, 1309794, 1317008, 1320151, 1320167,
 ]);
 
 /**
