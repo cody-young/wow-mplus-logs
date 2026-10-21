@@ -214,7 +214,7 @@ export interface DeathReport {
    * and those are dropped. See `pressed`.
    */
   ownCasts: CastRecord[];
-  /** Debuffs on them at the moment of death. */
+  /** Debuffs on them at the moment of death, once each however many cast them. */
   debuffsAtDeath: CastRecord[];
   /** Where they died, for a route map. */
   x: number;
@@ -591,10 +591,13 @@ function buildReport(
     // Debuffs rather than every aura: the log says which were buffs, and a
     // list headed "debuffs at death" that opens with Power Word: Shield is
     // worse than no list. Nor Sated, for the same reason one step further on.
+    // One per debuff, not per caster: two adds' Rune of Lingering is one thing
+    // to know about, so the earliest stands for both.
     debuffsAtDeath: [...openAuras.values()]
       .filter((aura) => !aura.buff && !aura.bookkeeping)
       .map((aura) => ({ ts: aura.startTs, spellId: aura.spellId, name: aura.spellName }))
-      .sort((a, b) => a.ts - b.ts),
+      .sort((a, b) => a.ts - b.ts)
+      .filter((entry, index, all) => all.findIndex((other) => other.spellId === entry.spellId) === index),
     x,
     y,
     sincePreviousDeathMs: null,

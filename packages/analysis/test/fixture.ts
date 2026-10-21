@@ -626,6 +626,8 @@ export const LINES: string[] = [
   absorbed(78.25, BOSS, 'Big Bad', TANK, 'Tank', TANK, 'Tank', 115069, 'Stagger', 40000),
   aura(78.5, BOSS, 'Big Bad', TANK, 'Tank', 888, 'Crushing Grip', false, { dstFlags: '0x511' }),
   aura(78.6, BOSS, 'Big Bad', TANK, 'Tank', 889, 'Sundered', true, { dstFlags: '0x511' }),
+  // The same debuff from a second caster, which the recap lists once.
+  aura(78.7, BOSS_ADD, 'Minion', TANK, 'Tank', 889, 'Sundered', true, { dstFlags: '0x511' }),
   taken(79, BOSS, 'Big Bad', TANK, 'Tank', 150000, { hp: 0, hpMax: 1000000, spellId: 777, spellName: 'Smash', overkill: 50000 }),
   died(79.1, TANK, 'Tank'),
   // A pet death, which must not count as a player death.

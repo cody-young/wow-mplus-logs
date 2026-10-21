@@ -587,7 +587,8 @@ test('a death carries its auras as spans, buffs told from debuffs', () => {
 
   // What was on them when they died is the debuffs still open, and only those:
   // the tank's own shield was up too, and it belongs in the other column —
-  // as does Sated, which is still up and still not worth saying.
+  // as does Sated, which is still up and still not worth saying. Two casters'
+  // Sundered is one entry, and the chips are keyed by spell.
   assert.deepEqual(
     death.debuffsAtDeath.map((entry) => entry.name),
     ['Sundered'],
