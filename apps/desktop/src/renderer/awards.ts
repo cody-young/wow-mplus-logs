@@ -127,12 +127,12 @@ function rankPoints(party: readonly PartyMember[], values: Values, best: 'most' 
   return points;
 }
 
-/** What tops damage: three times what tops a category scored by rank. */
-const DAMAGE_POINTS = 15;
+/** What tops damage: twice what tops a category scored by rank. */
+const DAMAGE_POINTS = 10;
 
 /**
  * What tops healing: the same as topping a category by rank. The healer leads
- * healing every key, so at damage's weight it would be ten points for turning
+ * healing every key, so at damage's weight it would be five points for turning
  * up; it scores by share only so a dps who healed a lot is told apart from one
  * who healed a little.
  */
@@ -145,7 +145,7 @@ const HEALING_POINTS = 5;
  *
  * Rank points cannot tell a carry from a photo finish: twice the next player's
  * damage scores one point over them, the same as a hair more. Damage is what a
- * key is cleared with, so it scores by how much, and at three times the weight
+ * key is cleared with, so it scores by how much, and at twice the weight
  * of the rest.
  */
 function sharePoints(party: readonly PartyMember[], values: Values, max: number, floor = 0): Map<number, number> {
