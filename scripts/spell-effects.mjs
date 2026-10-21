@@ -12,8 +12,10 @@
  *   packages/data/src/dispels.ts        which spells are dispels, and which auras are enrages or bleeds
  *   packages/data/src/procs.ts          how often each proc is meant to fire
  *
- * There is no "this is a defensive" flag in the game's data, and no amount of
- * looking for one will turn one up. What Blizzard does classify is *effects*:
+ * Until 12.0.1 there was no "this is a defensive" flag in the game's data, and
+ * the one there is now marks a few dozen spells — the cooldowns the raid frames
+ * centre — so it answers a narrower question than this table does. See
+ * BIG_DEFENSIVE_ATTRIBUTES. What Blizzard has always classified is *effects*:
  * every spell carries a list of them in SpellEffect.db2, and each one names the
  * aura it applies — SCHOOL_ABSORB, MOD_DAMAGE_PERCENT_TAKEN, SCHOOL_IMMUNITY.
  * That vocabulary is the thing we actually want. A spell that reduces the
@@ -121,6 +123,68 @@ const NOT_DEFENSIVE = [
   { id: 21562, why: 'Power Word: Fortitude — MOD_DAMAGE_PERCENT_TAKEN(0), filled by a talent' },
   { id: 207400, why: 'Ancestral Vigor, the talent — MOD_INCREASE_HEALTH_PERCENT(0)' },
   { id: 207498, why: 'Ancestral Vigor — +10% health on whoever the shaman heals' },
+];
+
+/**
+ * The defensives Blizzard itself calls big, as spell attributes in SpellMisc.db2.
+ *
+ * 12.0 hid most aura data from addons, and in exchange the game started saying
+ * which auras matter: C_UnitAuras.AuraIsBigDefensive, and the raid frames'
+ * "Center Big Defensives" option, read these bits. Attribute N is bit N % 32 of
+ * column Attributes_(N / 32). The numbers are SimulationCraft's (PRs 10881 and
+ * 10901), and wowarenalogs reads the same two for the same reason.
+ *
+ * Big Defensive marks about fifty spells — Shield Wall, Icebound Fortitude, Ice
+ * Block, Pain Suppression — against the nine thousand in the effect table.
+ * External Defensive marks the ones cast on someone else, all but a few of
+ * which carry the first bit too; both are kept so a patch dropping one from an
+ * external does not drop the external.
+ */
+const BIG_DEFENSIVE_ATTRIBUTES = [
+  { attribute: 512, name: 'Big Defensive', witness: 'Shield Wall' },
+  { attribute: 499, name: 'External Defensive', witness: 'Pain Suppression' },
+];
+
+/**
+ * Big defensives the flag leaves out, added by hand. Each id is the aura as a
+ * log writes it, which is not always the spell pressed — Darkness is cast as
+ * 196718 and lands as 209426 — and each was read off a real key's log or, for
+ * the two no log here has, off SpellEffect.db2.
+ *
+ * Two kinds. The raid cooldowns, which the flag does not cover at all: a death
+ * under Rallying Cry is a different death from one without it. And the major
+ * personals it misses, or flags under one id while the log writes another —
+ * the same cooldowns stats.ts counts as personal defensives.
+ *
+ * Rotational buffs stay out however defensive they are — Ignore Pain, Shield
+ * Block, Spell Reflection, a mage's barriers — because they are up every pack
+ * and would fill the lane again.
+ */
+const BIG_BY_HAND = [
+  { id: 97463, why: 'Rallying Cry' },
+  { id: 209426, why: 'Darkness — the aura; 196718 is the cast, an area trigger' },
+  { id: 145629, why: 'Anti-Magic Zone' },
+  { id: 81782, why: 'Power Word: Barrier — the aura, MOD_DAMAGE_PERCENT_TAKEN(-20)' },
+  { id: 325174, why: 'Spirit Link Totem' },
+  { id: 31821, why: 'Aura Mastery' },
+  { id: 374227, why: 'Zephyr' },
+  { id: 49039, why: 'Lichborne' },
+  { id: 48743, why: 'Death Pact' },
+  { id: 410358, why: 'Anti-Magic Shell, a second aura id' },
+  { id: 444741, why: 'Anti-Magic Shell, a third aura id' },
+  { id: 1255881, why: 'Netherwalk' },
+  { id: 374349, why: 'Renewing Blaze — the aura; 374348 is the cast' },
+  { id: 55342, why: 'Mirror Image' },
+  { id: 110960, why: 'Greater Invisibility' },
+  { id: 403876, why: 'Divine Protection, the retribution one' },
+  { id: 184662, why: 'Shield of Vengeance' },
+  { id: 393108, why: 'Guardian of Ancient Kings, a second aura id' },
+  { id: 1309794, why: 'Blessing of Protection, a second aura id' },
+  { id: 5277, why: 'Evasion' },
+  { id: 1966, why: 'Feint' },
+  { id: 108416, why: 'Dark Pact' },
+  { id: 1297686, why: 'Dark Pact, a second aura id' },
+  { id: 12975, why: 'Last Stand' },
 ];
 
 /**
@@ -350,6 +414,7 @@ const categoriesCsv =
 const auraOptionsCsv = await download('SpellAuraOptions', build);
 const rppmCsv = await download('SpellProcsPerMinute', build);
 const rppmModCsv = await download('SpellProcsPerMinuteMod', build);
+const miscCsv = await download('SpellMisc', build);
 
 const header = csv.slice(0, csv.indexOf('\n')).split(',');
 const columns = {
@@ -527,8 +592,24 @@ for (const passive of [...passiveRate.keys()].sort((a, b) => a - b)) {
 }
 console.log(`${passiveRate.size} passives with a real-procs-per-minute rate → ${procRate.size} proc spells`);
 
+// Big defensives. One row per spell per difficulty, like the categories; any
+// row carrying either bit is enough.
+const bigBits = BIG_DEFENSIVE_ATTRIBUTES.map(({ attribute }) => ({
+  column: `Attributes_${Math.floor(attribute / 32)}`,
+  mask: 2 ** (attribute % 32),
+}));
+const big = new Set();
+for (const fields of csvRows(miscCsv, ['SpellID', ...new Set(bigBits.map(({ column }) => column))])) {
+  const id = Number(fields.SpellID);
+  if (id > 0 && bigBits.some(({ column, mask }) => (Number(fields[column]) & mask) !== 0)) big.add(id);
+}
+const flagged = big.size;
+for (const { id } of BIG_BY_HAND) big.add(id);
+const bigIds = [...big].sort((a, b) => a - b);
+console.log(`${flagged} big or external defensives, ${bigIds.length - flagged} more by hand`);
+
 const written = [
-  [outDefensives, renderDefensives(ids, flags, build)],
+  [outDefensives, renderDefensives(ids, flags, bigIds, bigIds.length - flagged, build)],
   [outMarkers, renderMarkers(inert, build)],
   [outInterrupts, renderInterrupts(stoppers, interrupts.size, dedicated.length, build)],
   [outControl, renderControl(controlIds, controlFlags, build)],
@@ -557,7 +638,7 @@ for (const [path, source] of written) {
  * A small table's rows as objects, by column name.
  *
  * Only for the tables whose every column is a number, like the split above:
- * none of the three it reads carries a name or a description.
+ * none of the four it reads carries a name or a description.
  */
 function* csvRows(text, needed) {
   const lines = text.split('\n');
@@ -619,7 +700,7 @@ async function download(table, version) {
  * with packed flags, so the generated file can be read — "these are the
  * absorbs" is a sentence, a column of bitmasks is not.
  */
-function renderDefensives(ids, flags, version) {
+function renderDefensives(ids, flags, bigIds, byHand, version) {
   const kinds = dedupe(KINDS);
   const lists = kinds.map(({ kind, flag: bit }) => {
     const members = ids.filter((id) => (flags.get(id) & bit) !== 0);
@@ -636,12 +717,14 @@ function renderDefensives(ids, flags, version) {
  * Spells that do something about damage, derived from Blizzard's own data.
  *
  * GENERATED — do not edit. Rebuild with \`node scripts/spell-effects.mjs\`.
- * Built from SpellEffect.db2, retail build ${version}, via wago.tools.
+ * Built from SpellEffect.db2 and SpellMisc.db2, retail build ${version}, via
+ * wago.tools.
  *
- * The game has no flag that says "this is a defensive". What it has is the aura
- * each spell effect applies, and ten of those mean survival. Membership here is
- * therefore a fact about what a spell does, not an opinion about whether it
- * matters — which is the point, because the opinion is what goes stale.
+ * The game's own "this is a defensive" flag marks only the big cooldowns (see
+ * \`isBigDefensive\`). For everything else what it has is the aura each spell
+ * effect applies, and ten of those mean survival. Membership here is therefore
+ * a fact about what a spell does, not an opinion about whether it matters —
+ * which is the point, because the opinion is what goes stale.
  *
 ${witnesses.join('\n')}
  *
@@ -708,7 +791,34 @@ export function defensiveCount(): number {
   table ??= decode();
   return table.size;
 }
+
+/**
+ * The ${bigIds.length - byHand} spells the game flags Big Defensive or External Defensive, the
+ * ones its raid frames centre, and ${byHand} it leaves out — raid cooldowns and a few
+ * personals, kept by hand in the generator's BIG_BY_HAND. Written out in full: a
+ * list this short is worth being able to read.
+ */
+const BIG = new Set([
+${chunkNumbers(bigIds)}
+]);
+
+/**
+ * Whether Blizzard calls this a big defensive: a major cooldown, personal or
+ * external — Shield Wall, Ice Block, Pain Suppression — and not the dozens of
+ * absorbs and procs a key puts on a player that \`isDefensive\` also answers yes
+ * to. Raid cooldowns are on it too, by hand: the game does not flag Rallying Cry.
+ */
+export function isBigDefensive(spellId: number): boolean {
+  return BIG.has(spellId);
+}
 `;
+}
+
+/** Numbers written out, a dozen to a line, for a list short enough to read. */
+function chunkNumbers(ids) {
+  const lines = [];
+  for (let at = 0; at < ids.length; at += 12) lines.push(`  ${ids.slice(at, at + 12).join(', ')},`);
+  return lines.join('\n');
 }
 
 /**

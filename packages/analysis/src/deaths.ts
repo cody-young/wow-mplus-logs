@@ -1,4 +1,4 @@
-import { isButton, isDefensive, isInertMarker } from '@mplus/data';
+import { isBigDefensive, isButton, isDefensive, isInertMarker } from '@mplus/data';
 import { Ev, EvFlag, environmentName } from '@mplus/parser';
 
 import { actorName, spellName, type AnalysisContext } from './context.js';
@@ -118,6 +118,12 @@ export interface AuraWindow {
    * than trusting it alone.
    */
   defensive: boolean;
+  /**
+   * One of the few dozen cooldowns the game itself flags as a big defensive —
+   * Shield Wall, Ice Block, Pain Suppression. A subset of `defensive` in
+   * practice, and the one short enough to read on a death.
+   */
+  bigDefensive: boolean;
   /**
    * The aura is the game talking to itself, and belongs in no list.
    *
@@ -494,6 +500,7 @@ function buildReport(
             selfApplied: caster === victim,
             buff: (flags & EvFlag.BUFF) !== 0,
             defensive: isDefensive(spellId),
+            bigDefensive: isBigDefensive(spellId),
             bookkeeping:
               (flags & EvFlag.BUFF) === 0 && caster === victim && isInertMarker(spellId),
             startTs: ts,
@@ -515,6 +522,7 @@ function buildReport(
           selfApplied: caster === victim,
           buff: (flags & EvFlag.BUFF) !== 0,
           defensive: isDefensive(spellId),
+          bigDefensive: isBigDefensive(spellId),
           bookkeeping:
             (flags & EvFlag.BUFF) === 0 && caster === victim && isInertMarker(spellId),
           startTs: captureStart,

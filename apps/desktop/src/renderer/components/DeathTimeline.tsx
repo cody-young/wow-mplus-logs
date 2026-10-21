@@ -786,12 +786,14 @@ function buildRows(death: DeathReport, bucketMs: number, start: number, end: num
  * window is a window. What is left is the auras that started, ended, or did
  * both while they were dying, which is the set a recap is asking about.
  *
- * Buffs are narrowed again, to the ones that do something about damage. A real
- * key puts well over a hundred distinct buffs on five players — procs, food,
- * weapon imbues, seasonal trinkets — and a lane carrying all of them answers no
- * question anybody has while reading a death. Whether a spell mitigates is
- * taken from Blizzard's effect data rather than guessed at (see
- * `@mplus/data/defensives`).
+ * Buffs are narrowed again, to the big defensives. A real key puts well over a
+ * hundred distinct buffs on five players — procs, food, weapon imbues, seasonal
+ * trinkets — and a lane carrying all of them answers no question anybody has
+ * while reading a death. Narrowing to everything that mitigates was not enough:
+ * that is still every absorb, Blood Shield and Soul Leech, so the lane filled
+ * anyway. What is left is the few dozen cooldowns Blizzard flags itself as big
+ * or external defensives (see `isBigDefensive` in `@mplus/data/defensives`),
+ * which is the question the lane asks: was the button pressed, and was it up.
  *
  * Debuffs are kept whatever they do — a debuff on someone who then died is
  * worth seeing even if it was only a slow — with one exception. The game writes
@@ -805,7 +807,7 @@ function spans(death: DeathReport, start: number, end: number, buff: boolean): S
     .filter(
       (aura) =>
         aura.buff === buff &&
-        (!buff || aura.defensive) &&
+        (!buff || aura.bigDefensive) &&
         !aura.bookkeeping &&
         !(aura.openStart && aura.openEnd) &&
         aura.endTs > start &&

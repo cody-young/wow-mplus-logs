@@ -2,12 +2,14 @@
  * Spells that do something about damage, derived from Blizzard's own data.
  *
  * GENERATED — do not edit. Rebuild with `node scripts/spell-effects.mjs`.
- * Built from SpellEffect.db2, retail build 12.1.0.69933, via wago.tools.
+ * Built from SpellEffect.db2 and SpellMisc.db2, retail build 12.1.0.69933, via
+ * wago.tools.
  *
- * The game has no flag that says "this is a defensive". What it has is the aura
- * each spell effect applies, and ten of those mean survival. Membership here is
- * therefore a fact about what a spell does, not an opinion about whether it
- * matters — which is the point, because the opinion is what goes stale.
+ * The game's own "this is a defensive" flag marks only the big cooldowns (see
+ * `isBigDefensive`). For everything else what it has is the aura each spell
+ * effect applies, and ten of those mean survival. Membership here is therefore
+ * a fact about what a spell does, not an opinion about whether it matters —
+ * which is the point, because the opinion is what goes stale.
  *
  *    69 SCHOOL_ABSORB                absorb     Power Word: Shield
  *    87 MOD_DAMAGE_PERCENT_TAKEN     reduction  Shield Wall, −40
@@ -385,4 +387,30 @@ export function isDefensive(spellId: number): boolean {
 export function defensiveCount(): number {
   table ??= decode();
   return table.size;
+}
+
+/**
+ * The 53 spells the game flags Big Defensive or External Defensive, the
+ * ones its raid frames centre, and 24 it leaves out — raid cooldowns and a few
+ * personals, kept by hand in the generator's BIG_BY_HAND. Written out in full: a
+ * list this short is worth being able to read.
+ */
+const BIG = new Set([
+  498, 642, 871, 1022, 1966, 5277, 6940, 12975, 19236, 22812, 31224, 31821,
+  31850, 33206, 45438, 47585, 47788, 48707, 48743, 48792, 49039, 50322, 53480, 55233,
+  55342, 61336, 81549, 81782, 86659, 97463, 102342, 104773, 108271, 108416, 110960, 115203,
+  116849, 118038, 120954, 125174, 145629, 184364, 184662, 186265, 199448, 204018, 207771, 209426,
+  212641, 212800, 243435, 264735, 325174, 342246, 357170, 363916, 374227, 374349, 393108, 403876,
+  410358, 414658, 444741, 1255881, 1287413, 1288077, 1295263, 1296928, 1297027, 1297631, 1297686, 1307129,
+  1307890, 1309794, 1317008, 1320151, 1320167,
+]);
+
+/**
+ * Whether Blizzard calls this a big defensive: a major cooldown, personal or
+ * external — Shield Wall, Ice Block, Pain Suppression — and not the dozens of
+ * absorbs and procs a key puts on a player that `isDefensive` also answers yes
+ * to. Raid cooldowns are on it too, by hand: the game does not flag Rallying Cry.
+ */
+export function isBigDefensive(spellId: number): boolean {
+  return BIG.has(spellId);
 }

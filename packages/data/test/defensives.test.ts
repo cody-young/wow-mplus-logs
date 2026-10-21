@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { Defense, defenseKinds, defensiveCount, isDefensive } from '../src/index.js';
+import { Defense, defenseKinds, defensiveCount, isBigDefensive, isDefensive } from '../src/index.js';
 
 /**
  * The defensive table is generated from Blizzard's effect data, so there is no
@@ -76,4 +76,32 @@ test('a spell the table has never heard of is not a defensive', () => {
   // not defensive, so a new patch shortens the lane rather than filling it.
   assert.equal(defenseKinds(999_999_999), 0);
   assert.equal(isDefensive(0), false);
+});
+
+test('the big defensives are the cooldowns, and only the cooldowns', () => {
+  // Blizzard's own flag, so the members are its call; what is held here is
+  // that the bits were read from the right column and the noise stays out.
+  const cooldowns: [number, string][] = [
+    [871, 'Shield Wall'],
+    [48792, 'Icebound Fortitude'],
+    [45438, 'Ice Block'],
+    [33206, 'Pain Suppression'],
+    [102342, 'Ironbark'],
+    // Added by hand: the flag has no raid cooldowns, and the log writes some
+    // personals under an aura id the flag is not on.
+    [97463, 'Rallying Cry'],
+    [209426, 'Darkness'],
+    [374349, 'Renewing Blaze'],
+  ];
+  for (const [spellId, name] of cooldowns) {
+    assert.ok(isBigDefensive(spellId), `${name} (${spellId}) is a big defensive`);
+  }
+  const small: [number, string][] = [
+    [17, 'Power Word: Shield'],
+    [77535, 'Blood Shield'],
+    [2672, 'Ignore Pain'],
+  ];
+  for (const [spellId, name] of small) {
+    assert.equal(isBigDefensive(spellId), false, `${name} (${spellId}) is not a big defensive`);
+  }
 });

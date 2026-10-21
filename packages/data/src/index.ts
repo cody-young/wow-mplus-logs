@@ -41,7 +41,14 @@ export {
   type MdtSublevel,
   type MdtTeleport,
 } from './mdt.js';
-export { Defense, defenseKinds, defensiveCount, isDefensive, type DefenseKind } from './defensives.js';
+export {
+  Defense,
+  defenseKinds,
+  defensiveCount,
+  isBigDefensive,
+  isDefensive,
+  type DefenseKind,
+} from './defensives.js';
 export {
   afterAuras,
   afterCasts,
