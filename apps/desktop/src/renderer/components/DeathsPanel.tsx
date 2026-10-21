@@ -58,8 +58,10 @@ export function DeathsPanel({
   const death = order.find((entry) => identify(entry) === picked) ?? order[0]!;
   const healing = healingBySpell(death);
   // Newest first, like the death list beside it and the timeline above it: the
-  // press that mattered is the last one they got off, not the first.
-  const presses = useMemo(() => [...death.ownCasts].reverse(), [death]);
+  // press that mattered is the last one they got off, not the first. Not a
+  // memo: it would sit after the early return, and a list going from no deaths
+  // to one would call one more hook than the render before.
+  const presses = [...death.ownCasts].reverse();
 
   return (
     <div className="death-grid">
