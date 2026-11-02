@@ -255,8 +255,7 @@ const DUNGEONS: readonly Dungeon[] = [
       { id: 1293133, name: 'Lingering Storm', why: "Lightning Serpent's puddle" },
       { id: 1289589, name: 'Lingering Storm', why: 'Storm Catalyst pool' },
       { id: 1291622, name: 'Storm Catalyst', why: 'Storm Serpent strike' },
-      { id: 1298329, name: 'Thunder Spit', why: "Merektha's circles under the target" },
-      { id: 1291734, name: 'Thunder Spit', why: "Merektha's circles under the target" },
+      { id: 1291734, name: 'Thunder Spit', why: "Merektha's lightning strikes on the circles" },
       { id: 1296912, name: 'Storm Strikes', why: 'Serpentstorm circles' },
       { id: 264206, name: 'Burrow', why: "Merektha's burrow path" },
       { id: 1293652, name: 'Call Lightning', why: 'Agitated Nimbus strike' },
@@ -266,7 +265,9 @@ const DUNGEONS: readonly Dungeon[] = [
       { id: 1300684, name: 'Hex Muck', why: 'Latent Hex puddle' },
       { id: 1301253, name: 'Agony of Sethraliss', why: 'Avatar room strikes' },
       { id: 267483, name: 'Loose Sparks', why: 'Spark Channeler spark patterns' },
-      // Out: Gale Force and Tempest Winds (at every player), Thunder and
+      // Out: Thunder Spit 1298329 (the DoT: across 7 keys all 328 hits landed
+      // on a player with its 1289588 debuff, or within 13ms of it coming off),
+      // Gale Force and Tempest Winds (at every player), Thunder and
       // Lightning 1288092 (the split soak), Spark Step (a teleport onto a
       // player that bursts where they stand), Induction and Serpentstorm (the
       // AoE half), Galvanized (intercepting a spire is the job), Burrowquake,
