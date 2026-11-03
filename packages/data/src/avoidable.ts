@@ -311,7 +311,6 @@ const DUNGEONS: readonly Dungeon[] = [
       { id: 1249712, name: 'Venomous Spit', why: 'Lost Sethrak pool' },
       { id: 1228126, name: 'Macestorm', why: 'Brutal Overseer whirlwind' },
       { id: 1299145, name: 'Earthsplitter', why: "Aegyra's 15yd slam" },
-      { id: 1299913, name: 'Null Eruption', why: 'Voidtouched Magi eruption and its zone' },
       { id: 1234833, name: 'Ravenous Swarm', why: "Chitigoth's roaming swarms" },
       { id: 1234917, name: 'Smashing Charge', tank: true, why: "Brutok's tank charge line" },
       { id: 1249238, name: 'Fire Spit', why: 'Abducted Drakonid fireballs' },
@@ -324,7 +323,10 @@ const DUNGEONS: readonly Dungeon[] = [
       { id: 1222724, name: 'Noxious Breath', why: "Atroxus's frontal; not in a log yet" },
       { id: 1311923, name: 'Dark Waves', tank: true, why: "Charonus's tank frontal" },
       { id: 1222755, name: 'Void Cascade', why: "Charonus's orb line" },
-      // Out: Cosmic Crash 1300372 and Poison Splash 1300351 (hit every
+      // Out: Null Eruption 1299913 (centred on its target, and the log does
+      // not name them: all 17 casts across 8 keys hit a player, 13 of them
+      // exactly one, as far as 24yd from the Magi on a 10yd radius),
+      // Cosmic Crash 1300372 and Poison Splash 1300351 (hit every
       // non-tank evenly in every key), Nether Dash (at every player), Dark
       // Bloom 1300259 (the AoE half), Sky Strike 1239855 (a soak), Thundering
       // Storm (the AoE half).

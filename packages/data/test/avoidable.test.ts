@@ -45,6 +45,8 @@ test('a puddle counts and the slam that made it does not', () => {
   // Thunder Spit: the DoT is on its target whatever they do, the strikes are the fail.
   assert.equal(avoidable(1291734)?.name, 'Thunder Spit');
   assert.equal(avoidable(1298329), undefined);
+  // Null Eruption lands on its target wherever they stand, and the log does not name them.
+  assert.equal(avoidable(1299913), undefined);
 });
 
 test('a tank frontal is marked as one, and a ground effect is not', () => {
