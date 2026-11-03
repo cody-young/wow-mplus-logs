@@ -166,8 +166,17 @@ function sharePoints(party: readonly PartyMember[], values: Values, max: number,
  * just ahead of them nearly nothing, so each dps place below first is worth a
  * step at least: with three, second scores two thirds of the top and third a
  * third. A second level with first still scores close to the top by share.
+ *
+ * A tank who out-damages a dps scores at least what that dps does, so passing
+ * one is worth that dps's step and not a sliver of share. The dps keeps theirs.
  */
-function damagePoints(party: readonly PartyMember[], dpsField: readonly PartyMember[], values: Values, max: number): Map<number, number> {
+function damagePoints(
+  party: readonly PartyMember[],
+  dpsField: readonly PartyMember[],
+  tanks: readonly PartyMember[],
+  values: Values,
+  max: number,
+): Map<number, number> {
   if (dpsField.length < 2) return sharePoints(party, values, max);
   const of = (index: number): number => values.get(index) ?? 0;
   const floor = Math.min(...dpsField.map((member) => of(member.actorIndex)));
@@ -178,6 +187,11 @@ function damagePoints(party: readonly PartyMember[], dpsField: readonly PartyMem
     if (mine <= 0) continue;
     const stepped = Math.round((max * (dpsField.length + 1 - place.get(member.actorIndex)!)) / dpsField.length);
     points.set(member.actorIndex, Math.max(points.get(member.actorIndex) ?? 0, stepped));
+  }
+  for (const tank of tanks) {
+    const passed = dpsField.filter((member) => of(member.actorIndex) < of(tank.actorIndex));
+    const best = Math.max(0, ...passed.map((member) => points.get(member.actorIndex) ?? 0));
+    if (best > (points.get(tank.actorIndex) ?? 0)) points.set(tank.actorIndex, best);
   }
   return points;
 }
@@ -1116,9 +1130,11 @@ export function awardsFor(run: RunAnalysis): Awards | null {
     places: places(party, values, best),
   });
   // Damage counts from the last dps up: out-damaging the tank and healer is
-  // the job, not a point. Each dps place still earns its step.
+  // the job, not a point. Each dps place still earns its step, and a tank who
+  // passes a dps earns that dps's.
+  const tankField = party.filter((member) => tanks.has(member.actorIndex));
   const categories = [
-    byShare('Damage', damage, damagePoints(party, dpsField, damage, DAMAGE_POINTS)),
+    byShare('Damage', damage, damagePoints(party, dpsField, tankField, damage, DAMAGE_POINTS)),
     byShare('Healing', healing, sharePoints(party, healing, HEALING_POINTS)),
     byRank('Kicks', kicks, 'most'),
     byRank('Crowd control', cc, 'most'),
