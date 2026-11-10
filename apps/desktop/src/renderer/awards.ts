@@ -269,6 +269,13 @@ const COMMITMENT_MIN_SHARE = 0.1;
 const AIR_MIN_WHIFFS = 3;
 
 /**
+ * Casts it takes to be a yoinker: stopped just before a party member's kick
+ * at the same cast whiffed. Across 104 keys a key's best ran 0 to 10, most of
+ * them 2 to 6; one or two is a pair of cooldowns crossing once, not a habit.
+ */
+const YOINK_MIN_CASTS = 3;
+
+/**
  * Health bars one Spirit Link Totem has to move to be worth a badge. Across 91
  * keys with one, 275 totems moved 0.2 to 2.7 bars, most of them 0.5 to 1.5,
  * and a key's best reached 1.75 in one key in eleven.
@@ -417,6 +424,15 @@ export function awardsFor(run: RunAnalysis): Awards | null {
   // nor one at a cast that could not be stopped, which is nobody's.
   const whiffs = new Map(
     kicking.map((actor) => [actor.actorIndex, actor.outcomes.nothing + actor.outcomes.late + actor.outcomes.early]),
+  );
+  // Kicks someone else beat to the cast, credited to whoever beat them. The
+  // stopper comes by name, a pet's kick already its owner's.
+  const indexByName = new Map(party.map((member) => [member.name, member.actorIndex]));
+  const yoinks = count(
+    run.interrupts.attempts.filter(
+      (attempt) => attempt.outcome === 'doubled' && indexByName.has(attempt.beatenBy),
+    ),
+    (attempt) => indexByName.get(attempt.beatenBy)!,
   );
   const cc = new Map(summarizeCrowdControl(run.control.applications).actors.map((actor) => [actor.actorIndex, actor.casts]));
   const dispels = new Map(summarizeDispels(run.dispels.dispels).actors.map((actor) => [actor.actorIndex, actor.removed]));
@@ -1062,6 +1078,19 @@ export function awardsFor(run: RunAnalysis): Awards | null {
     (index) => plural(kicks.get(index) ?? 0, 'kick'),
     { gap: { title: 'Georges St-Pierre', blurb: 'Kicked twice as much as anyone else.', times: 2, min: 10 } },
   );
+  // Kicking Air's other side: the whiff was a party member's, the kick that
+  // caused it was this player's.
+  badge(
+    { key: 'yoink', title: 'Yoink', icon: '🥷', roast: false, blurb: "Landed the most kicks just before someone else's whiffed." },
+    yoinks,
+    'most',
+    (index) => `${plural(yoinks.get(index) ?? 0, 'cast')} yoinked`,
+    {
+      eligible: (index) => (yoinks.get(index) ?? 0) >= YOINK_MIN_CASTS,
+      // Twice the runner-up and five or more: one key in six across 104.
+      gap: { title: 'Grand Theft Kick', blurb: 'Beat the party to their kicks twice as often as anyone else.', times: 2, min: 5 },
+    },
+  );
   if (run.avoidable.covered) {
     badge(
       { key: 'untouchable', title: 'Untouchable', icon: '🛡️', roast: false, blurb: 'Took the least avoidable damage.' },
@@ -1137,7 +1166,7 @@ export function awardsFor(run: RunAnalysis): Awards | null {
   });
   // Damage counts from the last dps up: out-damaging the tank and healer is
   // the job, not a point. Each dps place still earns its step, and a tank who
-  // passes a dps earns that dps's.
+  // passes a dps takes it from them.
   const tankField = party.filter((member) => tanks.has(member.actorIndex));
   const categories = [
     byShare('Damage', damage, damagePoints(party, dpsField, tankField, damage, DAMAGE_POINTS)),
