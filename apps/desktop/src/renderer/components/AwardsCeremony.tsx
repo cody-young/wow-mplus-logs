@@ -180,12 +180,19 @@ function BadgeTip({
 /**
  * Second, first, third, the way a podium stands, then everyone else. The steps
  * rise third, second, first, and the MVP line and confetti wait for first.
+ * Everyone placed third or better stands on it, so a tie for third gets a
+ * second third-place step rather than a line below.
  */
 function Podium({ awards }: { awards: Awards }): React.JSX.Element {
   const { standings, mvp } = awards;
-  const order = [standings[1], standings[0], standings[2]].filter((entry): entry is MvpStanding => entry !== undefined);
   // Ties share the better place, so tied steps stand at the same height.
   const placeOf = (entry: MvpStanding): number => standings.filter((other) => other.points > entry.points).length + 1;
+  const onPodium = standings.filter((entry) => placeOf(entry) <= 3);
+  const rest = standings.filter((entry) => placeOf(entry) > 3);
+  // Best in the middle, then alternating left and right outwards: 2 1 3, or 2 1 3 3.
+  const left = onPodium.filter((_, i) => i % 2 === 1).reverse();
+  const right = onPodium.filter((_, i) => i > 0 && i % 2 === 0);
+  const order = [...left, ...onPodium.slice(0, 1), ...right];
   return (
     <div className="podium-wrap">
       <div className="confetti" aria-hidden="true">
@@ -234,9 +241,9 @@ function Podium({ awards }: { awards: Awards }): React.JSX.Element {
           );
         })}
       </div>
-      {standings.length > 3 ? (
-        <ol className="podium-rest" start={4}>
-          {standings.slice(3).map((entry) => (
+      {rest.length > 0 ? (
+        <ol className="podium-rest">
+          {rest.map((entry) => (
             <li key={entry.member.actorIndex} value={placeOf(entry)} data-tip={pointsTitle(entry)}>
               <span className="pname" style={{ color: specOf(entry.member.specId).color }}>
                 {shortName(entry.member.name)}
