@@ -167,8 +167,9 @@ function sharePoints(party: readonly PartyMember[], values: Values, max: number,
  * step at least: with three, second scores two thirds of the top and third a
  * third. A second level with first still scores close to the top by share.
  *
- * A tank who out-damages a dps scores at least what that dps does, so passing
- * one is worth that dps's step and not a sliver of share. The dps keeps theirs.
+ * A tank who out-damages a dps takes that dps's points: at least what the dps
+ * would have scored, and the dps scores none. Doing less damage than the tank
+ * is not a dps's job done.
  */
 function damagePoints(
   party: readonly PartyMember[],
@@ -188,11 +189,16 @@ function damagePoints(
     const stepped = Math.round((max * (dpsField.length + 1 - place.get(member.actorIndex)!)) / dpsField.length);
     points.set(member.actorIndex, Math.max(points.get(member.actorIndex) ?? 0, stepped));
   }
+  const outdone = new Set<number>();
+  const taken = new Map<number, number>();
   for (const tank of tanks) {
     const passed = dpsField.filter((member) => of(member.actorIndex) < of(tank.actorIndex));
     const best = Math.max(0, ...passed.map((member) => points.get(member.actorIndex) ?? 0));
-    if (best > (points.get(tank.actorIndex) ?? 0)) points.set(tank.actorIndex, best);
+    if (best > (points.get(tank.actorIndex) ?? 0)) taken.set(tank.actorIndex, best);
+    for (const member of passed) outdone.add(member.actorIndex);
   }
+  for (const [index, best] of taken) points.set(index, best);
+  for (const index of outdone) points.delete(index);
   return points;
 }
 
