@@ -276,6 +276,15 @@ const AIR_MIN_WHIFFS = 3;
 const YOINK_MIN_CASTS = 3;
 
 /**
+ * Health bars a warlock's own Burning Rush has to burn off them, absorbs
+ * included: a bar is about half a minute of it. Across 74 keys with a warlock,
+ * a key's most ran 0.1 to 90 bars, half of them under 1.7, and 5 or more in one
+ * key in four; 15 or more, the sillier name, in one in nine.
+ */
+const HOT_FEET_MIN_BARS = 5;
+const HOT_FEET_GAP_BARS = 15;
+
+/**
  * Health bars one Spirit Link Totem has to move to be worth a badge. Across 91
  * keys with one, 275 totems moved 0.2 to 2.7 bars, most of them 0.5 to 1.5,
  * and a key's best reached 1.75 in one key in eleven.
@@ -476,6 +485,7 @@ export function awardsFor(run: RunAnalysis): Awards | null {
   const lockouts = count(run.stats.lockouts, (entry) => entry.actorIndex);
   const reflects = count(run.stats.reflects, (entry) => entry.actorIndex);
   const swings = fromTally((entry) => entry.swings);
+  const rush = fromTally((entry) => entry.rushBars);
   const debuffs = fromTally((entry) => entry.debuffs);
   const debuffsApplied = fromTally((entry) => entry.debuffsApplied);
   // Padding as a share of the player's damage, so a big pumper is not a
@@ -934,6 +944,22 @@ export function awardsFor(run: RunAnalysis): Awards | null {
     'most',
     (index) => `${plural(fumes.get(index) ?? 0, 'pull')} on empty`,
     { field: healers },
+  );
+  // Burning Rush is the warlock's own sprint, paid for in their own health.
+  badge(
+    { key: 'hot-feet', title: 'Hot Feet', icon: '🦶', roast: true, blurb: 'Burned through piles of their own health on Burning Rush.' },
+    rush,
+    'most',
+    (index) => {
+      const bars = rush.get(index) ?? 0;
+      return bars === 0 ? '—' : `${short(tally.get(index)?.rush ?? 0)} burned, ${bars.toFixed(1)} health bars`;
+    },
+    {
+      eligible: (index) => (rush.get(index) ?? 0) >= HOT_FEET_MIN_BARS,
+      // Nobody but a warlock rushes, so the runner-up is mostly zero: the
+      // floor is what decides it.
+      gap: { title: 'This Is Fine', blurb: 'Set themselves on fire for fifteen health bars or more. Everything is fine.', times: 2, min: HOT_FEET_GAP_BARS },
+    },
   );
   badge(
     { key: 'paranoid', title: 'Paranoid', icon: '😰', roast: true, blurb: 'Overhealed the most, and by nearly half or more.' },

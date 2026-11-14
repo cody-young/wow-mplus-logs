@@ -70,6 +70,10 @@ import { SegmentKind, segmentAt, type SegmentIndex } from './segments.js';
  * by the average maximum health of whoever it healed, since a million is a
  * different totem from one season's gear to the next.
  *
+ * And Burning Rush: the health a warlock's own sprint burned off them, absorbs
+ * included, since a Soul Leech eaten by it is health all the same. As health
+ * bars too, each tick by the warlock's maximum health when it landed.
+ *
  * And mana, as it stood when each pull and boss ended. The advanced block
  * carries its subject's power, so whoever the last row before the end
  * described, that is what they had left.
@@ -187,6 +191,10 @@ export interface Tally {
   procs: number;
   /** How many times those procs were meant to fire over the key, by their rates. */
   procsExpected: number;
+  /** Health a warlock's own Burning Rush took off them, absorbs included. */
+  rush: number;
+  /** `rush` in health bars, each tick by their maximum health at the time. */
+  rushBars: number;
 }
 
 export interface StatsReport {
@@ -350,6 +358,9 @@ const GATEWAY = 113942;
  */
 const DASHES: ReadonlySet<number> = new Set([781, 195072, 198793, 52174, 109132, 115008, 1953, 212653]);
 
+/** Burning Rush, whose ticks a warlock logs as damage to themselves. */
+const BURNING_RUSH = 111400;
+
 /** Spirit Link, as the totem's heals and its hurts both carry it. */
 const SPIRIT_LINK = 98021;
 
@@ -475,6 +486,8 @@ export function statsReport(context: AnalysisContext, segments: SegmentIndex): S
         padding: 0,
         procs: 0,
         procsExpected: 0,
+        rush: 0,
+        rushBars: 0,
       },
     ]),
   );
@@ -656,6 +669,13 @@ export function statsReport(context: AnalysisContext, segments: SegmentIndex): S
     if (DAMAGE_CODES.has(code) && code !== Ev.DAMAGE_SPLIT) {
       // A _SUPPORT row is a share of a hit already counted on its own line.
       if (store.flags[row]! & EvFlag.SUPPORT) continue;
+      if (spellId === BURNING_RUSH && src === dst && segments.party.has(dst)) {
+        const taken = effective(store.amount[row]!, store.waste[row]!) + store.absorbed[row]!;
+        const tally = tallies.get(dst)!;
+        tally.rush += taken;
+        if (store.hpMax[row]! > 0) tally.rushBars += taken / store.hpMax[row]!;
+        continue;
+      }
       if (!ours(src) || dst < 0 || ours(dst)) continue;
       const actor = actors.attribute(src);
       const best = biggest.get(actor);
