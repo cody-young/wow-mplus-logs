@@ -60,6 +60,15 @@ export {
   type AvoidableSpell,
 } from './avoidable.js';
 export { buttonCount, isButton } from './buttons.js';
+export {
+  HEALTH_POTION_MS,
+  HEALTHSTONE_CHARGES,
+  HEALTHSTONE_MS,
+  defensiveClock,
+  isHealthPotion,
+  isHealthstone,
+  type Clock,
+} from './cooldowns.js';
 export { castingCounts, channelMs, gcdMs } from './casting.js';
 export {
   Control,

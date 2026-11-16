@@ -4,6 +4,7 @@ import { SegmentKind, type DeathReport } from '@mplus/analysis';
 
 import { clock, percent, seconds, short } from '../format.js';
 import { shortName, specOf } from '../specs.js';
+import { DeathNarc } from './DeathNarc.js';
 import { DeathTimeline } from './DeathTimeline.js';
 import { SpecIcon } from './SpecIcon.js';
 
@@ -199,6 +200,10 @@ export function DeathsPanel({
               </div>
             </>
           ) : null}
+        </div>
+
+        <div className="panel">
+          <DeathNarc death={death} />
         </div>
       </div>
     </div>

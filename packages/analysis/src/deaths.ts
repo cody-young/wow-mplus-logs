@@ -13,6 +13,7 @@ import {
   creditedActor,
   effective,
 } from './events.js';
+import { narcAt, narcLedger, type DeathNarc } from './narc.js';
 import { SegmentKind, segmentAt, type SegmentIndex } from './segments.js';
 
 /**
@@ -235,6 +236,11 @@ export interface DeathReport {
    * back up and the raid was minutes from wiping.
    */
   deadAtOnce: number;
+  /**
+   * What they still had: a healthstone, a potion, a big defensive of their
+   * own, each ready, pressed in the window, or not back yet. See `narc.ts`.
+   */
+  narc: DeathNarc;
 }
 
 export interface DeathOptions {
@@ -298,6 +304,8 @@ export function deathReports(
   let previousDeathTs: number | null = null;
   /** Party members dead right now: in at a death, out at a sign they are back. */
   const dead = new Set<number>();
+  // Built on the first death: a clean key never needs the pass.
+  let ledger: ReturnType<typeof narcLedger> | null = null;
 
   for (let row = 0; row < store.count; row++) {
     const code = store.code[row]!;
@@ -328,6 +336,8 @@ export function deathReports(
     const report = buildReport(context, segments, victim, deathTs, row, windowMs, scrollbackMs);
     report.sincePreviousDeathMs = previousDeathTs === null ? null : deathTs - previousDeathTs;
     report.deadAtOnce = dead.size;
+    ledger ??= narcLedger(context, segments);
+    report.narc = narcAt(context, ledger, victim, deathTs, windowMs);
     previousDeathTs = deathTs;
     reports.push(report);
   }
@@ -609,6 +619,7 @@ function buildReport(
     y,
     sincePreviousDeathMs: null,
     deadAtOnce: 0,
+    narc: { healthstone: null, potion: { state: 'ready', lastUsedTs: null }, defensives: [] },
   };
 }
 

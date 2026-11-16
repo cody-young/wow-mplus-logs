@@ -693,6 +693,11 @@ table.roster-table { margin-top: 6px; }
 .hit.killing { color: var(--danger); font-weight: 600; }
 .chips { display: flex; flex-wrap: wrap; gap: 5px; }
 .chip { background: var(--panel-raised); border: 1px solid var(--border); border-radius: 11px; padding: 2px 9px; font-size: 12px; color: var(--muted); }
+/* The narc: ready is the charge and is loud, pressed is the good outcome. */
+.chip.narc.ready { color: var(--danger); border-color: var(--danger); }
+.chip.narc.pressed { color: var(--good); }
+.chip.narc.cooldown, .chip.narc.empty { color: var(--dim); }
+.chip.narc .narc-state { opacity: 0.85; }
 
 .empty { color: var(--muted); padding: 40px 0; text-align: center; }
 .empty h2 { color: var(--text); font-weight: 600; font-size: 17px; margin: 0 0 8px; }
