@@ -40,6 +40,7 @@ export {
   LogSession,
   combatantAuras,
   isRaidDifficulty,
+  ABANDON_MS,
   PRE_PULL_MS,
   type EncounterWindow,
   type KeyRunMeta,

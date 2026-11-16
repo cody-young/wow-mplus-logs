@@ -555,6 +555,63 @@ test('a reset key abandons the partial run instead of merging two', () => {
   assert.equal(run.store.amount[0], 700);
 });
 
+test('a key the party walks out of is abandoned a minute later, ending where they left', () => {
+  // Leaving writes no END, only the ZONE_CHANGE out. The town after is not the key.
+  const hit = (time: string, amount: number): string =>
+    `9/30/2026 ${time}-4  SPELL_DAMAGE,${PLAYER},"A",0x511,0x0,${ENEMY},"B",0xa48,0x0,1,"S",0x1,${amount},${amount},-1,1,0,0,0,nil,nil,nil`;
+  const session = new LogSession({ assumedYear: 2026 });
+  session.pushText(
+    [
+      '9/30/2026 18:00:00.000-4  CHALLENGE_MODE_START,"Altar of Fangs",2993,588,20,[10,9,147]',
+      hit('18:00:01.000', 500),
+      '9/30/2026 18:05:00.000-4  ZONE_CHANGE,0,"Silvermoon City",0',
+      hit('18:05:30.000', 600),
+      hit('18:06:00.000', 700),
+      '',
+    ].join('\n'),
+  );
+  assert.equal(session.current, null, 'closed once the log is a minute past the zone-out');
+  const run = onlyRun(session);
+  assert.equal(run.meta.success, false);
+  assert.equal(run.meta.elapsedMs, 300_000);
+  assert.equal(run.store.count, 1, 'nothing from town');
+});
+
+test('a party back inside within the minute is still in its key', () => {
+  const hit = (time: string): string =>
+    `9/30/2026 ${time}-4  SPELL_DAMAGE,${PLAYER},"A",0x511,0x0,${ENEMY},"B",0xa48,0x0,1,"S",0x1,1,1,-1,1,0,0,0,nil,nil,nil`;
+  const session = new LogSession({ assumedYear: 2026 });
+  session.pushText(
+    [
+      '9/30/2026 18:00:00.000-4  CHALLENGE_MODE_START,"Altar of Fangs",2993,588,20,[10,9,147]',
+      '9/30/2026 18:05:00.000-4  ZONE_CHANGE,2916,"Vaults of Atal\'Utek",0',
+      '9/30/2026 18:05:22.000-4  ZONE_CHANGE,2993,"Altar of Fangs",23',
+      hit('18:07:00.000'),
+      '',
+    ].join('\n'),
+  );
+  assert.notEqual(session.current, null);
+  assert.equal(session.expireAbandoned(Date.UTC(2030, 0, 1)), null, 'and stays open however long the log then sits');
+});
+
+test('a log that stops within the minute of leaving abandons the key by the clock', () => {
+  const session = new LogSession({ assumedYear: 2026 });
+  session.pushText(
+    [
+      '9/30/2026 18:00:00.000-4  CHALLENGE_MODE_START,"Altar of Fangs",2993,588,20,[10,9,147]',
+      '9/30/2026 18:05:00.000-4  ZONE_CHANGE,0,"Silvermoon City",0',
+      '',
+    ].join('\n'),
+  );
+  // 18:05 at -4 is 22:05 UTC.
+  assert.equal(session.expireAbandoned(Date.UTC(2026, 8, 30, 22, 5, 59)), null, 'not yet a minute');
+  const run = session.expireAbandoned(Date.UTC(2026, 8, 30, 22, 6, 0));
+  assert.notEqual(run, null);
+  assert.equal(run!.meta.success, false);
+  assert.equal(run!.meta.elapsedMs, 300_000);
+  assert.equal(session.current, null);
+});
+
 test('a key re-announced mid-run keeps everything killed before it', () => {
   // Stepping out of the instance to change talents makes the game write a
   // second CHALLENGE_MODE_START for the key already in progress. There is no

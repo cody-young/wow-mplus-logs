@@ -49,6 +49,8 @@ const PROGRESS_THROTTLE_MS = 100;
 
 let session: LogSession | null = null;
 let watcher: FSWatcher | null = null;
+/** While tailing, closes a key the party walked out of once the log goes quiet. */
+let abandonTimer: ReturnType<typeof setInterval> | null = null;
 let offset = 0;
 let reading = false;
 let lastLiveAt = 0;
@@ -225,6 +227,8 @@ async function drainWith(active: LogSession, size: number): Promise<void> {
 port.on('message', (message: WorkerRequest) => {
   void (async () => {
     try {
+      if (abandonTimer !== null) clearInterval(abandonTimer);
+      abandonTimer = null;
       if (message.type === 'stop') {
         watcher?.close();
         watcher = null;
@@ -245,6 +249,9 @@ port.on('message', (message: WorkerRequest) => {
       emitProgress(0);
 
       await drain(session);
+      // A key the party walked out of writes no END, and a log that stops
+      // within the minute after never shows it lapse on its own clock.
+      session.expireAbandoned(Date.now());
       // A run still open at end of file is a key in progress; report it now
       // rather than making the user wait for CHALLENGE_MODE_END.
       if (session.current !== null) {
@@ -262,6 +269,7 @@ port.on('message', (message: WorkerRequest) => {
             post({ type: 'failed', message: String(error) });
           });
         });
+        abandonTimer = setInterval(() => session?.expireAbandoned(Date.now()), 5000);
       }
     } catch (error) {
       post({ type: 'failed', message: error instanceof Error ? error.message : String(error) });

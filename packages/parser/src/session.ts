@@ -37,6 +37,16 @@ import { EventStore } from './store.js';
 export const PRE_PULL_MS = 30_000;
 
 /**
+ * How long the party can be out of a key's instance before it is abandoned.
+ *
+ * Leaving a key writes no CHALLENGE_MODE_END: the game just logs the
+ * ZONE_CHANGE to wherever the party went. The server abandons a challenge
+ * mode a minute after the last player walks out, so a key whose party has
+ * been gone that long is over, and ends where they left.
+ */
+export const ABANDON_MS = 60_000;
+
+/**
  * Difficulty ids that make an encounter outside a key a raid pull.
  *
  * Dungeon bosses outside a key send ENCOUNTER_START too — normal, heroic and
@@ -264,6 +274,11 @@ export class LogSession {
   private lobbyPrevious: EventStore | null = null;
   /** Pulls seen so far per boss and difficulty, to number the next. */
   private readonly pulls = new Map<string, number>();
+  /**
+   * When the logging player zoned out of the open key's instance, local wall
+   * clock ms; null while they are inside it, or no key is open.
+   */
+  private leftKeyAt: number | null = null;
 
   constructor(options: SessionOptions = {}) {
     const { hooks = {}, progressInterval = 2000, retainCompletedRuns = true, raids = true, ...parserOptions } = options;
@@ -308,6 +323,7 @@ export class LogSession {
   }
 
   private afterChunk(): void {
+    this.expireByLogTime();
     this.rotateLobby();
     this.maybeReportProgress();
   }
@@ -359,6 +375,11 @@ export class LogSession {
 
   private enterZone(ts: number, instanceId: number, name: string, difficultyId: number): void {
     this.lastZone = { instanceId, name, difficultyId };
+    const open = this.current?.meta;
+    if (open?.kind === 'key') {
+      if (instanceId === open.instanceId) this.leftKeyAt = null;
+      else this.leftKeyAt ??= ts;
+    }
     const raid = this.raids && isRaidDifficulty(difficultyId);
     if (raid && this.lobby === null) {
       this.lobby = new EventStore(1 << 12);
@@ -368,6 +389,39 @@ export class LogSession {
       this.lobbyPrevious = null;
     }
     if (this.current === null) this.parser.target = this.idleTarget();
+  }
+
+  /**
+   * Abandons the open key if the party left its instance at least ABANDON_MS
+   * before `nowMs`, a real instant (epoch ms).
+   *
+   * For when the log itself stops short of the minute — the player logged off
+   * in town — or goes quiet while tailing. Returns the run it closed, if any.
+   */
+  expireAbandoned(nowMs: number): Run | null {
+    const run = this.current;
+    if (run === null || this.leftKeyAt === null) return null;
+    const leftInstant = this.leftKeyAt - run.meta.utcOffsetMinutes * 60_000;
+    if (nowMs - leftInstant < ABANDON_MS) return null;
+    this.abandon(run);
+    return run;
+  }
+
+  /** The same test on the log's own clock: its latest event is a minute past the zone-out. */
+  private expireByLogTime(): void {
+    const run = this.current;
+    if (run === null || this.leftKeyAt === null || run.store.count === 0) return;
+    const latest = run.store.baseMs + run.store.ts[run.store.count - 1]!;
+    if (latest - this.leftKeyAt >= ABANDON_MS) this.abandon(run);
+  }
+
+  /** Ends a key the party walked out of, as a depletion, at the moment they left. */
+  private abandon(run: Run): void {
+    const left = this.leftKeyAt!;
+    // What came after is town, not the key.
+    run.store.count = run.store.seek(left - run.store.baseMs);
+    if (run.meta.kind === 'key') run.meta.totalTimeMs = left - run.meta.startMs;
+    this.finish(run, left, false);
   }
 
   private maybeReportProgress(): void {
@@ -511,6 +565,7 @@ export class LogSession {
   }
 
   private finish(run: Run, ts: number, success: boolean): void {
+    this.leftKeyAt = null;
     run.meta.endMs = ts;
     run.meta.success = success;
     run.meta.elapsedMs = ts - run.meta.startMs;
@@ -532,6 +587,7 @@ export class LogSession {
     const index = this.runs.indexOf(run);
     if (index >= 0) this.runs.splice(index, 1);
     this.current = null;
+    this.leftKeyAt = null;
     this.parser.target = this.idleTarget();
   }
 
