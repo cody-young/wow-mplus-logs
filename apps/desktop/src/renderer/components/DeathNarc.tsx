@@ -1,5 +1,7 @@
 import type { ConsumableState, DeathReport, Readiness } from '@mplus/analysis';
 
+import { CAUGHT } from '../caught.js';
+
 /**
  * The narc: what they died with still in the bag.
  *
@@ -24,7 +26,12 @@ export function DeathNarc({ death }: { death: DeathReport }): React.JSX.Element 
   return (
     <>
       <h3>Narc</h3>
-      {heckle === null ? null : <p className="narc-quip">{heckle}</p>}
+      {heckle === null ? null : (
+        <p className="narc-quip">
+          {heckle.caught ? <img className="narc-caught" src={CAUGHT} alt="Caught" /> : null}
+          {heckle.text}
+        </p>
+      )}
       {oneShot !== null ? (
         <p style={{ margin: '0 0 8px', color: 'var(--muted)' }}>
           One-shot: {oneShot.spellName} took {Math.round(Math.min(1, oneShot.fraction) * 100)}% of their health at
@@ -110,7 +117,7 @@ function tip(item: Item, deathTs: number): string {
  * two ways to say it, which one is fixed by the death, so it holds still
  * while the reader clicks around.
  */
-export function quip(death: DeathReport): string | null {
+export function quip(death: DeathReport): { text: string; caught: boolean } | null {
   const { healthstone, potion, defensives, oneShot } = death.narc;
   const forgot = [
     ...(healthstone?.state === 'ready' ? ['healthstone'] : []),
@@ -122,9 +129,9 @@ export function quip(death: DeathReport): string | null {
       `I'm telling mom you forgot to ${forgot}`,
       death.self ? `You forgot to ${forgot}, didn't you?` : `Someone forgot to ${forgot}`,
     ];
-    return `📸 ${lines[hash(`${death.actorIndex}-${death.ts}`) % lines.length]!}`;
+    return { text: lines[hash(`${death.actorIndex}-${death.ts}`) % lines.length]!, caught: true };
   }
-  if (saved) return '📸 Saving it for next key';
+  if (saved) return { text: 'Saving it for next key', caught: true };
   return null;
 }
 

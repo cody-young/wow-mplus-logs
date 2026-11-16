@@ -698,7 +698,8 @@ table.roster-table { margin-top: 6px; }
 .chip.narc.pressed { color: var(--good); }
 .chip.narc.cooldown, .chip.narc.empty { color: var(--dim); }
 .chip.narc .narc-state { opacity: 0.85; }
-.narc-quip { margin: -4px 0 10px; color: var(--text); font-style: italic; font-size: 14px; }
+.narc-quip { margin: -4px 0 10px; color: var(--text); font-style: italic; font-size: 14px; display: flex; align-items: center; gap: 8px; }
+.narc-caught { height: 22px; width: auto; }
 
 .empty { color: var(--muted); padding: 40px 0; text-align: center; }
 .empty h2 { color: var(--text); font-weight: 600; font-size: 17px; margin: 0 0 8px; }
