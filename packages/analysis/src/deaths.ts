@@ -1,5 +1,5 @@
 import { isBigDefensive, isButton, isDefensive, isInertMarker } from '@mplus/data';
-import { ActorKind, Ev, EvFlag, environmentName } from '@mplus/parser';
+import { ActorKind, Ev, EvFlag, UnitFlag, environmentName } from '@mplus/parser';
 
 import { actorName, spellName, type AnalysisContext } from './context.js';
 import {
@@ -241,6 +241,11 @@ export interface DeathReport {
    * own, each ready, pressed in the window, or not back yet. See `narc.ts`.
    */
   narc: DeathNarc;
+  /**
+   * The player who died is the one who recorded the log: the reader is
+   * looking at their own death. The log marks its own player's rows "mine".
+   */
+  self: boolean;
 }
 
 export interface DeathOptions {
@@ -581,6 +586,7 @@ function buildReport(
     actorIndex: victim,
     name: actorName(context, victim),
     specId: actor?.specId ?? -1,
+    self: actor !== undefined && actor.kind === ActorKind.PLAYER && (actor.flags & UnitFlag.AFFILIATION_MINE) !== 0,
     ts: deathTs,
     segmentId,
     segmentLabel: segment?.label ?? 'Out of combat',

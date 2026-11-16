@@ -19,10 +19,12 @@ export function DeathNarc({ death }: { death: DeathReport }): React.JSX.Element 
     ...defensives.map((entry) => ({ name: entry.name, state: entry.state, lastUsedTs: entry.lastUsedTs })),
   ];
   const ready = items.filter((item) => item.state === 'ready').map((item) => item.name);
+  const heckle = quip(death);
 
   return (
     <>
       <h3>Narc</h3>
+      {heckle === null ? null : <p className="narc-quip">{heckle}</p>}
       {oneShot !== null ? (
         <p style={{ margin: '0 0 8px', color: 'var(--muted)' }}>
           One-shot: {oneShot.spellName} took {Math.round(Math.min(1, oneShot.fraction) * 100)}% of their health at
@@ -98,6 +100,39 @@ function tip(item: Item, deathTs: number): string {
     case 'empty':
       return 'All three charges used, and no Soulwell since to take another.';
   }
+}
+
+/**
+ * The subtitle: one line of heckling, or null when there is nothing to heckle.
+ *
+ * A forgotten healthstone or potion is the headline, a one-shot excuses it,
+ * and a big defensive left on the bar is saved for next key. Where there are
+ * two ways to say it, which one is fixed by the death, so it holds still
+ * while the reader clicks around.
+ */
+export function quip(death: DeathReport): string | null {
+  const { healthstone, potion, defensives, oneShot } = death.narc;
+  const forgot = [
+    ...(healthstone?.state === 'ready' ? ['healthstone'] : []),
+    ...(potion.state === 'ready' ? ['health pot'] : []),
+  ].join(' or ');
+  const saved = defensives.some((entry) => entry.state === 'ready');
+  if (forgot !== '' && oneShot === null) {
+    const lines = [
+      `I'm telling mom you forgot to ${forgot}`,
+      death.self ? `You forgot to ${forgot}, didn't you?` : `Someone forgot to ${forgot}`,
+    ];
+    return `📸 ${lines[hash(`${death.actorIndex}-${death.ts}`) % lines.length]!}`;
+  }
+  if (saved) return '📸 Saving it for next key';
+  return null;
+}
+
+/** A small, stable number from a string: the same death always picks the same line. */
+function hash(text: string): number {
+  let h = 0;
+  for (let i = 0; i < text.length; i++) h = (h * 31 + text.charCodeAt(i)) >>> 0;
+  return h;
 }
 
 /** 42s, or 3:20 past a minute. */
