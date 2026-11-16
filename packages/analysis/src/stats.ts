@@ -63,7 +63,8 @@ import { SegmentKind, segmentAt, type SegmentIndex } from './segments.js';
  * debuffs put on enemies, and healing on the rest of the party with its
  * overhealing. Taunts, Power Infusions kept for oneself and given, externals, combat
  * rezzes, Leaps of Faith and Rescues, personal defensives, immunities running
- * out, Demonic Gateway hops and dashes: each a spell id read off this season's logs.
+ * out, Demonic Gateway hops, dashes and Shadowmelds: each a spell id read off
+ * this season's logs.
  *
  * And Spirit Link Totems, each by the health it moved: its heals, which are
  * what it took from whoever was highest, less overhealing. As health bars too,
@@ -73,6 +74,11 @@ import { SegmentKind, segmentAt, type SegmentIndex } from './segments.js';
  * And Burning Rush: the health a warlock's own sprint burned off them, absorbs
  * included, since a Soul Leech eaten by it is health all the same. As health
  * bars too, each tick by the warlock's maximum health when it landed.
+ *
+ * And who was left standing when each boss died: a lone survivor is a stand.
+ * A death takes a player out, and a rez, a Reincarnation or any later row
+ * that shows them with health brings them back, which also catches a release
+ * and a run back from the graveyard, which logs nothing of its own.
  *
  * And mana, as it stood when each pull and boss ended. The advanced block
  * carries its subject's power, so whoever the last row before the end
@@ -139,6 +145,33 @@ export interface Moment {
   spellId: number;
   spellName: string;
   segmentId: number;
+}
+
+/**
+ * A Shadowmeld that got someone else killed: an enemy that had been hitting
+ * the melder turned on another of the party, never went back to the melder,
+ * and that party member died soon after the meld.
+ */
+export interface Beer extends Moment {
+  victimIndex: number;
+  victimName: string;
+  victimSpecId: number;
+  /** Store-relative ms of the victim's death. */
+  diedTs: number;
+  /** The enemy that turned on them. */
+  enemyName: string;
+}
+
+/** A boss that died with one of the party still standing and the rest dead. */
+export interface Stand {
+  /** Store-relative ms of the boss's end. */
+  ts: number;
+  actorIndex: number;
+  name: string;
+  specId: number;
+  segmentId: number;
+  /** The boss, as its segment is labelled. */
+  boss: string;
 }
 
 /** One time an enemy's mechanic picked a player out. */
@@ -240,8 +273,14 @@ export interface StatsReport {
   gateways: Moment[];
   /** Every movement ability the party pressed, in order. */
   dashes: Moment[];
+  /** Every Shadowmeld the party pressed, in order. */
+  melds: Moment[];
+  /** Every death a Shadowmeld handed to someone else, in order of the deaths. */
+  beers: Beer[];
   /** Mana left at the end of every pull and boss, for everyone whose power is mana. */
   drains: Drain[];
+  /** Every boss killed with only one of the party alive, in order. */
+  stands: Stand[];
   /** Every Spirit Link Totem that healed one of the party, in order. */
   links: Link[];
   /** One per party member. */
@@ -358,6 +397,32 @@ const GATEWAY = 113942;
  */
 const DASHES: ReadonlySet<number> = new Set([781, 195072, 198793, 52174, 109132, 115008, 1953, 212653]);
 
+/** Shadowmeld, the night elf's way out of a fight, threat and all. */
+const SHADOWMELD = 58984;
+
+/**
+ * An enemy is the melder's if it went at them this long before the meld, and
+ * a death is the meld's if it comes this long after. Five seconds is a swing
+ * timer with a cast in the middle of it: Aka'ali's last swing at the tank was
+ * 3.4 seconds before the meld, with a Debilitating Backhand winding up, and
+ * the Backhand went to the next one down the threat list.
+ */
+const MELD_HELD_MS = 5_000;
+const MELD_DEATH_MS = 10_000;
+
+/**
+ * An enemy going at a player: a hit or a miss, straight from it. Not a tick,
+ * which is a debuff it left on them earlier, not where it is looking now.
+ */
+const ATTACK_CODES: ReadonlySet<number> = new Set([
+  Ev.SWING_DAMAGE,
+  Ev.SWING_MISSED,
+  Ev.SPELL_DAMAGE,
+  Ev.SPELL_MISSED,
+  Ev.RANGE_DAMAGE,
+  Ev.RANGE_MISSED,
+]);
+
 /** Burning Rush, whose ticks a warlock logs as damage to themselves. */
 const BURNING_RUSH = 111400;
 
@@ -440,6 +505,15 @@ export function statsReport(context: AnalysisContext, segments: SegmentIndex): S
   const immunities: Moment[] = [];
   const gateways: Moment[] = [];
   const dashes: Moment[] = [];
+  const melds: Moment[] = [];
+  const beers: Beer[] = [];
+  /** Enemy -> the party member it last went at, and when. */
+  const lastAttack = new Map<number, { target: number; ts: number }>();
+  /**
+   * Melds still in their window: the enemies that were on the melder and
+   * have not been back, and whom each of them has gone at since.
+   */
+  const openMelds: { meld: Moment; melder: number; held: Set<number>; turned: Map<number, number> }[] = [];
   const drains: Drain[] = [];
   /** Spirit Link Totem -> its first heal's row, what it moved, and the healed's maximum health summed. */
   const totems = new Map<number, { row: number; amount: number; hpMax: number; heals: number }>();
@@ -455,6 +529,30 @@ export function statsReport(context: AnalysisContext, segments: SegmentIndex): S
     .filter((segment) => segment.kind === SegmentKind.PULL || segment.kind === SegmentKind.BOSS)
     .sort((a, b) => a.endTs - b.endTs);
   let nextEnd = 0;
+  const stands: Stand[] = [];
+  /** Party member -> when they last died, while they are dead. */
+  const dead = new Map<number, number>();
+  const kills = segments.segments
+    .filter((segment) => segment.kind === SegmentKind.BOSS && segment.success === true)
+    .sort((a, b) => a.endTs - b.endTs);
+  let nextKill = 0;
+  /** Every boss kill before `ts`, judged by who was dead when it ended. */
+  const closeKills = (ts: number): void => {
+    while (nextKill < kills.length && kills[nextKill]!.endTs < ts) {
+      const kill = kills[nextKill++]!;
+      const standing = [...segments.party].filter((actor) => !dead.has(actor));
+      if (segments.party.size < 2 || standing.length !== 1) continue;
+      const actor = standing[0]!;
+      stands.push({
+        ts: kill.endTs,
+        actorIndex: actor,
+        name: actorName(context, actor),
+        specId: actors.at(actor)?.specId ?? -1,
+        segmentId: kill.id,
+        boss: kill.label,
+      });
+    }
+  };
   const closeSegments = (ts: number): void => {
     while (nextEnd < ends.length && ends[nextEnd]!.endTs < ts) {
       const segment = ends[nextEnd++]!;
@@ -528,9 +626,58 @@ export function statsReport(context: AnalysisContext, segments: SegmentIndex): S
     const spellId = store.spellId[row]!;
 
     closeSegments(store.ts[row]!);
+    closeKills(store.ts[row]!);
     if (store.mana[row]! >= 0) {
       const subject = store.flags[row]! & EvFlag.INFO_IS_SOURCE ? src : dst;
       if (segments.party.has(subject)) mana.set(subject, store.mana[row]!);
+    }
+    // Who is dead, as deathReports reads it, and back up at any later sign of
+    // health: a row in the same millisecond as the death can still carry the
+    // health they had a moment before it.
+    if (code === Ev.UNIT_DIED && segments.party.has(dst) && (store.flags[row]! & EvFlag.FEIGNED) === 0) {
+      dead.set(dst, store.ts[row]!);
+    } else if (dead.size > 0) {
+      if (code === Ev.SPELL_RESURRECT) dead.delete(dst);
+      else if (code === Ev.SPELL_CAST_SUCCESS && spellId === ANKH) dead.delete(src);
+      else if (store.hpCurrent[row]! > 0) {
+        const subject = store.flags[row]! & EvFlag.INFO_IS_SOURCE ? src : dst;
+        const since = dead.get(subject);
+        if (since !== undefined && store.ts[row]! > since) dead.delete(subject);
+      }
+    }
+
+    // Melds open in order, so the stale ones are at the front.
+    while (openMelds.length > 0 && store.ts[row]! - openMelds[0]!.meld.ts > MELD_DEATH_MS) openMelds.shift();
+    if (ATTACK_CODES.has(code) && src >= 0 && !ours(src) && segments.party.has(dst)) {
+      const ts = store.ts[row]!;
+      lastAttack.set(src, { target: dst, ts });
+      for (const open of openMelds) {
+        if (!open.held.has(src)) continue;
+        if (dst === open.melder) {
+          open.held.delete(src);
+          for (const [victim, enemy] of open.turned) if (enemy === src) open.turned.delete(victim);
+        } else if (ts > open.meld.ts) open.turned.set(dst, src);
+      }
+    } else if (code === Ev.SPELL_CAST_SUCCESS && spellId === SHADOWMELD && segments.party.has(src)) {
+      const ts = store.ts[row]!;
+      const held = new Set<number>();
+      for (const [enemy, last] of lastAttack) if (last.target === src && ts - last.ts <= MELD_HELD_MS) held.add(enemy);
+      if (held.size > 0) openMelds.push({ meld: moment(row, src, spellId), melder: src, held, turned: new Map() });
+    } else if (code === Ev.UNIT_DIED && openMelds.length > 0 && (store.flags[row]! & EvFlag.FEIGNED) === 0) {
+      const ts = store.ts[row]!;
+      // The latest meld that turned an enemy on them takes the death.
+      const open = openMelds.filter((entry) => entry.turned.has(dst)).at(-1);
+      if (open !== undefined) {
+        beers.push({
+          ...open.meld,
+          victimIndex: dst,
+          victimName: actorName(context, dst),
+          victimSpecId: actors.at(dst)?.specId ?? -1,
+          diedTs: ts,
+          enemyName: actorName(context, open.turned.get(dst)!),
+        });
+        for (const entry of openMelds) entry.turned.delete(dst);
+      }
     }
 
     const removal = code === Ev.SPELL_AURA_REMOVED || code === Ev.SPELL_AURA_REMOVED_DOSE;
@@ -569,6 +716,7 @@ export function statsReport(context: AnalysisContext, segments: SegmentIndex): S
       else if (spellId === ANKH) ankhs.push(moment(row, actor, spellId));
       else if (TAUNTS.has(spellId)) taunts.push(moment(row, actor, spellId));
       else if (DASHES.has(spellId)) dashes.push(moment(row, actor, spellId));
+      else if (spellId === SHADOWMELD) melds.push(moment(row, actor, spellId));
       else if (spellId === POWER_INFUSION) {
         infusionCasts.push({ moment: moment(row, actor, spellId), self: dst === src });
         if (dst !== src && segments.party.has(dst)) infusions.push(assist(row, actor, dst, spellId));
@@ -666,6 +814,7 @@ export function statsReport(context: AnalysisContext, segments: SegmentIndex): S
       });
       continue;
     }
+    // Shadowmelds: who the enemies were on, and where they went after.
     if (DAMAGE_CODES.has(code) && code !== Ev.DAMAGE_SPLIT) {
       // A _SUPPORT row is a share of a hit already counted on its own line.
       if (store.flags[row]! & EvFlag.SUPPORT) continue;
@@ -707,6 +856,7 @@ export function statsReport(context: AnalysisContext, segments: SegmentIndex): S
   }
 
   closeSegments(Infinity);
+  closeKills(Infinity);
 
   // Twins of the Sun Priestess logs its copy as a cast on the priest, right
   // beside the one on whoever they chose. Only a self-cast with no such
@@ -794,7 +944,10 @@ export function statsReport(context: AnalysisContext, segments: SegmentIndex): S
     immunities,
     gateways,
     dashes,
+    melds,
+    beers,
     drains,
+    stands,
     links,
     tallies: [...tallies.values()],
     paddingKnown,

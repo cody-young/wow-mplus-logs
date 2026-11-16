@@ -145,6 +145,8 @@ export {
   type Drain,
   type Fall,
   type Link,
+  type Stand,
+  type Beer,
   type Moment,
   type Pick,
   type StatsReport,

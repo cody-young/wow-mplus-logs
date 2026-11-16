@@ -945,6 +945,31 @@ export function awardsFor(run: RunAnalysis): Awards | null {
     (index) => `${plural(fumes.get(index) ?? 0, 'pull')} on empty`,
     { field: healers },
   );
+  // A tank who melds drops what they were holding on whoever is next on
+  // threat. The stats find the enemy that turned and the death it caused;
+  // this is for a tank's meld and a dps's death, one the run counts. Across
+  // 216 logs with a Shadowmeld, 19 keys had a tank meld and one of them a
+  // dps it killed: rare, as a roast for it should be.
+  const lastCounted = counted.at(-1)?.ts ?? -Infinity;
+  const dpsIndices = new Set(dpsField.map((member) => member.actorIndex));
+  const beers = run.stats.beers.filter(
+    (beer) =>
+      tanks.has(beer.actorIndex) && dpsIndices.has(beer.victimIndex) && (cutoff === null || beer.diedTs <= lastCounted),
+  );
+  const heldBeers = count(beers, (entry) => entry.actorIndex);
+  badge(
+    { key: 'hold-my-beer', title: 'Hold My Beer', icon: '🍺', roast: true, blurb: 'Shadowmelded as the tank, and a dps took the hit instead.' },
+    heldBeers,
+    'most',
+    (index) => {
+      const mine = beers.filter((entry) => entry.actorIndex === index);
+      if (mine.length === 0) return '—';
+      return mine.length === 1
+        ? `melded, ${mine[0]!.enemyName} killed ${mine[0]!.victimName}`
+        : `melded, ${plural(mine.length, 'dps', 'dps')} died`;
+    },
+    { field: party.filter((member) => tanks.has(member.actorIndex)), eligible: (index) => (heldBeers.get(index) ?? 0) >= 1 },
+  );
   // Burning Rush is the warlock's own sprint, paid for in their own health.
   badge(
     { key: 'hot-feet', title: 'Hot Feet', icon: '🦶', roast: true, blurb: 'Burned through piles of their own health on Burning Rush.' },
@@ -1009,6 +1034,23 @@ export function awardsFor(run: RunAnalysis): Awards | null {
     rezzes,
     'most',
     (index) => plural(rezzes.get(index) ?? 0, 'rez', 'rezzes'),
+  );
+  // The last one up when a boss died. Only on a timed key: a depleted one's
+  // lone survivor finished a boss for a key that was already lost. It is
+  // meant to be rare: across 161 keys, 154 of them timed, no boss died with
+  // four of the party down.
+  const timed = run.meta.kind === 'key' && run.meta.success === true;
+  const stands = timed ? run.stats.stands : [];
+  const heroics = count(stands, (entry) => entry.actorIndex);
+  badge(
+    { key: 'hero', title: 'Hero', icon: '🦸', roast: false, blurb: 'Last one standing when the boss died, and the key still timed.' },
+    heroics,
+    'most',
+    (index) => {
+      const mine = stands.filter((entry) => entry.actorIndex === index);
+      if (mine.length === 0) return '—';
+      return mine.length === 1 ? `last up at ${mine[0]!.boss}` : `last up at ${plural(mine.length, 'boss', 'bosses')}`;
+    },
   );
   // Externals are a healer's job, and one wins this every key if it counts
   // them; it is for whoever gave one without it being their job.

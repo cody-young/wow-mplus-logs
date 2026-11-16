@@ -2000,6 +2000,72 @@ test('the class moments: taunts, infusions, externals, rezzes, rides, defensives
   assert.deepEqual(who(stats.dashes), [['Dee', 'Blink']]);
 });
 
+test("a Shadowmeld that hands the tank's enemy to someone else, who dies of it", () => {
+  const brute = creature(1009, 30);
+  const other = creature(1009, 31);
+  const meldAt = (seconds: number): string =>
+    `${at(seconds)}  SPELL_CAST_SUCCESS,${TANK},"Tank",0x511,0x0,0000000000000000,nil,0x80000000,0x80000000,58984,"Shadowmeld",0x1`;
+  const meld = meldAt(111);
+  const beersWith = (extra: string[]) =>
+    statsWith(extra).beers.map((entry) => [entry.name, entry.enemyName, entry.victimName]);
+  const onTank = taken(110, brute, 'Brute', TANK, 'Tank', 1000);
+  const onDps = taken(112, brute, 'Brute', DPS, 'Dee', 1000);
+  const dpsDies = died(113, DPS, 'Dee');
+  assert.deepEqual(beersWith([onTank, meld, onDps, dpsDies]), [['Tank', 'Brute', 'Dee']]);
+  assert.deepEqual(beersWith([meld, onDps, dpsDies]), [], 'the Brute was never on the tank');
+  assert.deepEqual(
+    beersWith([taken(105, brute, 'Brute', TANK, 'Tank', 1000), meld, onDps, dpsDies]),
+    [],
+    'the Brute had left the tank well before the meld',
+  );
+  assert.deepEqual(
+    beersWith([onTank, meld, onDps, taken(112.5, brute, 'Brute', TANK, 'Tank', 1000), dpsDies]),
+    [],
+    'the meld did not take: the Brute went back to the tank',
+  );
+  assert.deepEqual(
+    beersWith([onTank, meld, taken(112, other, 'Brute', DPS, 'Dee', 1000), dpsDies]),
+    [],
+    'another enemy killed them, one the tank was never holding',
+  );
+  assert.deepEqual(
+    beersWith([taken(100, brute, 'Brute', TANK, 'Tank', 1000), meldAt(101), taken(102, brute, 'Brute', DPS, 'Dee', 1000), dpsDies]),
+    [],
+    'they died, but twelve seconds after the meld',
+  );
+});
+
+test('a stand: the one player still up when a boss died', () => {
+  /** The fixture key's stands, with `extra` lines just before its boss dies at t=95. */
+  const standsWith = (extra: string[]) => {
+    const lines = [...LINES];
+    lines.splice(lines.findIndex((line) => line.includes('ENCOUNTER_END')), 0, ...extra);
+    const session = new LogSession({ assumedYear: 2026 });
+    session.pushText(lines.join('\n') + '\n');
+    session.end();
+    const context = contextFor(session, session.runs[0]!);
+    return statsReport(context, buildSegments(context)).stands.map((entry) => [entry.name, entry.boss]);
+  };
+  const healerDies = died(94, HEALER, 'Heals');
+  assert.deepEqual(standsWith([]), [], 'the tank died, but two were still up');
+  assert.deepEqual(standsWith([healerDies]), [['Dee', 'Big Bad']]);
+  // A row in the same millisecond as the death is no sign of life.
+  assert.deepEqual(
+    standsWith([taken(79.1, ACTORS.BOSS, 'Big Bad', TANK, 'Tank', 0, { hp: 1000 }), healerDies]),
+    [['Dee', 'Big Bad']],
+  );
+  assert.deepEqual(
+    standsWith([`${at(90)}  SPELL_RESURRECT,${HEALER},"Heals",0x511,0x0,${TANK},"Tank",0x511,0x0,20484,"Rebirth",0x8`, healerDies]),
+    [],
+    'the tank was rezzed',
+  );
+  assert.deepEqual(
+    standsWith([taken(91, ACTORS.BOSS, 'Big Bad', TANK, 'Tank', 1000, { hp: 500_000, hpMax: 1_000_000 }), healerDies]),
+    [],
+    'the tank was seen with health again',
+  );
+});
+
 test('a Spirit Link Totem is its shaman\'s, by the health it moved and in health bars', () => {
   const totem = creature(53006, 20);
   const link = { spellId: 98021, spellName: 'Spirit Link' };
