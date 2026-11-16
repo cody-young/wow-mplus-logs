@@ -1434,6 +1434,37 @@ test("Infest's burst counts on everyone but the player whose debuff it was", () 
   );
 });
 
+test("Ritual of Blazebinding counts on everyone but the player it was aimed at", () => {
+  const kokia = creature(189886, 60);
+  const mark = (seconds: number, dst: string, name: string, up: boolean) =>
+    aura(seconds, kokia, 'Kokia Blazehoof', dst, name, 372865, 'Ritual of Blazebinding', up, { srcFlags: '0xa48', dstFlags: '0x511' });
+  const impact = (seconds: number, dst: string, name: string) =>
+    taken(seconds, kokia, 'Kokia Blazehoof', dst, name, 5000, { spellId: 1309540, spellName: 'Ritual of Blazebinding' });
+  const lines = [
+    LINES[0]!,
+    `${at(0)}  CHALLENGE_MODE_START,"Ruby Life Pools",2000,399,12,[10,9,147]`,
+    ...LINES.filter((line) => line.includes('COMBATANT_INFO')),
+    // Aimed at Dee, with the healer beside them.
+    mark(10, DPS, 'Dee', true),
+    impact(13, DPS, 'Dee'),
+    impact(13, HEALER, 'Heals'),
+    mark(13.1, DPS, 'Dee', false),
+    // Aimed at the healer, whose mark comes off 16ms before the impact is logged.
+    mark(20, HEALER, 'Heals', true),
+    mark(23, HEALER, 'Heals', false),
+    impact(23.016, HEALER, 'Heals'),
+    `${at(30)}  CHALLENGE_MODE_END,2000,1,12,30000,30`,
+  ];
+  const session = new LogSession({ assumedYear: 2026 });
+  session.pushText(lines.join('\n') + '\n');
+  session.end();
+  const run = session.runs[0]!;
+  const context = contextFor(session, run);
+  const { hits } = avoidableReport(context, buildSegments(context));
+  // Only the healer standing beside Dee.
+  assert.deepEqual(hits.map((entry) => entry.name.split('-')[0]), ['Heals']);
+});
+
 test("Zul'jan's puddles, logged as dealt by nobody, are still his", () => {
   const zuljan = creature(250000, 70);
   const nobody = '0000000000000000';

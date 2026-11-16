@@ -7,6 +7,7 @@ import {
   avoidableDungeons,
   avoidableEntries,
   db2Dungeons,
+  markAuras,
   ownAuras,
 } from '../src/index.js';
 
@@ -57,6 +58,11 @@ test('a tank frontal is marked as one, and a ground effect is not', () => {
 test("a burst's own debuff is an aura, not a damage id on the list", () => {
   assert.deepEqual([...ownAuras()], [1308865, 1242869]);
   for (const aura of ownAuras()) assert.equal(avoidable(aura), undefined);
+});
+
+test("a target's mark is an aura, not a damage id on the list", () => {
+  assert.deepEqual([...markAuras()], [372865]);
+  for (const aura of markAuras()) assert.equal(avoidable(aura), undefined);
 });
 
 test("a mechanic's cast is an enemy cast, not a damage id on the list", () => {

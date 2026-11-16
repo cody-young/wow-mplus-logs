@@ -40,7 +40,8 @@
  *     you, a bomb that goes off where you are. The target cannot avoid it, and
  *     the log cannot tell the target from a bystander — unless the burst is
  *     logged on the moment the target's own debuff comes off, which is what
- *     `unlessOwn` is for
+ *     `unlessOwn` is for, or the target carries a mark the hit can be told
+ *     apart by, which is what `unlessMarked` is for
  *   - soaks, which are meant to be taken
  *   - any id that hit every non-tank about equally in every logged key — in
  *     the keys behind this list Cosmic Crash, Poison Splash and Infest's DoT
@@ -68,6 +69,13 @@ export interface AvoidableSpell {
    * off — that is, when they stood in somebody else's.
    */
   unlessOwn?: number;
+  /**
+   * A mark the boss puts on the player it aims this at. A hit counts only when
+   * the victim was not carrying it — that is, when they stood beside the
+   * target. The mark can come off a moment before its own hit is logged, so
+   * one that just came off still counts as carried.
+   */
+  unlessMarked?: number;
   /**
    * An enemy cast that starts the mechanic this is part of. A hit whose aura
    * went on between `from` (0 when unset) and `ms` after that cast started is
@@ -219,7 +227,12 @@ const DUNGEONS: readonly Dungeon[] = [
       { id: 373614, name: 'Burnout', why: 'Blazebound Destroyer death explosion' },
       { id: 391724, name: 'Flame Breath', why: 'Flamegullet frontal' },
       { id: 391727, name: 'Storm Breath', why: 'Thunderhead frontal' },
-      { id: 1309540, name: 'Ritual of Blazebinding', why: "Kokia's 12yd impact" },
+      {
+        id: 1309540,
+        name: 'Ritual of Blazebinding',
+        unlessMarked: 372865,
+        why: "Stood beside Kokia's Ritual of Blazebinding target. The impact lands on the marked player wherever they go; across 12 keys 55 of 65 hits were on the marked player (2 of them logged 0-16ms after the mark came off) and 10 on someone in the 12yd around them",
+      },
       { id: 372811, name: 'Molten Boulder', why: "Kokia's rolling boulder" },
       { id: 372819, name: 'Molten Boulder', why: "Kokia's boulder exploding where it stops" },
       { id: 372820, name: 'Scorched Earth', why: "Kokia's boulder trail" },
@@ -363,6 +376,11 @@ export function avoidable(spellId: number): AvoidableSpell | undefined {
 /** The auras an entry's `unlessOwn` names, for the analysis to watch come off. */
 export function ownAuras(): ReadonlySet<number> {
   return new Set(avoidableEntries().flatMap((entry) => (entry.unlessOwn === undefined ? [] : [entry.unlessOwn])));
+}
+
+/** The marks an entry's `unlessMarked` names, for the analysis to watch go on and off. */
+export function markAuras(): ReadonlySet<number> {
+  return new Set(avoidableEntries().flatMap((entry) => (entry.unlessMarked === undefined ? [] : [entry.unlessMarked])));
 }
 
 /** The casts an entry's `unlessAfter` names, for the analysis to watch start. */

@@ -1,4 +1,4 @@
-import { afterAuras, afterCasts, avoidable, avoidableDungeons, ownAuras } from '@mplus/data';
+import { afterAuras, afterCasts, avoidable, avoidableDungeons, markAuras, ownAuras } from '@mplus/data';
 import { Ev } from '@mplus/parser';
 
 import { actorName, spellName, type AnalysisContext } from './context.js';
@@ -76,9 +76,12 @@ export function avoidableReport(context: AnalysisContext, segments: SegmentIndex
   const { run } = context;
   const { store, actors } = run;
   const hits: AvoidableHit[] = [];
-  const watched = ownAuras();
+  const marks = markAuras();
+  const watched = new Set([...ownAuras(), ...marks]);
   /** When each player's watched aura last came off, keyed `actor:aura`. */
   const cameOff = new Map<string, number>();
+  /** The marks each player carries now, keyed `actor:aura`. */
+  const marked = new Set<string>();
   const casts = afterCasts();
   const afters = afterAuras();
   /** When each watched enemy cast last started. */
@@ -94,6 +97,7 @@ export function avoidableReport(context: AnalysisContext, segments: SegmentIndex
       continue;
     }
     if (code === Ev.SPELL_AURA_APPLIED || code === Ev.SPELL_AURA_APPLIED_DOSE || code === Ev.SPELL_AURA_REFRESH) {
+      if (marks.has(store.spellId[row]!)) marked.add(`${store.dstActor[row]!}:${store.spellId[row]!}`);
       const after = afters.get(store.spellId[row]!);
       if (after !== undefined) {
         // Stacks can mix a slash the mechanic dealt with one the player
@@ -110,7 +114,9 @@ export function avoidableReport(context: AnalysisContext, segments: SegmentIndex
     }
     if (code === Ev.SPELL_AURA_REMOVED) {
       const aura = store.spellId[row]!;
-      if (watched.has(aura)) cameOff.set(`${store.dstActor[row]!}:${aura}`, store.ts[row]!);
+      const key = `${store.dstActor[row]!}:${aura}`;
+      if (watched.has(aura)) cameOff.set(key, store.ts[row]!);
+      marked.delete(key);
       continue;
     }
     if (!DAMAGE_CODES.has(code)) continue;
@@ -131,6 +137,12 @@ export function avoidableReport(context: AnalysisContext, segments: SegmentIndex
     // A burst on the player whose own debuff just came off is theirs to take.
     const off = entry.unlessOwn === undefined ? undefined : cameOff.get(`${dst}:${entry.unlessOwn}`);
     if (off !== undefined && ts - off <= OWN_BURST_MS) continue;
+    // A hit aimed at the player carrying its mark, like Ritual of Blazebinding.
+    if (entry.unlessMarked !== undefined) {
+      const key = `${dst}:${entry.unlessMarked}`;
+      const unmarked = cameOff.get(key);
+      if (marked.has(key) || (unmarked !== undefined && ts - unmarked <= OWN_BURST_MS)) continue;
+    }
     // Part of the mechanic as designed, like stopping an Echo of Nalorakk.
     if (entry.unlessAfter !== undefined && excused.has(`${dst}:${entry.unlessAfter.aura ?? spellId}`)) continue;
     if (entry.tank === true && TANK_SPECS.has(specId)) continue;

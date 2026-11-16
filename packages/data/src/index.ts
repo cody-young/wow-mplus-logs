@@ -55,6 +55,7 @@ export {
   avoidable,
   avoidableDungeons,
   avoidableEntries,
+  markAuras,
   ownAuras,
   type AvoidableSpell,
 } from './avoidable.js';
