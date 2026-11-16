@@ -67,6 +67,11 @@ export interface DeathNarc {
    * those are for.
    */
   oneShot: OneShot | null;
+  /**
+   * How many of their earlier deaths in the run left a healthstone or potion
+   * ready on something that was not a one-shot: the second time is a habit.
+   */
+  forgotBefore: number;
 }
 
 export interface OneShot {
@@ -74,6 +79,11 @@ export interface OneShot {
   spellName: string;
   /** What it did, as a share of their max health: 0.95 and up. */
   fraction: number;
+}
+
+/** A healthstone or potion was ready and the death was not a one-shot. */
+export function forgotConsumable(narc: DeathNarc): boolean {
+  return narc.oneShot === null && (narc.healthstone?.state === 'ready' || narc.potion.state === 'ready');
 }
 
 /** A hit this share of max health or more went from full, or near it, to dead. */
@@ -264,7 +274,7 @@ export function narcAt(
   }
   const defensives = [...byName.values()].sort((a, b) => rank(a.state) - rank(b.state) || a.name.localeCompare(b.name));
 
-  return { healthstone, potion, defensives, oneShot: null };
+  return { healthstone, potion, defensives, oneShot: null, forgotBefore: 0 };
 }
 
 function consumable(used: number[], cooldownMs: number, deathTs: number, since: number): ConsumableState {

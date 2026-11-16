@@ -112,26 +112,48 @@ function tip(item: Item, deathTs: number): string {
 /**
  * The subtitle: one line of heckling, or null when there is nothing to heckle.
  *
- * A forgotten healthstone or potion is the headline, a one-shot excuses it,
- * and a big defensive left on the bar is saved for next key. Where there are
- * two ways to say it, which one is fixed by the death, so it holds still
- * while the reader clicks around.
+ * Worst first. A full bag — every last thing ready, nothing pressed — beats a
+ * forgotten healthstone or potion, which a one-shot excuses and a second time
+ * makes a habit; then a big defensive saved for next key. With nothing left,
+ * a healthstone that did not save them was a suggestion, and anything else
+ * pressed is going down swinging. Where there are two ways to say it, which
+ * one is fixed by the death, so it holds still while the reader clicks around.
  */
 export function quip(death: DeathReport): { text: string; caught: boolean } | null {
-  const { healthstone, potion, defensives, oneShot } = death.narc;
-  const forgot = [
-    ...(healthstone?.state === 'ready' ? ['healthstone'] : []),
-    ...(potion.state === 'ready' ? ['health pot'] : []),
-  ].join(' or ');
+  const { healthstone, potion, defensives, oneShot, forgotBefore } = death.narc;
+  const stoneReady = oneShot === null && healthstone?.state === 'ready';
+  const potReady = oneShot === null && potion.state === 'ready';
+  const forgot = [...(stoneReady ? ['healthstone'] : []), ...(potReady ? ['health pot'] : [])].join(' or ');
   const saved = defensives.some((entry) => entry.state === 'ready');
-  if (forgot !== '' && oneShot === null) {
+
+  const fullBag =
+    potReady &&
+    (healthstone === null || stoneReady) &&
+    defensives.length > 0 &&
+    defensives.every((entry) => entry.state === 'ready');
+  if (fullBag) return { text: 'Died with a full bag', caught: true };
+
+  if (forgot !== '') {
     const lines = [
       `I'm telling mom you forgot to ${forgot}`,
       death.self ? `You forgot to ${forgot}, didn't you?` : `Someone forgot to ${forgot}`,
     ];
-    return { text: lines[hash(`${death.actorIndex}-${death.ts}`) % lines.length]!, caught: true };
+    const line = lines[hash(`${death.actorIndex}-${death.ts}`) % lines.length]!;
+    return { text: forgotBefore > 0 ? `Again? ${line}` : line, caught: true };
   }
   if (saved) return { text: 'Saving it for next key', caught: true };
+
+  const drank = [
+    ...(healthstone?.state === 'pressed' ? ['healthstone'] : []),
+    ...(potion.state === 'pressed' ? ['health pot'] : []),
+  ];
+  if (drank.length > 0) {
+    return {
+      text: drank.length === 1 ? `The ${drank[0]} was more of a suggestion` : 'The healthstone and health pot were more of a suggestion',
+      caught: false,
+    };
+  }
+  if (defensives.some((entry) => entry.state === 'pressed')) return { text: 'Went down swinging', caught: false };
   return null;
 }
 

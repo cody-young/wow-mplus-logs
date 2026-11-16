@@ -140,3 +140,17 @@ test('one ability from full to dead is a one-shot, a multi-hit one included', ()
   assert.equal(chipped!.oneShot, null);
   assert.equal(twoHits!.oneShot?.spellName, 'Flurry');
 });
+
+test('a second death with a potion left ready counts the first', () => {
+  const [first, second, third] = narcs([
+    died(20, DPS, 'Dee'),
+    // A one-shot forgives the potion, and is not counted as forgetting it.
+    blow(40, 900010, 'Crush', 1200, 0, 200),
+    died(40.1, DPS, 'Dee'),
+    died(60, DPS, 'Dee'),
+  ]);
+  assert.equal(first!.forgotBefore, 0);
+  assert.equal(second!.forgotBefore, 1);
+  assert.notEqual(second!.oneShot, null);
+  assert.equal(third!.forgotBefore, 1);
+});

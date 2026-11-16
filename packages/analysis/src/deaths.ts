@@ -13,7 +13,7 @@ import {
   creditedActor,
   effective,
 } from './events.js';
-import { narcAt, narcLedger, oneShotOf, type DeathNarc } from './narc.js';
+import { forgotConsumable, narcAt, narcLedger, oneShotOf, type DeathNarc } from './narc.js';
 import { SegmentKind, segmentAt, type SegmentIndex } from './segments.js';
 
 /**
@@ -311,6 +311,8 @@ export function deathReports(
   const dead = new Set<number>();
   // Built on the first death: a clean key never needs the pass.
   let ledger: ReturnType<typeof narcLedger> | null = null;
+  /** Deaths so far, per player, that left a healthstone or potion ready. */
+  const forgot = new Map<number, number>();
 
   for (let row = 0; row < store.count; row++) {
     const code = store.code[row]!;
@@ -344,6 +346,8 @@ export function deathReports(
     ledger ??= narcLedger(context, segments);
     report.narc = narcAt(context, ledger, victim, deathTs, windowMs);
     report.narc.oneShot = oneShotOf(report.killingBlow, report.incoming, maxHealth(report.trace));
+    report.narc.forgotBefore = forgot.get(victim) ?? 0;
+    if (forgotConsumable(report.narc)) forgot.set(victim, report.narc.forgotBefore + 1);
     previousDeathTs = deathTs;
     reports.push(report);
   }
@@ -626,7 +630,7 @@ function buildReport(
     y,
     sincePreviousDeathMs: null,
     deadAtOnce: 0,
-    narc: { healthstone: null, potion: { state: 'ready', lastUsedTs: null }, defensives: [], oneShot: null },
+    narc: { healthstone: null, potion: { state: 'ready', lastUsedTs: null }, defensives: [], oneShot: null, forgotBefore: 0 },
   };
 }
 
