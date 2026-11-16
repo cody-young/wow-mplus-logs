@@ -13,7 +13,7 @@ import {
   creditedActor,
   effective,
 } from './events.js';
-import { narcAt, narcLedger, type DeathNarc } from './narc.js';
+import { narcAt, narcLedger, oneShotOf, type DeathNarc } from './narc.js';
 import { SegmentKind, segmentAt, type SegmentIndex } from './segments.js';
 
 /**
@@ -338,6 +338,7 @@ export function deathReports(
     report.deadAtOnce = dead.size;
     ledger ??= narcLedger(context, segments);
     report.narc = narcAt(context, ledger, victim, deathTs, windowMs);
+    report.narc.oneShot = oneShotOf(report.killingBlow, report.incoming, maxHealth(report.trace));
     previousDeathTs = deathTs;
     reports.push(report);
   }
@@ -619,8 +620,14 @@ function buildReport(
     y,
     sincePreviousDeathMs: null,
     deadAtOnce: 0,
-    narc: { healthstone: null, potion: { state: 'ready', lastUsedTs: null }, defensives: [] },
+    narc: { healthstone: null, potion: { state: 'ready', lastUsedTs: null }, defensives: [], oneShot: null },
   };
+}
+
+/** Their max health as the trace last knew it, or 0 when it never said. */
+function maxHealth(trace: readonly HpSample[]): number {
+  for (let i = trace.length - 1; i >= 0; i--) if (trace[i]!.hpMax > 0) return trace[i]!.hpMax;
+  return 0;
 }
 
 function dominant(context: AnalysisContext, sources: Map<number, number>): string {

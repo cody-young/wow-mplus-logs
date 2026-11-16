@@ -8,10 +8,14 @@ import type { ConsumableState, DeathReport, Readiness } from '@mplus/analysis';
  * clocks and a talent may have had it back. See `narc.ts` in the analysis.
  */
 export function DeathNarc({ death }: { death: DeathReport }): React.JSX.Element {
-  const { healthstone, potion, defensives } = death.narc;
+  const { healthstone, potion, defensives, oneShot } = death.narc;
+  // A heal saves nobody from a hit bigger than their health bar, so on a
+  // one-shot a ready healthstone or potion is no charge against them.
+  const excuse = (item: Item): Item =>
+    oneShot !== null && item.state === 'ready' ? { ...item, state: 'cooldown', excused: true } : item;
   const items: Item[] = [
-    ...(healthstone === null ? [] : [consumable('Healthstone', healthstone, 60)]),
-    consumable('Health Potion', potion, 300),
+    ...(healthstone === null ? [] : [excuse(consumable('Healthstone', healthstone, 60))]),
+    excuse(consumable('Health Potion', potion, 300)),
     ...defensives.map((entry) => ({ name: entry.name, state: entry.state, lastUsedTs: entry.lastUsedTs })),
   ];
   const ready = items.filter((item) => item.state === 'ready').map((item) => item.name);
@@ -19,10 +23,18 @@ export function DeathNarc({ death }: { death: DeathReport }): React.JSX.Element 
   return (
     <>
       <h3>Narc</h3>
+      {oneShot !== null ? (
+        <p style={{ margin: '0 0 8px', color: 'var(--muted)' }}>
+          One-shot: {oneShot.spellName} took {Math.round(Math.min(1, oneShot.fraction) * 100)}% of their health at
+          once. No healthstone or potion would have saved them.
+        </p>
+      ) : null}
       <p style={{ margin: '0 0 8px', color: ready.length > 0 ? 'var(--danger)' : 'var(--dim)' }}>
         {ready.length > 0
           ? `Died with ${list(ready)} ready.`
-          : 'Nothing left unused: everything was pressed or still coming back.'}
+          : oneShot !== null
+            ? 'No defensive of theirs was left unused.'
+            : 'Nothing left unused: everything was pressed or still coming back.'}
       </p>
       <div className="chips">
         {items.map((item) => (
@@ -47,6 +59,8 @@ interface Item {
   lastUsedTs: number | null;
   /** Base cooldown in seconds, for the tooltip of a consumable. */
   cooldownS?: number;
+  /** Ready, but a one-shot made it no use. */
+  excused?: boolean;
 }
 
 function consumable(name: string, state: ConsumableState, cooldownS: number): Item {
@@ -54,6 +68,7 @@ function consumable(name: string, state: ConsumableState, cooldownS: number): It
 }
 
 function label(item: Item, deathTs: number): string {
+  if (item.excused === true) return 'ready, no use against a one-shot';
   const ago = item.lastUsedTs === null ? '' : since(deathTs - item.lastUsedTs);
   switch (item.state) {
     case 'ready':
@@ -68,6 +83,7 @@ function label(item: Item, deathTs: number): string {
 }
 
 function tip(item: Item, deathTs: number): string {
+  if (item.excused === true) return 'Off cooldown, but they went from full to dead in one ability: no heal would have kept them up.';
   const last =
     item.lastUsedTs === null
       ? 'Not used before this death.'

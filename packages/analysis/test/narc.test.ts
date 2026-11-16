@@ -114,3 +114,29 @@ test('a defensive that cannot be cast on yourself is not held against you', () =
   ]);
   assert.deepEqual(death!.defensives, []);
 });
+
+/** An enemy ability landing on Dee, with Dee's health after it in the advanced block. */
+function blow(seconds: number, spellId: number, spellName: string, amount: number, hpAfter: number, overkill = -1): string {
+  const block = `${DPS},0000000000000000,${hpAfter},1000,0,0,1470,0,0,0,3,100,100,0,100.5,200.5,2291,1.5,70`;
+  return `${at(seconds)}  SPELL_DAMAGE,${ENEMY},"Brute",0xa48,0x0,${DPS},"Dee",0x511,0x0,${spellId},"${spellName}",0x1,${block},${amount},${amount},${overkill},1,0,0,0,nil,nil,nil,ST`;
+}
+const ENEMY = 'Creature-0-1-2291-1-1004-00000099';
+
+test('one ability from full to dead is a one-shot, a multi-hit one included', () => {
+  const [oneShot, chipped, twoHits] = narcs([
+    blow(50, 900010, 'Crush', 1200, 0, 200),
+    died(50.1, DPS, 'Dee'),
+    // Two different abilities finishing them is no one-shot.
+    blow(100, 900011, 'Jab', 400, 600),
+    blow(100.2, 900010, 'Crush', 800, 0, 200),
+    died(100.3, DPS, 'Dee'),
+    // A multi-hit ability is one blow, however many rows it logs.
+    blow(150, 900012, 'Flurry', 500, 500),
+    blow(150.1, 900012, 'Flurry', 600, 0, 100),
+    died(150.2, DPS, 'Dee'),
+  ]);
+  assert.equal(oneShot!.oneShot?.spellName, 'Crush');
+  assert.equal(oneShot!.oneShot?.fraction, 1);
+  assert.equal(chipped!.oneShot, null);
+  assert.equal(twoHits!.oneShot?.spellName, 'Flurry');
+});

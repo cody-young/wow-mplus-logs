@@ -58,6 +58,62 @@ export interface DeathNarc {
   potion: ConsumableState;
   /** Their own big defensives, ready ones first. */
   defensives: DefensiveState[];
+  /**
+   * The ability that took them from (near) full to dead at once, or null.
+   *
+   * A healthstone or a potion is a heal, and no heal saves anyone from a hit
+   * bigger than their whole health bar — so on a one-shot the consumables are
+   * not held against them. A defensive still is: soaking a one-shot is what
+   * those are for.
+   */
+  oneShot: OneShot | null;
+}
+
+export interface OneShot {
+  spellId: number;
+  spellName: string;
+  /** What it did, as a share of their max health: 0.95 and up. */
+  fraction: number;
+}
+
+/** A hit this share of max health or more went from full, or near it, to dead. */
+const ONE_SHOT_FRACTION = 0.95;
+/**
+ * Hits of the killing ability this close before it are the same blow: a
+ * multi-hit ability logs one row a hit, a few milliseconds apart.
+ */
+const ONE_SHOT_SPAN_MS = 500;
+
+/**
+ * Whether one ability did them in from (near) full health.
+ *
+ * Read off the damage rather than the health trace: the trace only has a
+ * sample when some row happened to describe them, which may be seconds before
+ * the hit. Effective damage is health that came off, net of overkill and of
+ * whatever a shield ate, so a share of max health is exactly how far it took
+ * them — and 95% of it to zero means they were at 95% or better.
+ */
+export function oneShotOf(
+  killingBlow: { ts: number; spellId: number; spellName: string } | null,
+  incoming: readonly { ts: number; spellId: number; amount: number }[],
+  hpMax: number,
+): OneShot | null {
+  if (killingBlow === null || hpMax <= 0) return null;
+  let total = 0;
+  for (let i = incoming.length - 1; i >= 0; i--) {
+    const hit = incoming[i]!;
+    if (hit.ts > killingBlow.ts) continue;
+    if (killingBlow.ts - hit.ts > ONE_SHOT_SPAN_MS) break;
+    // Anything else landing in the burst means it was not one ability alone.
+    if (hit.spellId !== killingBlow.spellId) {
+      if (hit.amount > 0) return null;
+      continue;
+    }
+    total += hit.amount;
+  }
+  const fraction = total / hpMax;
+  if (fraction < ONE_SHOT_FRACTION) return null;
+  return { spellId: killingBlow.spellId, spellName: killingBlow.spellName, fraction };
 }
 
 /**
@@ -208,7 +264,7 @@ export function narcAt(
   }
   const defensives = [...byName.values()].sort((a, b) => rank(a.state) - rank(b.state) || a.name.localeCompare(b.name));
 
-  return { healthstone, potion, defensives };
+  return { healthstone, potion, defensives, oneShot: null };
 }
 
 function consumable(used: number[], cooldownMs: number, deathTs: number, since: number): ConsumableState {

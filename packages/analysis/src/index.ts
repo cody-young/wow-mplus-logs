@@ -70,7 +70,7 @@ export {
   type HpSample,
   type IncomingHit,
 } from './deaths.js';
-export { type ConsumableState, type DeathNarc, type DefensiveState, type Readiness } from './narc.js';
+export { type ConsumableState, type DeathNarc, type DefensiveState, type OneShot, type Readiness } from './narc.js';
 export {
   interruptReport,
   summarizeInterrupts,
