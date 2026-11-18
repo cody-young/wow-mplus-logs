@@ -116,7 +116,7 @@ function tip(item: Item, deathTs: number): string {
  * forgotten healthstone or potion, which a one-shot excuses and a second time
  * makes a habit; then a big defensive saved for next key. With nothing left,
  * a healthstone that did not save them was a suggestion, and anything else
- * pressed is going down swinging. Where there are two ways to say it, which
+ * pressed is going down swinging. Where there are several ways to say it, which
  * one is fixed by the death, so it holds still while the reader clicks around.
  */
 export function quip(death: DeathReport): { text: string; caught: boolean } | null {
@@ -137,6 +137,7 @@ export function quip(death: DeathReport): { text: string; caught: boolean } | nu
     const lines = [
       `I'm telling mom you forgot to ${forgot}`,
       death.self ? `You forgot to ${forgot}, didn't you?` : `Someone forgot to ${forgot}`,
+      'I trust my healer',
     ];
     const line = lines[hash(`${death.actorIndex}-${death.ts}`) % lines.length]!;
     return { text: forgotBefore > 0 ? `Again? ${line}` : line, caught: true };
