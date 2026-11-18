@@ -290,10 +290,12 @@ export function App(): React.JSX.Element {
         gateways: [],
         dashes: [],
         melds: [],
+        offensives: [],
         beers: [],
         drains: [],
         stands: [],
         links: [],
+        consumables: [],
         tallies: [],
         paddingKnown: false,
       };
@@ -325,10 +327,12 @@ export function App(): React.JSX.Element {
       gateways: inPull(run.stats.gateways),
       dashes: inPull(run.stats.dashes),
       melds: inPull(run.stats.melds),
+      offensives: inPull(run.stats.offensives),
       beers: inPull(run.stats.beers),
       drains: inPull(run.stats.drains),
       stands: inPull(run.stats.stands),
       links: inPull(run.stats.links),
+      consumables: inPull(run.stats.consumables),
     };
   }, [run, selectedSegment]);
 

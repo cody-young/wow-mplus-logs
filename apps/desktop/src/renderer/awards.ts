@@ -2,6 +2,7 @@ import {
   SegmentKind,
   TrackKind,
   distanceTravelled,
+  forgotConsumable,
   summarizeAvoidable,
   summarizeCrowdControl,
   summarizeDispels,
@@ -312,6 +313,9 @@ const MASHER_GAP_APM = 60;
  */
 const INEVITABLE_MS = 5000;
 
+/** How soon after pressing a major offensive cooldown a death is that cooldown's block. */
+const BLOCKED_MS = 3000;
+
 /** How soon after an external its target can die for it to have been spent on a corpse. */
 const CORPSE_MS = 10_000;
 
@@ -342,6 +346,28 @@ const ONE_SHOT = 0.9;
 
 /** Mana left at a pull's end that is running on fumes, in percent. Healers' lowest ran 3 to 93 across 103 keys. */
 const FUMES_MANA = 5;
+
+/**
+ * Healthstones it takes to be a cookie monster. Across 75 keys this season, a
+ * key's most ran 0 to 8, none at all in half of them (no warlock); 4 or more
+ * was one key in six.
+ */
+const COOKIE_MIN_STONES = 4;
+
+/**
+ * Health potions it takes to have a drinking problem. On a five-minute clock
+ * across keys of about 21 minutes, a key's most ran 0 to 4, and 3 or more,
+ * nearly every potion off cooldown, was one key in four.
+ */
+const DRINKING_MIN_POTIONS = 3;
+
+/**
+ * A potion or healthstone more than this share overhealed was pressed at
+ * nearly full health. Of 508 uses across 75 keys, 31 were; a key's most ran 0
+ * to 3, and one or more was one key in three.
+ */
+const SKITTISH_OVERHEAL = 0.5;
+const SKITTISH_MIN_USES = 1;
 
 /** A hunter pet's Growl, which taunts on autocast unless someone turns it off. */
 const PET_GROWL = 2649;
@@ -605,6 +631,15 @@ export function awardsFor(run: RunAnalysis): Awards | null {
     return last !== undefined && death.ts - last.ts <= INEVITABLE_MS ? [last] : [];
   });
   const delayed = count(delays, (entry) => entry.actorIndex);
+  // A death within moments of pressing a big damage cooldown: the cooldown
+  // was the last thing they did. The latest such press before each death.
+  const blocks = counted.flatMap((death) => {
+    const last = run.stats.offensives
+      .filter((entry) => entry.actorIndex === death.actorIndex && entry.ts <= death.ts && death.ts - entry.ts <= BLOCKED_MS)
+      .at(-1);
+    return last === undefined ? [] : [{ ...last, afterMs: death.ts - last.ts }];
+  });
+  const blocked = count(blocks, (entry) => entry.actorIndex);
   const wasted = run.stats.externals.filter((entry) =>
     counted.some((death) => death.actorIndex === entry.targetIndex && death.ts >= entry.ts && death.ts - entry.ts <= CORPSE_MS),
   );
@@ -652,6 +687,20 @@ export function awardsFor(run: RunAnalysis): Awards | null {
     run.stats.drains.filter((entry) => entry.mana < FUMES_MANA),
     (entry) => entry.actorIndex,
   );
+
+  // Health potions and healthstones. A use more than half overhealed was
+  // pressed at nearly full health: a flinch, not a save.
+  const stones = count(
+    run.stats.consumables.filter((use) => use.stone),
+    (use) => use.actorIndex,
+  );
+  const potions = count(
+    run.stats.consumables.filter((use) => !use.stone),
+    (use) => use.actorIndex,
+  );
+  const consumed = count(run.stats.consumables, (use) => use.actorIndex);
+  const jumpy = run.stats.consumables.filter((use) => use.amount > 0 && use.overhealing > SKITTISH_OVERHEAL * use.amount);
+  const skittish = count(jumpy, (use) => use.actorIndex);
 
   const candidates: Badge[] = [];
   /**
@@ -893,6 +942,17 @@ export function awardsFor(run: RunAnalysis): Awards | null {
     },
   );
   badge(
+    { key: 'block', title: 'Block', icon: '🐔', roast: true, blurb: 'Died within three seconds of pressing a major offensive cooldown.' },
+    blocked,
+    'most',
+    (index) => {
+      const last = blocks.filter((entry) => entry.actorIndex === index).at(-1);
+      return last === undefined
+        ? plural(0, 'death')
+        : `${plural(blocked.get(index) ?? 0, 'death')}, last ${(last.afterMs / 1000).toFixed(1)}s after ${last.spellName}`;
+    },
+  );
+  badge(
     { key: 'corpse', title: 'Laid Hands on a Corpse', icon: '🙏', roast: true, blurb: 'Spent the most externals on someone who died anyway.' },
     corpses,
     'most',
@@ -986,6 +1046,47 @@ export function awardsFor(run: RunAnalysis): Awards | null {
       gap: { title: 'This Is Fine', blurb: 'Set themselves on fire for fifteen health bars or more. Everything is fine.', times: 2, min: HOT_FEET_GAP_BARS },
     },
   );
+  badge(
+    { key: 'cookie', title: 'Cookie Monster', icon: '🍪', roast: true, blurb: 'Ate the most healthstones. Om nom nom.' },
+    stones,
+    'most',
+    (index) => plural(stones.get(index) ?? 0, 'healthstone'),
+    { eligible: (index) => (stones.get(index) ?? 0) >= COOKIE_MIN_STONES },
+  );
+  badge(
+    { key: 'drinking', title: 'Drinking Problem', icon: '🍾', roast: true, blurb: 'Drank the most health potions.' },
+    potions,
+    'most',
+    (index) => plural(potions.get(index) ?? 0, 'potion'),
+    { eligible: (index) => (potions.get(index) ?? 0) >= DRINKING_MIN_POTIONS },
+  );
+  badge(
+    { key: 'skittish', title: 'Skittish', icon: '🐇', roast: true, blurb: 'Used a potion or healthstone at near full health, and most of it went to waste.' },
+    skittish,
+    'most',
+    (index) => {
+      const mine = jumpy.filter((use) => use.actorIndex === index);
+      if (mine.length === 0) return '—';
+      const worst = mine.reduce((a, b) => (b.overhealing / b.amount > a.overhealing / a.amount ? b : a));
+      return `${integer(mine.length)} of ${plural(consumed.get(index) ?? 0, 'use')} mostly wasted, worst a ${worst.spellName} ${percent(worst.overhealing / worst.amount)} overhealed`;
+    },
+    { eligible: (index) => (skittish.get(index) ?? 0) >= SKITTISH_MIN_USES },
+  );
+  // A whole key without one potion or healthstone, and a death with one
+  // ready that was not a one-shot: never pressing one only counts against
+  // someone who needed it. Keys only: a raid night or a stretch of open world
+  // is not a dungeon. Across 167 keys, no press at all was 35% of players and
+  // 78% of keys; with the death as well, 16% of players and half the keys.
+  const forgotOnce = new Set(counted.filter((death) => forgotConsumable(death.narc)).map((death) => death.actorIndex));
+  if (run.meta.kind === 'key') {
+    badge(
+      { key: 'keybind', title: 'Forgot the Keybind', icon: '⌨️', roast: true, blurb: 'Went the whole dungeon without a health potion or healthstone, and died with one ready.' },
+      consumed,
+      'fewest',
+      (index) => plural(consumed.get(index) ?? 0, 'potion or healthstone', 'potions or healthstones'),
+      { reason: () => 'not one potion or healthstone', eligible: (index) => (consumed.get(index) ?? 0) === 0 && forgotOnce.has(index) },
+    );
+  }
   badge(
     { key: 'paranoid', title: 'Paranoid', icon: '😰', roast: true, blurb: 'Overhealed the most, and by nearly half or more.' },
     overhealing,

@@ -2000,6 +2000,19 @@ test('the class moments: taunts, infusions, externals, rezzes, rides, defensives
   assert.deepEqual(who(stats.dashes), [['Dee', 'Blink']]);
 });
 
+test('major offensive cooldowns are recorded as pressed, and rotational buttons are not', () => {
+  const stats = statsWith([
+    castOn(100, DPS, 'Dee', 190319, 'Combustion'),
+    // Havoc's Metamorphosis is logged as its leap.
+    castOn(101, DPS, 'Dee', 200166, 'Metamorphosis'),
+    castOn(102, DPS, 'Dee', 185313, 'Shadow Dance'),
+  ]);
+  assert.deepEqual(
+    stats.offensives.map((entry) => [entry.name, entry.spellName]),
+    [['Dee', 'Combustion'], ['Dee', 'Metamorphosis']],
+  );
+});
+
 test("a Shadowmeld that hands the tank's enemy to someone else, who dies of it", () => {
   const brute = creature(1009, 30);
   const other = creature(1009, 31);
@@ -2142,6 +2155,37 @@ test('healing on others is told from healing on yourself, with its overhealing',
   );
   assert.equal(healer.healingOnOthers - before.healingOnOthers, 1000);
   assert.equal(healer.overhealingOnOthers - before.overhealingOnOthers, 400, 'the self-heal\'s overhealing is not counted');
+});
+
+test('a potion or a healthstone is one use, its cast and its heals together, with its overhealing', () => {
+  const stone = { spellId: 6262, spellName: 'Healthstone' };
+  const potion = { spellId: 1234768, spellName: 'Silvermoon Health Potion' };
+  const extract = { spellId: 1263074, spellName: 'Amani Extract' };
+  const tick = (seconds: number, amount: number, overheal: number) =>
+    heal(seconds, DPS, 'Dee', DPS, 'Dee', amount, overheal, extract).replace('SPELL_HEAL', 'SPELL_PERIODIC_HEAL');
+  const uses = statsWith([
+    // The heal is usually logged a row ahead of its cast.
+    heal(100, DPS, 'Dee', DPS, 'Dee', 300000, 200000, stone),
+    cast(100, DPS, 'Dee', stone.spellId, stone.spellName),
+    // A second stone a minute later is a second use.
+    heal(160, DPS, 'Dee', DPS, 'Dee', 300000, 0, stone),
+    cast(160, DPS, 'Dee', stone.spellId, stone.spellName),
+    cast(200, DPS, 'Dee', potion.spellId, potion.spellName),
+    heal(200, DPS, 'Dee', DPS, 'Dee', 500000, 0, potion),
+    // Amani Extract heals in ticks, all of them the one drink.
+    cast(400, DPS, 'Dee', extract.spellId, extract.spellName),
+    tick(402, 50000, 0),
+    tick(404, 50000, 30000),
+  ]).consumables;
+  assert.deepEqual(
+    uses.map((use) => [use.name, use.spellName, use.stone, use.amount, use.overhealing]),
+    [
+      ['Dee', 'Healthstone', true, 300000, 200000],
+      ['Dee', 'Healthstone', true, 300000, 0],
+      ['Dee', 'Silvermoon Health Potion', false, 500000, 0],
+      ['Dee', 'Amani Extract', false, 100000, 30000],
+    ],
+  );
 });
 
 test('a proc counts once however many rows it shows up on, and is expected at its rate', () => {

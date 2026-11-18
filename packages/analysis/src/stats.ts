@@ -1,4 +1,4 @@
-import { avoidable, procsPerMinute } from '@mplus/data';
+import { avoidable, isHealthPotion, isHealthstone, procsPerMinute } from '@mplus/data';
 import { ActorKind, Environment, Ev, EvFlag } from '@mplus/parser';
 
 import { actorName, elapsedMs, spellName, type AnalysisContext } from './context.js';
@@ -63,8 +63,8 @@ import { SegmentKind, segmentAt, type SegmentIndex } from './segments.js';
  * debuffs put on enemies, and healing on the rest of the party with its
  * overhealing. Taunts, Power Infusions kept for oneself and given, externals, combat
  * rezzes, Leaps of Faith and Rescues, personal defensives, immunities running
- * out, Demonic Gateway hops, dashes and Shadowmelds: each a spell id read off
- * this season's logs.
+ * out, Demonic Gateway hops, dashes, Shadowmelds and major offensive
+ * cooldowns: each a spell id read off this season's logs.
  *
  * And Spirit Link Totems, each by the health it moved: its heals, which are
  * what it took from whoever was highest, less overhealing. As health bars too,
@@ -79,6 +79,11 @@ import { SegmentKind, segmentAt, type SegmentIndex } from './segments.js';
  * A death takes a player out, and a rez, a Reincarnation or any later row
  * that shows them with health brings them back, which also catches a release
  * and a run back from the graveyard, which logs nothing of its own.
+ *
+ * And every health potion and healthstone, with what it healed and how much
+ * of that went past full health. The log writes each as a cast and a heal of
+ * the same spell, on the drinker, the heal usually a row ahead of the cast;
+ * Amani Extract heals in ticks instead, and all of them are the one use.
  *
  * And mana, as it stood when each pull and boss ended. The advanced block
  * carries its subject's power, so whoever the last row before the end
@@ -172,6 +177,16 @@ export interface Stand {
   segmentId: number;
   /** The boss, as its segment is labelled. */
   boss: string;
+}
+
+/** One health potion or healthstone, drunk or eaten. */
+export interface Consumable extends Moment {
+  /** A healthstone; otherwise a health potion. */
+  stone: boolean;
+  /** What it healed in all, overhealing and what a heal absorb ate included. */
+  amount: number;
+  /** The part of `amount` that went past full health. */
+  overhealing: number;
 }
 
 /** One time an enemy's mechanic picked a player out. */
@@ -275,6 +290,8 @@ export interface StatsReport {
   dashes: Moment[];
   /** Every Shadowmeld the party pressed, in order. */
   melds: Moment[];
+  /** Every major offensive cooldown the party pressed, in order. */
+  offensives: Moment[];
   /** Every death a Shadowmeld handed to someone else, in order of the deaths. */
   beers: Beer[];
   /** Mana left at the end of every pull and boss, for everyone whose power is mana. */
@@ -283,6 +300,8 @@ export interface StatsReport {
   stands: Stand[];
   /** Every Spirit Link Totem that healed one of the party, in order. */
   links: Link[];
+  /** Every health potion and healthstone the party used, in order. */
+  consumables: Consumable[];
   /** One per party member. */
   tallies: Tally[];
   /** Whether `padding` could be measured: only when a forces table covered the dungeon. */
@@ -397,6 +416,41 @@ const GATEWAY = 113942;
  */
 const DASHES: ReadonlySet<number> = new Set([781, 195072, 198793, 52174, 109132, 115008, 1953, 212653]);
 
+/**
+ * Major offensive cooldowns, as the casts this season's logs write for them
+ * (299 logs, August to November): the two- and three-minute buttons a spec
+ * lines its damage up behind, not rotational ones like Shadow Dance. Havoc's
+ * Metamorphosis is logged as 200166, its leap, not 191427, its button.
+ *
+ * Death knight: Pillar of Frost, Empower Rune Weapon, Breath of Sindragosa,
+ * Frostwyrm's Fury (two ids), Dark Transformation, Army of the Dead.
+ * Demon hunter: Metamorphosis, The Hunt (four ids). Druid: Celestial Alignment
+ * (two ids), Incarnation: Chosen of Elune (two ids), Incarnation: Avatar of
+ * Ashamane, Berserk, Convoke the Spirits. Evoker: Dragonrage, Breath of Eons
+ * (two ids). Hunter: Bestial Wrath, Trueshot. Mage: Combustion, Arcane Surge.
+ * Monk: Invoke Xuen, Celestial Conduit. Paladin: Avenging Wrath (two ids),
+ * Execution Sentence. Priest: Voidform. Rogue: Adrenaline Rush, Shadow
+ * Blades, Deathmark, Killing Spree, Kingsbane. Shaman: Ascendance, elemental
+ * and enhancement (restoration's is a healing cooldown). Warlock: Summon
+ * Infernal, Summon Darkglare, Summon Demonic Tyrant, Malevolence. Warrior:
+ * Recklessness, Avatar, Bladestorm (two ids).
+ */
+const OFFENSIVES: ReadonlySet<number> = new Set([
+  51271, 47568, 1249658, 279302, 1265384, 1233448, 42650,
+  200166, 370965, 370966, 1246167, 1246169,
+  194223, 383410, 102560, 390414, 102543, 106951, 391528,
+  375087, 403631, 442204,
+  19574, 288613,
+  190319, 365350,
+  123904, 443028,
+  31884, 454351, 343527,
+  228260,
+  13750, 121471, 360194, 51690, 385627,
+  114050, 114051,
+  1122, 205180, 265187, 442726,
+  1719, 107574, 227847, 446035,
+]);
+
 /** Shadowmeld, the night elf's way out of a fight, threat and all. */
 const SHADOWMELD = 58984;
 
@@ -446,6 +500,15 @@ const PROC_CODES: ReadonlySet<number> = new Set([
  * hit it brings, or one blast landing on five enemies.
  */
 const PROC_MS = 500;
+
+/**
+ * A potion's or a healthstone's heals this long after its use are that use's:
+ * Amani Extract's ticks run 20 seconds. Nothing is used twice that soon, a
+ * healthstone's minute being the shortest clock.
+ */
+const CONSUMABLE_HEALS_MS = 30_000;
+/** A cast this close after a heal of the same consumable is the press that heal came from. */
+const CONSUMABLE_CAST_MS = 1_000;
 
 /** Applications of one debuff closer together than this are one cast. */
 const CAST_MS = 1500;
@@ -506,7 +569,29 @@ export function statsReport(context: AnalysisContext, segments: SegmentIndex): S
   const gateways: Moment[] = [];
   const dashes: Moment[] = [];
   const melds: Moment[] = [];
+  const offensives: Moment[] = [];
   const beers: Beer[] = [];
+  const consumables: Consumable[] = [];
+  /** Player and consumable -> their latest use of it, and whether its cast has been seen. */
+  const lastUse = new Map<string, { use: Consumable; cast: boolean }>();
+  /** The use a cast or a heal of a consumable belongs to, opening one when it starts a new use. */
+  const consumableUse = (row: number, actor: number, spellId: number, cast: boolean): Consumable => {
+    const key = `${actor}/${spellId}`;
+    const ts = store.ts[row]!;
+    const last = lastUse.get(key);
+    if (last !== undefined) {
+      const since = ts - last.use.ts;
+      if (cast && !last.cast && since <= CONSUMABLE_CAST_MS) {
+        last.cast = true;
+        return last.use;
+      }
+      if (!cast && since <= CONSUMABLE_HEALS_MS) return last.use;
+    }
+    const use: Consumable = { ...moment(row, actor, spellId), stone: isHealthstone(spellId), amount: 0, overhealing: 0 };
+    consumables.push(use);
+    lastUse.set(key, { use, cast });
+    return use;
+  };
   /** Enemy -> the party member it last went at, and when. */
   const lastAttack = new Map<number, { target: number; ts: number }>();
   /**
@@ -708,6 +793,10 @@ export function statsReport(context: AnalysisContext, segments: SegmentIndex): S
     if (code === Ev.SPELL_CAST_SUCCESS) {
       if (!ours(src)) continue;
       const actor = actors.attribute(src);
+      if (segments.party.has(src) && (isHealthPotion(spellId) || isHealthstone(spellId))) {
+        consumableUse(row, src, spellId, true);
+        continue;
+      }
       if (LUSTS.has(spellId)) {
         const pressed = moment(row, actor, spellId);
         if (pressed.ts - (lustLanded.get(actor) ?? -Infinity) <= LUST_LANDS_MS) lusts.push(pressed);
@@ -717,6 +806,7 @@ export function statsReport(context: AnalysisContext, segments: SegmentIndex): S
       else if (TAUNTS.has(spellId)) taunts.push(moment(row, actor, spellId));
       else if (DASHES.has(spellId)) dashes.push(moment(row, actor, spellId));
       else if (spellId === SHADOWMELD) melds.push(moment(row, actor, spellId));
+      else if (OFFENSIVES.has(spellId)) offensives.push(moment(row, actor, spellId));
       else if (spellId === POWER_INFUSION) {
         infusionCasts.push({ moment: moment(row, actor, spellId), self: dst === src });
         if (dst !== src && segments.party.has(dst)) infusions.push(assist(row, actor, dst, spellId));
@@ -792,6 +882,11 @@ export function statsReport(context: AnalysisContext, segments: SegmentIndex): S
         totem.amount += effective(store.amount[row]!, store.waste[row]!);
         totem.hpMax += store.hpMax[row]!;
         totem.heals++;
+      }
+      if (src === dst && (isHealthPotion(spellId) || isHealthstone(spellId))) {
+        const use = consumableUse(row, dst, spellId, false);
+        use.amount += store.amount[row]! + store.absorbed[row]!;
+        use.overhealing += wasted(store.waste[row]!);
       }
       if (actor === dst) continue;
       const tally = tallies.get(actor)!;
@@ -945,10 +1040,12 @@ export function statsReport(context: AnalysisContext, segments: SegmentIndex): S
     gateways,
     dashes,
     melds,
+    offensives,
     beers,
     drains,
     stands,
     links,
+    consumables,
     tallies: [...tallies.values()],
     paddingKnown,
   };
